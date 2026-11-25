@@ -18,6 +18,11 @@ import { SpaceLocks } from "./lib/space-locks.js";
 
 const REMOTE_POLL = 5000;
 const AGENT_POLL = 3000;
+// A local repository is also read on a timer, as the app's Files and Changes do: the
+// folder watch can be reclaimed, or miss changes. Often while an agent works in the
+// shown worktree (the lock), seldom otherwise.
+const LOCAL_POLL_BUSY = 3000;
+const LOCAL_POLL_IDLE = 15000;
 const ROW = 24;
 const LONG = 120000; // pull, push, fetch
 const RECENT = 50;  // commits in the Recent pane (R8)
@@ -92,10 +97,15 @@ export default class Git extends View {
       }
     });
     cx.timer.every(REMOTE_POLL, (cx) => { if (this.loc?.on && window()?.visible !== false) this.refresh(cx); });
+    cx.timer.every(LOCAL_POLL_BUSY, (cx) => {
+      if (!this.loc || this.loc.on || window()?.visible === false || this.loading) return;
+      const busy = Boolean(lockedBy(this.lastPlaced?.[this.shown] ?? []));
+      if (busy || Date.now() - (this.readAt ?? 0) >= LOCAL_POLL_IDLE) this.refresh(cx);
+    });
     cx.timer.every(AGENT_POLL, (cx) => { if (window()?.visible !== false) this.readPrograms(cx); });
   }
 
-  close() { this.watch?.cancel(); }
+  close() { this.watchGen = (this.watchGen ?? 0) + 1; this.watch?.cancel(); }
 
   goTo(loc, cx) {
     const moved = !this.loc || loc.cwd !== this.loc.cwd || loc.on !== this.loc.on;
@@ -128,20 +138,25 @@ export default class Git extends View {
   }
 
   watchHere(cx) {
+    // A generation per watch loop: only this panel's own cancel (a new loop, close)
+    // ends one. An empty result otherwise means the app reclaimed an idle watch: watch
+    // again, or the panel stopped refreshing by itself.
+    const gen = this.watchGen = (this.watchGen ?? 0) + 1;
     this.watch?.cancel();
     this.watch = null;
     if (!this.loc || this.loc.on || checking()) return;
     const loc = this.loc;
     cx.spawn(async (cx) => {
       try {
-        while (this.loc === loc) {
+        while (this.loc === loc && this.watchGen === gen) {
           // The shown worktree once known, else the folder: changes anywhere in it refresh.
           this.watch = watchFolder(this.shown ?? loc.cwd);
           const changed = await this.watch;
-          if (!changed.length || this.loc !== loc) return;
-          this.refresh(cx);
+          if (this.loc !== loc || this.watchGen !== gen) return;
+          if (changed.length) this.refresh(cx);
+          else await new Promise((done) => cx.timer.after(500, () => done())); // reclaimed: not in a tight loop
         }
-      } catch { /* watch refused (Linux tree limit): r refreshes by hand */ }
+      } catch { /* watch refused (Linux tree limit): the timer reads it */ }
     });
   }
 
@@ -169,6 +184,7 @@ export default class Git extends View {
         if (this.follow || !this.worktrees.some((w) => w.path === this.shown)) this.shown = here?.path ?? this.worktrees[0]?.path;
         await this.readShown();
         await this.readCounts();
+        this.readAt = Date.now();
         this.error = null;
       } catch (e) {
         this.error = String(e?.message ?? e);
