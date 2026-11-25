@@ -32,7 +32,7 @@ const STACK = (dock) => `${dock}-stack`;
 const TITLE = "nt.title";
 // The fixed subtab, first in every dock: nav and git split, side by side in the bottom
 // dock (a row) and stacked in the right one (a column).
-const FIXED = [{ key: "panels", label: "nav + git", icon: "folder" }];
+const FIXED = [{ key: "panels", label: "nav + git", icons: ["folder", "git-branch"] }];
 const fixedId = (dock, key) => `${dock}-${key}`;
 const panelsNode = (dock) => ({
   id: fixedId(dock, "panels"),
@@ -283,7 +283,8 @@ export default class DockTabs extends View {
     const t = theme();
     const { dock } = props();
     const g = tab.term?.program;
-    const icon = tab.fixed ? svg(ICON(tab.fixed.icon)).size(15).flex_none().text_color(active ? t.accent : t.muted)
+    // The fixed subtab shows its panels' icons only (folder, branch); its name is the tooltip.
+    const icon = tab.fixed ? h_flex().flex_none().gap(5).items_center().children(tab.fixed.icons.map((n) => svg(ICON(n)).size(15).flex_none().text_color(active ? t.accent : t.muted)))
       : g?.icon ? (g.tint ? svg(g.icon).size(15).flex_none().text_color(active ? t.foreground : t.muted) : image(g.icon).w(15).h(15).flex_none()) : null;
     const name = label(tab);
     return h_flex().id(`dt-${dock}-${tab.id}`).flex_shrink(1).min_w(56).max_w(220).h(28).pl(8).pr(active ? 3 : 8).gap(6)
@@ -297,7 +298,7 @@ export default class DockTabs extends View {
       .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); this.menu("tab", tab.id); })
       .child(div().flex_none().text_size(11).text_color(t.dim).child(String(i + 1)))
       .when(Boolean(icon), (el) => el.child(icon))
-      .child(div().truncate().child(name))
+      .when(!tab.fixed, (el) => el.child(div().truncate().child(name)))
       .when(active && count > 0 && !tab.fixed, (el) => el.child(
         div().id(`dt-x-${dock}-${tab.id}`).flex_none().p(3).rounded(5).text_color(t.dim)
           .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Close tab")
