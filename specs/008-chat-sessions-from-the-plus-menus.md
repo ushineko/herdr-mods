@@ -79,6 +79,10 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
 - R1h **Pasted text** (operator, 2026-11-25): Claude Code logs a paste wrapped in
   `<pasted_content id="…">` … `</pasted_content id="…">`; the chat showed the tags. The
   parser drops them and keeps the pasted text (`unwrapPastes`, unit test).
+- R1i **Line breaks kept** (found 2026-11-25): Markdown joins lines not separated by a
+  blank line, so a reply of plain lines showed as one paragraph; the terminal shows each
+  line. Breaks inside a paragraph become hard breaks; code blocks are untouched
+  (`keepLineBreaks`, unit test).
 - R1d **A cow icon** (ushi: cow; operator, 2026-11-25) marks a chat: on its tab in the
   tab bar (`terminals-bar-proc`, which also names it "chat"), in its pane header
   (`nested-tabs`) and on a dock chat subtab (`dock-tabs`). One 16 px line drawing,
@@ -197,6 +201,10 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
   in side chat. A tool call (or a group of them): Copy command(s), Copy output, Show in
   terminal. With text selected, Copy selection first. Code blocks keep their Copy and
   Play buttons. Entries and text conversions are pure (`lib/chat-text.js`, tests).
+- R15 **Your last message pinned** (operator, 2026-11-25): once its top scrolls out of
+  view, it shows in a slim bar at the top of the conversation (one line); a click scrolls
+  back to it, right-click gives its menu. Its position comes from sizes (the message's
+  and everything after it), since elements report sizes, not positions.
 - R7 Pure selection logic (which entries to show for a platform, an agent list and
   a python3 check) lives in `lib/` with unit tests.
 
@@ -211,6 +219,9 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
       sent it back through Quote in message box, 2026-11-25).
 - [x] R1h, Mac: a pasted message in this session's chat shows without its tags
       (`herdr-app shot`, 2026-11-25).
+- [x] R15, Mac: a question pushed out of view by its reply shows pinned at the top; in
+      view, no bar (2026-11-25).
+- [x] R1i, Mac: a reply of six plain "N — word" lines shows as six lines (2026-11-25).
 - [x] R1g, Mac: the chat follows the terminals' 15 px; two A+ steps give 17 (shown
       highlighted), reset follows the terminals again (2026-11-25).
 - [x] R1d, Mac: the cow on the chat's tab and pane header (`herdr-app shot`).

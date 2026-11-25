@@ -14,7 +14,7 @@ import * as fs from "fs/promises";
 import { Buffer } from "buffer";
 import { createHash } from "crypto";
 import { Transcript } from "./parse.js";
-import { plainText, quote, commandOf, menuFor } from "./lib/chat-text.js";
+import { plainText, quote, commandOf, menuFor, keepLineBreaks } from "./lib/chat-text.js";
 import { Tail, locate, agentKind, machineOf } from "./source.js";
 import { catalog, launchArgv, modelName, switchModel } from "./models.js";
 import { emojify, PICKER, emojiMatches } from "./emoji.js";
@@ -1612,6 +1612,25 @@ export default class Chat extends View {
     return this.catalogs[`${kind}@${machine ?? ""}`] ?? null;
   }
 
+  // ushi-naruse (R15): the pinned bar for your last message, or null while it is in view.
+  pinned(side, t) {
+    const e = this.lastUserEntry;
+    if (!e?.text || !this.lastUserH || this.afterH == null || !this.viewH) return null;
+    const z = Number(settings()?.zoom) || 1;
+    // From the content's bottom to the message's top: padding, what follows, a gap, it.
+    const top = 18 * z + this.afterH + 16 * z + this.lastUserH;
+    if (top <= this.off * z + this.viewH + 1) return null;
+    const line = e.text.replace(/\s+/g, " ").trim();
+    return h_flex().id("pinned-user").absolute().top(0).left(0).right(0).px(side).py(6).bg(t.background)
+      .border_b(1).border_color(t.border)
+      .child(div().id("pinned-user-msg").max_w_full().min_w(0).px(12).py(6).rounded(10).bg(t.raised)
+        .text_size(tsz(12.5)).text_color(t.foreground).truncate().cursor_pointer()
+        .tooltip("Your last message: click to show it")
+        .on_click((_e, cx) => { this.off = Math.max(0, (top - this.viewH) / z); this.clamp(); cx.notify(); })
+        .on_mouse_down("right", (ev, cx) => this.openMenu(ev, { kind: "user", text: e.text }, cx))
+        .child(line));
+  }
+
   // ushi-naruse: the right-click menu (R14). The row says what was clicked; the root,
   // which hears the same press, says where (its own coordinates).
   openMenu(ev, target, cx) {
@@ -1825,7 +1844,8 @@ export default class Chat extends View {
 
   markdown(id, text) {
     // ushi-naruse: the last selection, for the right-click menu's Copy selection.
-    return TextView.markdown(id, text).selectable(true).on_selection_change((sel) => { this.selection = sel?.text || null; });
+    // ushi-naruse: line breaks kept, as the terminal shows them (R1i).
+    return TextView.markdown(id, keepLineBreaks(text)).selectable(true).on_selection_change((sel) => { this.selection = sel?.text || null; });
   }
 
   entry(e, t, last) {
@@ -2174,6 +2194,10 @@ export default class Chat extends View {
     this.settle();
     const { start, ents } = this.shown();
     const shown = ents.slice(start);
+    let lastUser = -1;
+    for (let i = shown.length - 1; i >= 0; i--) if (shown[i].kind === "user" && !shown[i].command) { lastUser = i; break; }
+    const head = shown.slice(0, lastUser + 1), tail = shown.slice(lastUser + 1);
+    this.lastUserEntry = lastUser >= 0 ? shown[lastUser] : null;
     // The conversation sits in a centered column as wide as the message card.
     const side = Math.max(18, Math.round((this.width - COLUMN) / 2) + 16);
     const content = v_flex().id("content").absolute().left(0).right(0).bottom(-this.off).px(side).py(18).gap(16)
@@ -2194,16 +2218,29 @@ export default class Chat extends View {
           .child(`Show earlier (${start})`))))
       .when(start === 0 && Boolean(this.truncated), (el) => el.child(h_flex().w_full().justify_center()
         .child(div().text_size(tsz(11.5)).text_color(t.dim).child("Older history is in the log but not loaded"))))
-      .children(shown.map((e, n) => this.entry(e, t, n === shown.length - 1)))
-      .when(Boolean(this.streamShown()), (el) => el.child(this.entry({ kind: "assistant", text: this.streamShown(), key: "streaming" }, t, true)))
-      .when(Boolean(this.running), (el) => el.child(this.runningView(t)))
-      .children(this.pending.map((p, i) => this.queued(p, i, t)))
+      // ushi-naruse (R15): your last message, and everything after it, are measured so
+      // the message can be pinned at the top once it scrolls past it.
+      .children(head.map((e, n) => (n === lastUser
+        ? div().id(`last-user-${e.key}`).w_full().on_size_change((size) => { this.lastUserH = size.height; })
+          .child(this.entry(e, t, n === shown.length - 1))
+        : this.entry(e, t, n === shown.length - 1))))
+      .child(v_flex().id("after-last-user").w_full().gap(16).on_size_change((size) => { this.afterH = size.height; })
+        .children(tail.map((e, n) => this.entry(e, t, head.length + n === shown.length - 1)))
+        .when(Boolean(this.streamShown()), (el) => el.child(this.entry({ kind: "assistant", text: this.streamShown(), key: "streaming" }, t, true)))
+        .when(Boolean(this.running), (el) => el.child(this.runningView(t)))
+        .children(this.pending.map((p, i) => this.queued(p, i, t))))
 ;
 
     const scroll = div().id("scroll").relative().flex_1().min_h(0).overflow_hidden()
       .on_size_change((size, cx) => { this.viewH = size.height; this.width = size.width; this.clamp(); cx.notify(); })
       .on_scroll_wheel((e, cx) => { this.off += e.delta.y; this.clamp(); cx.notify(); })
       .child(content);
+
+    // ushi-naruse (R15): your last message, pinned at the top once its top scrolls out
+    // of view (it stays in place below). Heights arrive zoomed; the scroll offset is
+    // zoomed again when drawn (bottom(-off)), so it is scaled here to match.
+    const pin = this.pinned(side, t);
+    if (pin) scroll.child(pin);
 
     // A thin scroll thumb, and a way back to the newest message.
     const max = this.contentH - this.viewH;

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { plainText, quote, commandOf, menuFor, unwrapPastes } from "../lib/chat-text.js";
+import { plainText, quote, commandOf, menuFor, unwrapPastes, keepLineBreaks } from "../lib/chat-text.js";
 
 test("plainText drops Markdown marks and keeps words, code and line breaks", () => {
   const md = [
@@ -53,4 +53,12 @@ test("unwrapPastes: the paste tags Claude Code logs go, the pasted text stays", 
   assert.equal(unwrapPastes(logged), "> a quoted reply\n\n(this is from the menu)");
   assert.equal(unwrapPastes('see <pasted_content id="a1">\nx\n</pasted_content> and more'), "see \nx\n and more");
   assert.equal(unwrapPastes("no paste here <b>bold</b>"), "no paste here <b>bold</b>");
+});
+
+test("keepLineBreaks: lines inside a paragraph stay lines; code and blank lines are left alone", () => {
+  assert.equal(keepLineBreaks("1 — one\n2 — two\n\nnext para"), "1 — one  \n2 — two\n\nnext para");
+  assert.equal(keepLineBreaks("intro\n```js\na\nb\n```\nafter"), "intro\n```js\na\nb\n```\nafter");
+  assert.equal(keepLineBreaks("~~~~text\nx\ny\n~~~~"), "~~~~text\nx\ny\n~~~~");
+  assert.equal(keepLineBreaks("already  \nbroken"), "already  \nbroken");
+  assert.equal(keepLineBreaks("- a\n- b"), "- a  \n- b");
 });
