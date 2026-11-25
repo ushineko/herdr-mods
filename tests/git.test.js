@@ -4,6 +4,7 @@ import {
   parseStatus, parseNumstat, parseWorktrees, within, worktreeOf, placeAgent, lockedBy,
   stageArgs, unstageArgs, unstageAllArgs, pushArgs, pullArgs, fetchArgs, commitArgs,
   parseLog, ago, gitKeyAction, WRITES, parseCommit, parseCommitFiles, indexWorktrees, visibleWorktrees,
+  planCleanup, cdCommand, isShell,
 } from "../lib/git.js";
 
 const z = (...recs) => recs.join("\0") + "\0";
@@ -167,4 +168,41 @@ test("visibleWorktrees: caps the strip, keeps shown/here/agents/changed, in list
   assert.equal(hidden, 25);
   assert.equal(visibleWorktrees(list, { cap: 5, all: true }).rows.length, 30);
   assert.equal(visibleWorktrees(list.slice(0, 4), { cap: 5 }).hidden, 0);
+});
+
+const wt = (o) => ({ path: "/r.wt/feat", main: false, locked: false, branch: "feat", detached: false, changes: 0, upstream: "origin/feat", ahead: 0, onRemote: false, agents: [], terminals: [], ...o });
+
+test("planCleanup: a clean, pushed, unused worktree is eligible", () => {
+  const [p] = planCleanup([wt({ terminals: [{ address: "t1", program: "zsh" }, { address: "m/t2", program: "-bash" }] })]);
+  assert.equal(p.eligible, true);
+  assert.equal(p.parent, "/r.wt");
+  assert.deepEqual(p.shells, [{ address: "t1", cmd: " cd '/r.wt'" }, { address: "m/t2", cmd: " cd '/r.wt'" }]);
+});
+
+test("planCleanup: behind its upstream is fine; detached on a remote branch is fine", () => {
+  assert.equal(planCleanup([wt({ ahead: 0, behind: 3 })])[0].eligible, true);
+  assert.equal(planCleanup([wt({ detached: true, branch: null, upstream: null, onRemote: true })])[0].eligible, true);
+});
+
+test("planCleanup: each reason to keep a worktree", () => {
+  const reasons = planCleanup([
+    wt({ main: true }), wt({ locked: true }), wt({ changes: 1 }), wt({ changes: 3 }),
+    wt({ upstream: null }), wt({ ahead: 2 }), wt({ detached: true, onRemote: false }),
+    wt({ agents: ["claude-code"] }), wt({ terminals: [{ address: "t9", program: "nvim" }, { address: "t3", program: "zsh" }] }),
+  ]).map((p) => [p.eligible, p.reason]);
+  assert.deepEqual(reasons, [
+    [false, "the main worktree"], [false, "locked"], [false, "1 uncommitted change"], [false, "3 uncommitted changes"],
+    [false, "never pushed (no upstream)"], [false, "2 commits not pushed"], [false, "detached HEAD not on any remote branch"],
+    [false, "agent in use: claude-code"], [false, "in use: nvim (t9)"],
+  ]);
+});
+
+test("cdCommand: quoted for POSIX shells and PowerShell; isShell", () => {
+  assert.equal(cdCommand("/a/it's here", "zsh"), " cd '/a/it'\\''s here'");
+  assert.equal(cdCommand("C:\\w\\it's", "pwsh"), " cd 'C:\\w\\it''s'");
+  assert.equal(isShell("-zsh"), true);
+  assert.equal(isShell("/bin/bash"), true);
+  assert.equal(isShell("powershell.exe"), true);
+  assert.equal(isShell("nvim"), false);
+  assert.equal(isShell("claude"), false);
 });

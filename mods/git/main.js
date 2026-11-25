@@ -4,10 +4,10 @@
 // works in the shown worktree. Diffs and files open in cria-file-preview.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { exec, hc, watchFolder, window, theme, settings, terminals, notify, nextCommand, checking, run, shared } from "herdr";
+import { exec, hc, watchFolder, window, theme, settings, terminals, notify, nextCommand, checking, run, shared, setShared, props, openOverlay, closeOverlay } from "herdr";
 import {
   READ, parseStatus, parseNumstat, parseWorktrees, worktreeOf, placeAgent, lockedBy, within, WORKTREE_LABEL,
-  indexWorktrees, visibleWorktrees,
+  indexWorktrees, visibleWorktrees, planCleanup,
   stageArgs, unstageArgs, stageAllArgs, unstageAllArgs, commitArgs, pullArgs, pushArgs, fetchArgs,
   LOG_FORMAT, parseLog, ago, gitKeyAction, WRITES, COMMIT_FORMAT, parseCommit, parseCommitFiles,
 } from "./lib/git.js";
@@ -43,6 +43,7 @@ function agentsOn(on) {
 
 export default class Git extends View {
   init(_props, cx) {
+    if (props()?.cleanup) { this.initCleanup(cx); return; }
     this.follow = true;
     this.loc = null; this.root = null; this.worktrees = []; this.shown = null;
     this.status = null; this.numstat = { staged: {}, unstaged: {} }; this.log = []; this.counts = {};
@@ -470,7 +471,121 @@ export default class Git extends View {
     this.goTo({ cwd: q.path, on: q.on ?? null, space: this.loc?.space ?? null }, cx);
   }
 
+  // ---- worktree clean-up (spec 007) ------------------------------------------------
+
+  // Gathers what decides each worktree (R2) and opens the confirmation dialog.
+  planWorktreeCleanup(paths, cx) {
+    if (this.busy) return;
+    const on = this.loc?.on ?? null, root = this.root;
+    const placed = this.lastPlaced ?? {};
+    const targets = this.worktrees.filter((w) => paths.includes(w.path));
+    this.busy = "Checking worktrees";
+    cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        const mine = terminals().filter((t) => (String(t.address).includes("/") ? t.address.split("/")[0] : null) === on && t.state === "live");
+        const agentAddrs = new Set(Object.values(placed).flat().map((a) => a.address));
+        const items = [];
+        for (let i = 0; i < targets.length; i += 8) {
+          items.push(...await Promise.all(targets.slice(i, i + 8).map(async (w) => {
+            const st = await this.git([...READ, "-C", w.path, "status", "--porcelain=v2", "--branch", "-z", "--untracked-files=normal"]).catch(() => null);
+            const s = st?.code === 0 ? parseStatus(st.stdout) : null;
+            let onRemote = false;
+            if (s && !s.branch.head) {
+              const r = await this.git([...READ, "-C", w.path, "branch", "-r", "--contains", "HEAD"]).catch(() => null);
+              onRemote = Boolean(r?.code === 0 && r.stdout.trim());
+            }
+            // Terminals in it (not agents, which count below): what each runs now.
+            const inside = mine.filter((t) => !agentAddrs.has(t.address) && (within(t.cwd, w.path) || within(this.programs.get(t.address)?.program, w.path)));
+            const terms = await Promise.all(inside.map(async (t) => {
+              const g = await hc(["get", t.address, "--json"]).catch(() => null);
+              let program = t.agent ?? "?";
+              try { program = JSON.parse(g?.stdout ?? "{}").foreground?.name ?? program; } catch { /* keep */ }
+              return { address: t.address, program };
+            }));
+            return {
+              path: w.path, main: w.main, locked: w.locked, branch: w.branch, detached: !w.branch,
+              changes: s ? s.staged.length + s.unstaged.length + s.untracked.length + s.conflicts.length : 1,
+              upstream: s?.branch.upstream ?? null, ahead: s?.branch.ahead ?? 0, onRemote,
+              agents: (placed[w.path] ?? []).map((a) => a.name), terminals: terms,
+            };
+          })));
+        }
+        const plan = planCleanup(items);
+        openOverlay({ mod: "git", kind: "dialog", width: 620, props: { cleanup: { root, on, plan } } });
+      } catch (e) {
+        notify({ title: "Clean up: checking failed", body: String(e?.message ?? e), level: "error" });
+      } finally {
+        this.busy = null;
+        cx.notify();
+      }
+    });
+  }
+
+  initCleanup(cx) {
+    this.handle = cx.focus_handle();
+    this.handle.focus();
+    this.running = false;
+  }
+
+  async runCleanup(cx) {
+    const { root, on, plan } = props().cleanup;
+    const removed = [], failed = [];
+    for (const item of plan.filter((p) => p.eligible)) {
+      for (const sh of item.shells) await hc(["send", sh.address, sh.cmd]).catch(() => null);
+      if (item.shells.length) await cx.sleep(500);
+      const r = await exec("git", ["-C", root, "worktree", "remove", item.path], { on }).catch((e) => ({ code: 1, stderr: String(e) }));
+      if (r.code === 0) removed.push(item);
+      else failed.push(`${item.branch ?? item.path}: ${(r.stderr || r.stdout).trim().split("\n").pop()}`);
+    }
+    await exec("git", ["-C", root, "worktree", "prune"], { on }).catch(() => null);
+    setShared("git.cleaned", { at: Date.now() });
+    if (removed.length) notify({ title: `Removed ${removed.length} worktree${removed.length === 1 ? "" : "s"}`, body: removed.map((p) => p.branch ?? p.path).join(", "), level: "success", timeout: 5000 });
+    if (failed.length) notify({ title: `${failed.length} could not be removed`, body: failed.join("\n"), level: "error" });
+  }
+
+  renderCleanup() {
+    const t = theme();
+    const { plan } = props().cleanup;
+    const go = plan.filter((p) => p.eligible), skip = plan.filter((p) => !p.eligible);
+    const shells = go.flatMap((p) => p.shells.map((s) => ({ ...s, to: p.parent })));
+    const close = () => closeOverlay(props().overlay);
+    const button = (id, label, primary, enabled, act) => h_flex().id(id).h(32).px(14).items_center().rounded(8).text_size(12.5)
+      .border_1().border_color(primary ? t.ansi1 : t.input).bg(primary ? t.ansi1 : t.raised)
+      .text_color(primary ? t.background : t.foreground).when(enabled, (el) => el.cursor_pointer().hover((s) => s.opacity(0.88)).on_click(act))
+      .when(!enabled, (el) => el.opacity(0.4)).child(label);
+    const remove = (_e, cx) => {
+      if (this.running || !go.length) return;
+      this.running = true;
+      cx.notify();
+      cx.spawn(async (cx) => { try { await this.runCleanup(cx); } finally { close(); } });
+    };
+    const rowText = (p) => h_flex().gap(8).text_size(12.5).min_w(0)
+      .child(div().flex_none().font_medium().child(p.branch ?? "(detached)"))
+      .child(div().min_w(0).truncate().text_size(11.5).text_color(t.dim).child(p.path));
+    return v_flex().id("git-cleanup").track_focus(this.handle).w_full().max_h(620).p(18).gap(10).bg(t.popover).text_color(t.foreground)
+      .on_key_down((e, cx) => {
+        if (e.key === "escape" && !this.running) { close(); cx.stop_propagation(); }
+        else if (e.key === "enter") { remove(e, cx); cx.stop_propagation(); }
+      })
+      .child(div().text_size(15).font_semibold().child(go.length ? `Remove ${go.length} worktree${go.length === 1 ? "" : "s"}?` : "Nothing to clean up"))
+      .child(div().text_size(11.5).text_color(t.dim).child("Only worktrees with every change committed and pushed (as of the last fetch), not locked, and not in use. Their branches are kept."))
+      .child(v_flex().id("git-cleanup-list").min_h(0).max_h(440).overflow_y_scrollbar().gap(4)
+        .when(go.length > 0, (el) => el.child(div().pt(4).text_size(10.5).font_semibold().text_color(t.dim).child("WILL BE REMOVED"))
+          .children(go.map((p) => rowText(p))))
+        .when(shells.length > 0, (el) => el.child(div().pt(8).text_size(10.5).font_semibold().text_color(t.dim).child("SHELLS MOVED OUT FIRST"))
+          .children(shells.map((s) => div().text_size(12).text_color(t.muted).child(`${s.address} → ${s.to}`))))
+        .when(skip.length > 0, (el) => el.child(div().pt(8).text_size(10.5).font_semibold().text_color(t.dim).child(`KEPT (${skip.length})`))
+          .children(skip.map((p) => h_flex().gap(8).min_w(0).child(rowText(p).flex_1()).child(div().flex_none().text_size(11.5).text_color(t.blocked).child(p.reason))))))
+      .child(h_flex().pt(6).gap(8).justify_end()
+        .child(button("git-cleanup-cancel", "Cancel", false, !this.running, () => close()))
+        .child(button("git-cleanup-go", this.running ? "Removing…" : `Remove ${go.length}`, true, go.length > 0 && !this.running, remove)));
+  }
+
   render(cx) {
+    if (props()?.cleanup) return this.renderCleanup();
+    const cleaned = shared("git.cleaned");
+    if (cleaned && cleaned.at > (this.cleanedAt ?? 0)) { this.cleanedAt = cleaned.at; if (this.root !== undefined) this.refresh(cx); }
     this.takeRequest(cx);
     const loc = terminalLocation();
     if (loc) this.last = loc;
@@ -534,6 +649,8 @@ export default class Git extends View {
       return h_flex().id(`git-wt-${i}`).h(26).px(10).gap(8).items_center().rounded(6).mx(4).cursor_pointer()
         .when(shown, (el) => el.bg(t.selected)).when(cur && !shown, (el) => el.bg(t.hover)).hover((x) => x.bg(shown ? t.selected : t.hover))
         .on_click((_e, cx) => this.showWorktree(w, cx))
+        .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); this.planWorktreeCleanup([w.path], cx); })
+        .tooltip(w.main ? "The main worktree" : "Click: show it · right-click: clean it up")
         .child(div().w(10).text_color(t.accent).child(here ? "●" : ""))
         .child(div().max_w(150).truncate().font_medium().child(w.branch ?? `detached ${String(w.head ?? "").slice(0, 7)}`))
         .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(rel))
@@ -585,7 +702,12 @@ export default class Git extends View {
           .on_click((_e, cx) => { this.allWorktrees = !this.allWorktrees; this.refresh(cx); cx.notify(); })
           .child(this.allWorktrees ? "show fewer" : `show all ${this.worktrees.length} (${strip.hidden} more)`)]
         : [];
-      const worktreeBlock = this.worktrees.length ? [section("Worktrees", this.worktrees.length, null), ...strip.rows.map(wtRow), ...more] : [];
+      const cleanAll = this.worktrees.length > 1
+        ? div().id("git-wt-clean").ml(4).px(6).h(18).flex().items_center().rounded(5).bg(t.raised).text_color(t.muted).cursor_pointer()
+          .hover((x) => x.bg(t.hover).text_color(t.foreground)).tooltip("Remove worktrees that are fully committed and pushed (asks first)")
+          .on_click((_e, cx) => this.planWorktreeCleanup(this.worktrees.filter((w) => !w.main).map((w) => w.path), cx)).child("Clean up…")
+        : null;
+      const worktreeBlock = this.worktrees.length ? [section("Worktrees", this.worktrees.length, cleanAll), ...strip.rows.map(wtRow), ...more] : [];
       const changesBlock = [
         ...(changeBlocks.length ? changeBlocks : [div().px(14).py(10).text_size(12).text_color(t.dim).child("Nothing to commit · working tree clean")]),
         ...(this.committing ? [div().px(10).pt(8).child(Input.new(this.message).h(30).px(8).rounded(6).border_1().border_color(t.accent).bg(t.background).text_size(12.5))] : []),
