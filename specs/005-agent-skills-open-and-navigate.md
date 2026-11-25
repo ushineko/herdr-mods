@@ -39,7 +39,7 @@ request came from.
   taken from `HC_TERMINAL_SOCKET` (`…/herdr-core/<session>/…`; `default` when
   unset). It writes to a temporary name and renames, so a reader never sees a
   partial file. Fields: `v` (1), `id`, `at` (ISO time), `action`
-  (`open` | `external` | `diff` | `nav` | `reveal`), `path` (absolute, resolved
+  (`open` | `external` | `diff` | `nav` | `reveal` | `worktree` | `follow`), `path` (absolute, resolved
   by the CLI), `line` (optional), `terminal` (`HC_TERMINAL_ID`, optional).
 - R2 **One reader per window**, in `dock-follow` (always in the
   `terminals-dock` layout, on both machines and both njv-cachyos windows).
@@ -76,6 +76,14 @@ request came from.
 - R7 `herdr-nav <dir>` points `nav` at the folder (following turns off, 002
   R2); `herdr-nav --reveal <file>` points it at the file's folder and selects
   the file; `herdr-nav --follow` turns following back on.
+- R7a `herdr-nav --worktree <path>` (operator, 2026-11-24): the agent says which
+  worktree it is working in. It (1) labels the caller's terminal
+  `herdr-mods.worktree=<worktree root>` (`hc label "$HC_TERMINAL_ID" …`), which
+  the git panel uses to place the agent and lock that worktree (003 R5a, R11a),
+  and (2) sends a `worktree` request so `git` (and `nav`) show that worktree,
+  following off. `herdr-nav --worktree -` removes the label (`key=`). The path
+  may be any folder inside the worktree; the CLI resolves the root with
+  `git rev-parse --show-toplevel` and refuses a folder that is not in one.
 - R8 Both resolve relative paths against the caller's cwd, refuse a path that
   does not exist (exit 1, message on stderr), and print nothing on success
   unless `-v`. Bash, `set -euo pipefail`, shellcheck-clean, no dependencies
@@ -116,8 +124,10 @@ request came from.
   Zettlr"), which flag to use, and that it is fire-and-forget. Off herdr
   (`HC_TERMINAL_ID` unset) it says so and does nothing.
 - R13 **`herdr-nav`** skill: when to point nav at a folder or reveal a file
-  (after locating something under discussion), and `--follow` to hand control
-  back.
+  (after locating something under discussion), `--follow` to hand control
+  back, and **`--worktree` whenever the agent starts working in a worktree**
+  (and `--worktree -` when it leaves), so the person's git panel shows it and
+  locks it while the agent works.
 - R14 **Retire yazi-here**: the `yazi-here` skill and script are removed from
   `~/.claude/skills`, `~/.local/bin` and dotfiles (`hosts/*/.claude/skills/yazi-here`,
   `hosts/*/.local/bin/yazi-here`) on njv-mbp-m1 and njv-cachyos once 004 has

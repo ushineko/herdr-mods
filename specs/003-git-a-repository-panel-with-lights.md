@@ -27,6 +27,9 @@ the panel should answer at a glance.
 
 - R1 **Follows the focused terminal's repository** (as nav's R1), with the
   same follow light and `F`. Choosing a worktree (R4) turns following off.
+- R1a **Driven by agents**: accepts `worktree {path}` and `follow` from the agent
+  inbox (005 R4, R7a) through shared state (`git.request.<dock>`): it shows that
+  worktree (following off), or re-locks.
 - R2 **Header**: machine pill, repository name, branch chip, upstream
   distance (`↑2 ↓1`, dim when 0/0, "no upstream" when none), and a busy light
   while a git command from R8 runs.
@@ -39,12 +42,24 @@ the panel should answer at a glance.
   being shown is highlighted; the one the focused terminal is in carries a
   small "here" mark.
 - R4 Clicking a worktree shows it (R1's follow turns off).
-- R5 **Agent lights**: for each worktree, the agents (`agents()` joined to
-  `terminals()` by address for the cwd) whose terminal's folder is inside it:
-  one light per agent, coloured by status — `working` accent with a slow
+- R5 **Agent lights**: for each worktree, the agents working in it: one light
+  per agent, coloured by status — `working` accent with a slow
   `.loop("opacity")` pulse, `blocked` amber, `done` green, `idle` dim. Hover
   shows the agent's name and tab. Clicking a light focuses that agent's pane.
   Agents on other machines count for that machine's repositories only.
+- R5a **Which worktree an agent is in** (operator, 2026-11-24: the lock in
+  R11a depends on it). An agent's terminal stays in the folder its session
+  started in while the agent works elsewhere (in a worktree, by path or by
+  `cd` inside its own commands), so the terminal's folder alone is not enough.
+  Signals, first match wins:
+  1. **Its label** `herdr-mods.worktree=<path>` (set by `herdr-nav --worktree`,
+     spec 005 R7a; `hc label`), read from `terminals()` labels.
+  2. **Its program's folder**: the agent process's current folder
+     (`hc get <terminal>` → `foreground.cwd`, as `dock-follow` reads it),
+     refreshed with the status scan (R13), at most every 3 s per machine.
+  3. **Its terminal's folder** (`terminals()` cwd).
+  The worktree is the deepest one containing that folder (`/w/a` is not inside
+  `/w/ab`). The light's tooltip says which signal placed it.
 
 ### Changes
 
@@ -101,11 +116,14 @@ the panel should answer at a glance.
       linked, detached, locked, prunable); porcelain v1 `-z` into the three
       groups (including renames and a file both staged and unstaged);
       `--numstat` merging; agent-to-worktree matching by folder prefix (not a
-      sibling with a shared prefix: `/w/a` vs `/w/ab`); upstream distance
+      sibling with a shared prefix: `/w/a` vs `/w/ab`); signal order (label,
+      then program folder, then terminal folder); upstream distance
       parsing; key map.
 - [ ] `herdr-app check` passes for `git`.
 - [ ] Real window: a repository with two worktrees and a Claude session working
-      in one shows a pulsing light on that worktree and none on the other.
+      in one shows a pulsing light on that worktree and none on the other —
+      including when the session was started in the main worktree and moved to
+      the other with `herdr-nav --worktree`.
 - [ ] Real window: with an agent `working` in the shown worktree, `space`, `a`,
       `c`, `p`, `P`, `f` are refused with the lock toast; once it is idle they work;
       an agent working in another worktree does not lock this one.
