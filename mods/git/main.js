@@ -28,7 +28,9 @@ const WT_CAP = 12;  // worktree rows shown unless "show all" (R3)
 const ERRLOG = () => `${home()}/.cache/herdr-mods/git-errors.log`;
 async function logError(where, e) {
   try {
-    const line = `${new Date().toISOString()} ${where}: ${String(e?.stack ?? e?.message ?? e).replace(/\n/g, " | ")}\n`;
+    // QuickJS's stack leaves out the message: both are kept.
+    const text = e?.stack ? `${e?.message ?? e} | ${e.stack}` : String(e?.message ?? e);
+    const line = `${new Date().toISOString()} ${where}: ${text.replace(/\n/g, " | ")}\n`;
     // Appended (no read-modify-write, so entries close together are all kept), then trimmed.
     await exec("sh", ["-c", 'mkdir -p "$(dirname "$1")" && printf %s "$2" >> "$1" && tail -n 100 "$1" > "$1.tmp" && mv -f "$1.tmp" "$1"', "log", ERRLOG(), line]).catch(() => null);
   } catch { /* nowhere to put it */ }
@@ -97,8 +99,9 @@ export default class Git extends View {
 
   goTo(loc, cx) {
     const moved = !this.loc || loc.cwd !== this.loc.cwd || loc.on !== this.loc.on;
-    this.loc = loc;
-    if (moved) { this.root = undefined; this.watchHere(cx); }
+    // The same folder keeps its location object: the folder watch runs while it is current.
+    if (moved) { this.loc = loc; this.root = undefined; this.watchHere(cx); }
+    else this.loc.space = loc.space ?? this.loc.space;
     this.refresh(cx);
   }
 
@@ -496,6 +499,11 @@ export default class Git extends View {
     const q = shared("git.request");
     if (!q || q.at <= this.requestAt) return;
     this.requestAt = q.at;
+    // Carried out from a timer, not inside render (where cx.notify() throws).
+    cx.timer.after(1, (cx) => { this.carryOut(q, cx); cx.notify(); });
+  }
+
+  carryOut(q, cx) {
     const lock = q.action === "follow" ? null
       : { loc: { cwd: q.path, on: q.on ?? null, space: q.space ?? this.loc?.space ?? null }, shown: q.path };
     // A request from a terminal in another space waits there (#8).

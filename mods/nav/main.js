@@ -251,6 +251,11 @@ export default class Nav extends View {
     const q = shared("nav.request");
     if (!q || q.at <= this.requestAt) return;
     this.requestAt = q.at;
+    // Carried out from a timer, not inside render (where cx.notify() throws).
+    cx.timer.after(1, (cx) => { this.carryOut(q, cx); cx.notify(); });
+  }
+
+  carryOut(q, cx) {
     const reveal = q.action === "reveal";
     const lock = q.action === "follow" ? null : {
       path: reveal ? parentOf(q.path) : q.path, on: q.on ?? null, space: q.space ?? this.space,
