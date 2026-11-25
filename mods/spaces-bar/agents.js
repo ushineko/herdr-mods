@@ -31,6 +31,21 @@ export function allAgents() {
       pane, program: t.program, title: t.labels?.["nt.title"] || t.program?.name || t.title, nested: true,
     });
   }
+  // An agent a chat shows (spec 008; label ushi.chat=<chat pane>) is listed in the
+  // chat's tab and opens the chat: its terminal may sit hidden in a settled tab, or
+  // have no pane at all.
+  for (const t of terminals()) {
+    const chat = byPane.get(t.labels?.["ushi.chat"]);
+    if (!chat || t.state !== "live") continue;
+    const info = tabInfo.get(chat.tab) ?? {};
+    const was = out.get(t.address);
+    if (!was && !t.program?.agent && !t.status) continue;
+    out.set(t.address, {
+      address: t.address, status: was?.status ?? (norm(t.status) || "idle"), program: was?.program ?? t.program,
+      title: was?.title ?? t.program?.name ?? t.title, space: info.space, tab: chat.tab, tab_name: info.tab_name,
+      pane: chat.pane, nested: false, chat: true,
+    });
+  }
   return [...out.values()];
 }
 

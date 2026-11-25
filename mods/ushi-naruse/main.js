@@ -140,6 +140,8 @@ export default class Chat extends View {
     // ushi-naruse: opened over a running agent with { hide: true } (herdr-mods' Open as
     // chat), it hides that agent's terminal once, as "Hide terminal" does.
     this.hideAtStart = Boolean(p.hide);
+    // ... and hides it when herdr-mods asks (its × on the terminal): requests from now on.
+    this.seenHide = Date.now();
     // What the New chat form launched with; Claude doesn't log its effort.
     if (p.model || p.effort) this.chosen = { model: p.model, effort: p.effort, logged: null };
     if (shared("chat.bind")) setShared("chat.bind", null); // left by an earlier version
@@ -1584,7 +1586,7 @@ export default class Chat extends View {
     const here = () => panes().some((p) => p.terminal === this.term && p.tab === own.tab);
     cx.spawn(async (cx) => {
       try {
-        await hc(["label", this.term, "hm.chat=", "chat.tab="]);
+        await hc(["label", this.term, "hm.chat=", "chat.tab=", "ushi.chat="]);
         if (!here()) {
           const space = spaces().find((s) => s.tabs?.some((x) => x.id === own.tab))?.id;
           if (!space) throw new Error("the chat's space is gone");
@@ -2301,6 +2303,12 @@ export default class Chat extends View {
   render(cx) {
     const t = theme();
     const term = this.term ? this.terminal() : null;
+    // ushi-naruse: herdr-mods asks to hide this chat's terminal (× on it): not in render.
+    const hideReq = shared("ushi-naruse.hide");
+    if (cx && hideReq?.terminal === this.term && hideReq.at > this.seenHide) {
+      this.seenHide = hideReq.at;
+      cx.timer.after(1, (cx) => { const mine = this.myPane(); if (mine && !this.termHidden(mine)) this.hideTerminal(mine, cx); });
+    }
     if (term) this.keepAway();
     // The 2-second check stopped too (see check): start it again.
     if (this.term && cx && Date.now() - (this.checked ?? 0) > 10000) {

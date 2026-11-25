@@ -5,8 +5,8 @@
 // The agent's shell carries CHAT_LABEL=<chat pane> once the chat pane exists, so
 // it ends when the chat (or its tab) is closed (sweep).
 
-import { knownAgents, exec, hc, panes, spaces, terminals, run, window, notify } from "herdr";
-import { chatEntries, strayChats, orphanedHidden, CHAT_LABEL, HIDDEN_LABEL } from "./lib/chat-entries.js";
+import { knownAgents, exec, hc, panes, spaces, terminals, run, window, notify, setShared } from "herdr";
+import { chatEntries, strayChats, orphanedHidden, CHAT_LABEL, HIDDEN_LABEL, OWNER_LABEL } from "./lib/chat-entries.js";
 
 const where = (base) => {
   const i = base.indexOf("/");
@@ -48,14 +48,31 @@ export async function open(pane, base, command, name) {
   let addr;
   try { addr = JSON.parse(r.stdout).address; } catch { return fail(r); }
   await hc(["send", addr, command]);
+  await openChat(addr, () => run("tab.new", { ...(space ? { space } : {}), name, mod: "ushi-naruse", props: { terminal: addr } }), [CHAT_LABEL]);
+  return addr;
+}
+
+// Runs `make` (which opens a chat pane on `addr`), waits for the new pane and labels
+// the agent with its id: OWNER_LABEL always, and each of `more`.
+async function openChat(addr, make, more = []) {
   const before = new Set(panes().map((p) => p.pane));
-  run("tab.new", { ...(space ? { space } : {}), name, mod: "ushi-naruse", props: { terminal: addr } });
+  make();
   for (let i = 0; i < 50; i++) {
     const chat = panes().find((p) => p.mod === "ushi-naruse" && !before.has(p.pane));
-    if (chat) { await hc(["label", addr, `${CHAT_LABEL}=${chat.pane}`]); return addr; }
+    if (chat) return hc(["label", addr, ...[OWNER_LABEL, ...more].map((k) => `${k}=${chat.pane}`)]);
     await pause();
   }
-  return addr;
+}
+
+/** The chat pane showing terminal `term`, if one is open. */
+export function chatOf(term) {
+  const pane = term?.labels?.[OWNER_LABEL];
+  return pane ? panes().find((p) => p.pane === pane && p.mod === "ushi-naruse") ?? null : null;
+}
+
+/** Asks the chat showing `addr` to hide its terminal (the chat's own "Hide terminal"). */
+export function hideBehindChat(addr) {
+  setShared("ushi-naruse.hide", { terminal: addr, at: Date.now() });
 }
 
 // Whether the chat can run on a machine (null: this computer): not Windows, python3
@@ -89,7 +106,7 @@ export function agentOf(term) {
  * it back beside the chat). Closing the chat leaves the agent running (no CHAT_LABEL).
  */
 export function openExisting(pane, addr, hide) {
-  run("pane.split", { direction: "right", pane, mod: "ushi-naruse", props: { terminal: addr, ...(hide ? { hide: true } : {}) } });
+  return openChat(addr, () => run("pane.split", { direction: "right", pane, mod: "ushi-naruse", props: { terminal: addr, ...(hide ? { hide: true } : {}) } }));
 }
 
 // address → when its chat pane was first seen missing, and every pane seen in

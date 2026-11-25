@@ -122,6 +122,20 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
   labelled into the chat's tab; a pane-less agent (R4) is labelled straight in. A dock
   chat subtab has **Back to terminal** in its right-click menu instead: the subtab
   shows the agent's terminal again.
+- R10 **The chat stands for its agent** (operator, 2026-11-25). Whatever opens a chat
+  labels its agent `ushi.chat=<chat pane>` (a mod pane's props don't carry its own pane
+  id, checked with a probe mod, so the chat can't). With it:
+  - **×** on a terminal a chat shows hides it behind the chat (a `ushi-naruse.hide`
+    request the chat carries out with its own Hide terminal) instead of closing the
+    pane: a session isn't killed by a stray click after Show terminal.
+  - **Follow**: a focused chat pane is its agent's folder (program folder, else the
+    terminal's) for nav and git (`lib/location.js`), so they follow when the chat's
+    tab is shown.
+  - **Agents list** (spaces-bar): such an agent is listed in the chat's tab, marked
+    "· chat", and opens the chat; it was listed in its hidden settled tab (a number),
+    and opening it showed that tab before the chat took it back. An agent started for
+    a chat, with no pane, is listed too.
+  - Back to terminal clears the label.
 - R7 Pure selection logic (which entries to show for a platform, an agent list and
   a python3 check) lives in `lib/` with unit tests.
 
@@ -154,6 +168,9 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
 - [ ] R9: Back to terminal from a New chat tab, an Open as chat tab, and a dock chat
       subtab (Mac: the pane-less case's steps by hand work: the agent gets a pane in
       the chat's tab and survives the chat closing).
+- [x] R10 follow, Mac: chat tab ↔ tab 1 switches nav and git between the agent's folder
+      (sysadmin) and herdr-mods (2026-11-25).
+- [ ] R10 × hides, agents list: in a real window.
 - [ ] All unit tests pass (`npm test` on the Mac, `./run-tests.sh` on njv-cachyos).
 - [ ] `herdr-app status` shows no errors on both machines.
 

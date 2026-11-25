@@ -297,7 +297,7 @@ export default class SpacesBar extends View {
           .child(glyph(t, a.status))
           .when(Boolean(programIcon(a, t.foreground)), (el) => el.child(programIcon(a, t.foreground)))
           .child(div().flex_none().max_w(150).truncate().child(a.title ?? a.address))
-          .child(div().flex_1().truncate().text_color(t.dim).child(`${a.tab_name ?? ""}${a.nested ? " · nested" : ""}`))));
+          .child(div().flex_1().truncate().text_color(t.dim).child(`${a.tab_name ?? ""}${a.nested ? " · nested" : a.chat ? " · chat" : ""}`))));
   }
 
   // ---- "new space on…" machine menu ----------------------------------------------
@@ -421,7 +421,7 @@ export default class SpacesBar extends View {
             .child(glyph(t, a.status))
             .when(Boolean(programIcon(a, t.foreground)), (x) => x.child(programIcon(a, t.foreground)))
             .child(div().flex_none().max_w(150).truncate().child(a.title ?? a.address))
-            .child(div().flex_1().truncate().text_color(t.dim).child(`${a.tab_name ?? ""}${a.nested ? " · nested" : ""}`))))));
+            .child(div().flex_1().truncate().text_color(t.dim).child(`${a.tab_name ?? ""}${a.nested ? " · nested" : a.chat ? " · chat" : ""}`))))));
   }
 
   render() {

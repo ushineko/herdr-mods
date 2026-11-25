@@ -152,7 +152,10 @@ export default class NestedTabs extends View {
       .child(this.button(`nt-r-${pane}`, "split-right", "Split right", () => run("pane.split", { direction: "right", pane })))
       .child(this.button(`nt-d-${pane}`, "split-down", "Split down", () => run("pane.split", { direction: "down", pane })))
       .child(this.button(`nt-z-${pane}`, me.zoomed ? "unzoom" : "zoom", me.zoomed ? "Unzoom" : "Zoom", () => run("pane.zoom", { pane })))
-      .child(this.button(`nt-x-${pane}`, "close", "Close pane (all its tabs)", () => run("pane.close", { pane })));
+      // A terminal a chat shows is hidden, not closed: the chat keeps the session (spec 008).
+      .child(Chat.chatOf(term)
+        ? this.button(`nt-x-${pane}`, "close", "Hide (the chat keeps the session; its Show terminal brings it back)", () => Chat.hideBehindChat(shown))
+        : this.button(`nt-x-${pane}`, "close", "Close pane (all its tabs)", () => run("pane.close", { pane })));
   }
 
   programIcon(g, color) {
