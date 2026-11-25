@@ -11,7 +11,12 @@ and a spec (`specs/NNN-…md`) when work starts.
   otherwise say "no Herdr window with herdr-mods picked this up".
 - **Spec 006: evaluate ChmaraX/herdr-nvim** (source review, build at a recorded commit,
   isolated trial, recommendation). All criteria open.
-- **Native Claude/Codex chat mods**: look at naruse/herdr-chat and ChmaraX/herdr-chat.
+- **ushi-naruse without python3** (spec 008; operator kept python3 required, 2026-11-25).
+  python3 only brokers stdio for `claude -p` stream-json and `codex app-server` JSON-RPC
+  (side chat, info cards, resume list) and reads image sizes. Options: a soft dependency
+  (entries always shown, those features say "needs python3", image size in JS); node
+  helpers; Go helpers, worth it mainly for Windows (no python3 there; one .exe per
+  machine, built or shipped).
 - **Fake fullscreen** (UX question raised, deferred).
 - **hayami-js**: the herdr client for hayami spec 113 (JSON socket service); start
   from `mods/ui-lab`'s patterns.

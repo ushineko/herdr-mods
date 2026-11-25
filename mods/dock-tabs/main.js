@@ -22,9 +22,10 @@
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
 import {
-  layout, terminals, focused, run, hc, home, theme, shared, setShared, notify,
+  layout, terminals, focused, run, hc, exec, home, theme, shared, setShared, notify, window,
   openOverlay, closeOverlay, knownAgents, checking, props, nextCommand, spaces, machines,
 } from "herdr";
+import { chatEntries } from "./lib/chat-entries.js";
 
 const ICON = (n) => `mods/dock-tabs/${n}.svg`;
 const DOCKS = ["dock-right", "dock-bottom"];
@@ -63,7 +64,10 @@ const childId = (dock, name) => {
   const m = machineOf(name);
   return `${dock}-${baseOf(name).replace(/^dock-/, "")}${m ? "@" + m.replace(/[^A-Za-z0-9_-]/g, "_") : ""}`;
 };
-const nameOf = (child) => child?.content?.terminal ?? null;
+// A chat subtab (spec 008) is a block of the chat mod; its props carry the agent's
+// terminal address and the subtab's name (the agent terminal's name).
+const nameOf = (child) => child?.content?.terminal ?? child?.content?.props?.dockName ?? null;
+const chatOf = (child) => (child?.content?.mod === "ushi-naruse" ? child.content.props?.terminal ?? null : null);
 const modOf = (child) => child?.content?.mod ?? null;
 const currentMachine = () => spaces().find((s) => s.active)?.machine ?? null;
 
@@ -82,7 +86,7 @@ function tabs(dock, machine) {
   const list = (st?.children ?? []).map((c) => {
     const fixed = FIXED.find((f) => c.id === fixedId(dock, f.key));
     if (fixed) return { id: c.id, fixed };
-    return { id: c.id, name: nameOf(c), machine: machineOf(nameOf(c)), term: termOf(all, nameOf(c)) };
+    return { id: c.id, name: nameOf(c), chat: chatOf(c), machine: machineOf(nameOf(c)), term: termOf(all, nameOf(c)) };
   });
   return machine === undefined ? list : list.filter((t) => t.fixed || t.machine === machine);
 }
@@ -95,16 +99,29 @@ function activeOf(dock) {
   return st?.active ?? st?.children?.[0]?.id ?? null;
 }
 
-// Rewrite both docks' stacks: nav and git, then the terminal subtabs `names` in
-// order; `active` per dock (a terminal name, or the fixed key "panels").
-function setTabs(names, active) {
+// The chat subtabs in the layout now: { name: agent address }.
+function chatsNow() {
+  const out = {};
+  for (const dock of DOCKS) for (const t of tabs(dock)) if (t.chat && t.name) out[t.name] = t.chat;
+  return out;
+}
+
+// Rewrite both docks' stacks: nav and git, then the subtabs `names` in order (a
+// name in `chats` or already a chat subtab gets a chat block); `active` per dock
+// (a terminal name, or the fixed key "panels").
+function setTabs(names, active, chats = {}) {
   const t = tree();
+  const chat = { ...chatsNow(), ...chats };
   for (const dock of DOCKS) {
     const st = find(t, STACK(dock));
     if (!st) continue;
     st.children = [
       panelsNode(dock),
-      ...names.map((n) => ({ id: childId(dock, n), type: "block", content: { terminal: n } })),
+      ...names.map((n) => ({
+        id: childId(dock, n),
+        type: "block",
+        content: chat[n] ? { mod: "ushi-naruse", props: { terminal: chat[n], dockName: n } } : { terminal: n },
+      })),
     ];
     const want = active?.[dock];
     const wantId = want && (FIXED.some((f) => f.key === want) ? fixedId(dock, want) : names.includes(want) ? childId(dock, want) : null);
@@ -119,12 +136,13 @@ function needsMigration(dock) {
   const kids = find(layout(), STACK(dock))?.children ?? [];
   const first = kids[0];
   const splitOk = first?.id === fixedId(dock, "panels") && first.type === panelsNode(dock).type;
-  return !splitOk || kids.some((c, i) => i > 0 && (modOf(c) || RETIRED.test(baseOf(nameOf(c) ?? ""))));
+  return !splitOk || kids.some((c, i) => i > 0 && ((modOf(c) && !chatOf(c)) || RETIRED.test(baseOf(nameOf(c) ?? ""))));
 }
 
 function label(tab) {
   if (tab.fixed) return tab.fixed.label;
   const t = tab.term;
+  if (tab.chat) return t?.labels?.[TITLE] || `${t?.program?.name ?? "Agent"} chat`;
   return t?.labels?.[TITLE] || t?.title || t?.program?.name || baseOf(tab.name);
 }
 
@@ -132,6 +150,17 @@ function label(tab) {
 
 function fail(title, r) {
   notify({ title, body: (r?.stderr || r?.stdout || String(r ?? "")).trim().slice(0, 300), level: "error" });
+}
+
+// The "New … chat" entries for machine `on` (null: this computer); [] where the
+// chat can't run (spec 008). nested-tabs/chat.js has the same check.
+async function chatOptions(on) {
+  const platform = window().platform;
+  if (platform === "windows") return [];
+  let agents = [], python = false;
+  try { agents = await knownAgents({ on }); } catch {}
+  try { python = (await exec("sh", ["-c", "command -v python3"], { on, timeout: 5000 })).code === 0; } catch {}
+  return chatEntries({ platform, python, agents });
 }
 
 function here() {
@@ -151,18 +180,24 @@ function show(dock, tab) {
   remember(tab);
 }
 
-async function addTab(dock, command) {
+// A shell subtab running `command` if given. With `chat`, the subtab is the chat
+// (spec 008) over that shell, which then runs the agent without a block of its own.
+async function addTab(dock, command, { chat = false } = {}) {
   const machine = currentMachine();
   const base = `dock-t${Date.now().toString(36)}`;
   const cwd = here();
-  const r = await hc(["run", "--bg", "--json", ...(machine ? ["--on", machine] : []), "--no-parent", "--no-notify", "--rm", "--keep",
-    "--name", base, ...(machine && !cwd.startsWith("/") && !/^[A-Za-z]:/.test(cwd) ? [] : ["--cwd", cwd])]);
-  if (r.code !== 0) return fail("New dock tab failed", r);
+  const r = await hc(["run", "--bg", "--json", ...(machine ? ["--on", machine] : []), "--no-parent", "--no-notify", "--rm",
+    ...(chat ? [] : ["--keep"]), "--name", base, ...(machine && !cwd.startsWith("/") && !/^[A-Za-z]:/.test(cwd) ? [] : ["--cwd", cwd])]);
+  if (r.code !== 0) return fail(chat ? "New chat failed" : "New dock tab failed", r);
   const name = machine ? `${machine}/${base}` : base;
+  let chats = {};
+  if (chat) {
+    try { chats = { [name]: JSON.parse(r.stdout).address }; } catch { return fail("New chat: unexpected reply", r); }
+  }
   const names = ownNames(dock);
   const at = names.indexOf(nameOf(find(layout(), activeOf(dock))));
   names.splice(at < 0 ? names.length : at + 1, 0, name);
-  setTabs(names, { [dock]: name });
+  setTabs(names, { [dock]: name }, chats);
   remember({ name, machine });
   if (command) await hc(["send", name, command]);
 }
@@ -285,6 +320,7 @@ export default class DockTabs extends View {
     const g = tab.term?.program;
     // The fixed subtab shows its panels' icons only (folder, branch); its name is the tooltip.
     const icon = tab.fixed ? h_flex().flex_none().gap(5).items_center().children(tab.fixed.icons.map((n) => svg(ICON(n)).size(15).flex_none().text_color(active ? t.accent : t.muted)))
+      : tab.chat ? svg(ICON("cow")).size(15).flex_none().text_color(active ? t.foreground : t.muted)
       : g?.icon ? (g.tint ? svg(g.icon).size(15).flex_none().text_color(active ? t.foreground : t.muted) : image(g.icon).w(15).h(15).flex_none()) : null;
     const name = label(tab);
     return h_flex().id(`dt-${dock}-${tab.id}`).flex_shrink(1).min_w(56).max_w(220).h(28).pl(8).pr(tab.fixed ? 8 : 3).gap(6)
@@ -348,11 +384,14 @@ export default class DockTabs extends View {
   initMenu(cx) {
     this.at = 0;
     this.agents = [];
+    this.chats = [];
     this.busy = false;
     this.handle = cx.focus_handle();
     this.handle.focus();
     cx.spawn(async (cx) => {
       try { this.agents = (await knownAgents()).filter((a) => a.installed && a.run?.length).slice(0, 4); } catch { this.agents = []; }
+      cx.notify();
+      this.chats = await chatOptions(currentMachine());
       cx.notify();
     });
   }
@@ -362,6 +401,7 @@ export default class DockTabs extends View {
     const news = [
       { label: "New tab", icon: "terminal", act: () => addTab(dock) },
       ...this.agents.map((a) => ({ label: `New ${a.name} tab`, icon: "terminal", act: () => addTab(dock, a.run.join(" ")) })),
+      ...this.chats.map((c) => ({ label: c.label, icon: "layers", act: () => addTab(dock, c.run.join(" "), { chat: true }) })),
     ];
     if (menu !== "tab") return news;
     const list = tabs(dock, currentMachine());

@@ -12,9 +12,10 @@
 
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input, ScrollHandle } from "gpui-base";
-import { panes, props, run, home, theme, focused, nextCommand, openOverlay, closeOverlay, knownAgents, checking, notify, setShared, shared } from "herdr";
+import { panes, terminals, props, run, home, theme, focused, nextCommand, openOverlay, closeOverlay, knownAgents, checking, notify, setShared, shared } from "herdr";
 import * as S from "./stack.js";
 import * as Panel from "./panel.js";
+import * as Chat from "./chat.js";
 
 // Each pane header's size (≈ its pane's width), for sizing the panel split.
 const sizes = new Map();
@@ -53,6 +54,10 @@ export default class NestedTabs extends View {
     this.seenRequest = Date.now();
     if (checking()) return;
     S.prune();
+    // Agents whose chat pane was closed end (spec 008); whether this pane's machine
+    // can show a chat (for Open as chat).
+    cx.timer.every(2000, () => { Chat.sweep(); });
+    cx.spawn(async (cx) => { const b = this.base(); if (b && await Chat.check(b)) cx.notify(); });
     cx.spawn(async (cx) => {
       for (;;) {
         const c = await nextCommand();
@@ -128,10 +133,17 @@ export default class NestedTabs extends View {
   }
 
   paneButtons(me, pane, base) {
+    // Open as chat (spec 008 R8): the shown terminal runs Claude Code or Codex.
+    const shown = base ? S.shownOf(pane, base) : null;
+    const term = shown ? terminals().find((t) => t.address === shown) : null;
+    const agent = Chat.agentOf(term);
+    const chat = Boolean(agent) && Chat.canOpen(shown);
     return h_flex()
       .flex_none()
       .gap(1)
       .items_center()
+      .when(chat, (el) => el.child(this.button(`nt-chat-${pane}`, "cow", "Open as chat (a new tab; the terminal stays)",
+        () => Chat.openExisting(pane, shown, agent === "codex" ? "Codex chat" : "Claude Code chat"))))
       .when(Boolean(base), (el) =>
         el.child(this.button(`nt-add-${pane}`, "plus", "New nested tab (right-click: start an agent)",
           () => S.add(pane, base), () => this.menu("new", pane, base))))
@@ -152,7 +164,8 @@ export default class NestedTabs extends View {
     const title = me.title || "shell";
     const where = folder(me.cwd);
     const dir = where && !title.includes(where) && !/^[~/]/.test(title) ? where : "";
-    const icon = this.programIcon(me.program, t.foreground);
+    // A mod pane has no program; the chat (ushi-naruse, spec 008) shows its cow.
+    const icon = me.mod === "ushi-naruse" ? svg(ICON("cow")).size(15).flex_none().text_color(t.foreground) : this.programIcon(me.program, t.foreground);
     return h_flex()
       .id(`nt-head-${pane}`)
       .size_full()
@@ -302,12 +315,16 @@ export default class NestedTabs extends View {
   initMenu(cx) {
     this.at = 0;
     this.agents = [];
+    this.chats = [];
     this.handle = cx.focus_handle();
     this.handle.focus();
     cx.spawn(async (cx) => {
       try {
         this.agents = (await knownAgents()).filter((a) => a.installed && a.run?.length).slice(0, 4);
       } catch { this.agents = []; }
+      cx.notify();
+      const { base } = props() ?? {};
+      this.chats = base ? await Chat.options(base) : [];
       cx.notify();
     });
   }
@@ -317,6 +334,7 @@ export default class NestedTabs extends View {
     const newItems = [
       { label: "New tab", icon: "terminal", act: () => S.add(pane, base) },
       ...this.agents.map((a) => ({ label: `New ${a.name} tab`, icon: "terminal", act: () => S.add(pane, base, a.run.join(" ")) })),
+      ...this.chats.map((c) => ({ label: c.label, icon: "layers", act: () => Chat.open(pane, base, c.run.join(" "), c.label.replace(/^New /, "")) })),
     ];
     if (menu !== "tab") return newItems;
     const list = S.members(pane, base);

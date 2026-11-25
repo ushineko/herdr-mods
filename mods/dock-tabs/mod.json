@@ -1,5 +1,6 @@
 {
   "place": "none",
+  "lib": ["chat-entries.js"],
   "title": "Dock tab strip (subtabs inside a window dock)",
   "palette": [
     { "title": "Dock: new tab", "command": "dock-tabs.add", "words": "dock subtab new" },

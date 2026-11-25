@@ -54,8 +54,8 @@ function tabStatus(all, id) {
 }
 
 // A mod pane has no program: its tile shows a glyph for the mod (herdr-mods).
-const MOD_ICON = { "cria-file-preview": "file", nav: "folder", git: "git-branch" };
-const MOD_NAME = { "cria-file-preview": "viewer", nav: "nav", git: "git" };
+const MOD_ICON = { "cria-file-preview": "file", nav: "folder", git: "git-branch", "ushi-naruse": "cow" };
+const MOD_NAME = { "cria-file-preview": "viewer", nav: "nav", git: "git", "ushi-naruse": "chat" };
 
 // The program's tile from the app's table: its color, its glyph (or logo) on it.
 function tile(t, p, status) {
