@@ -37,9 +37,13 @@ function tabStatus(all, id) {
   return best;
 }
 
+// A mod pane has no program: its tile shows a glyph for the mod (herdr-mods).
+const MOD_ICON = { "cria-file-preview": "file", nav: "folder", git: "git-branch" };
+const MOD_NAME = { "cria-file-preview": "viewer", nav: "nav", git: "git" };
+
 // The program's tile from the app's table: its color, its glyph (or logo) on it.
 function tile(t, p, status) {
-  const g = p?.program;
+  const g = p?.program ?? (p?.mod ? { icon: `mods/terminals-bar-proc/${MOD_ICON[p.mod] ?? "stack"}.svg`, tint: true, color: C.text } : null);
   const dot = status && status !== "idle" ? t[status] : null;
   return div()
     .relative()
@@ -113,7 +117,7 @@ export default class TerminalsBar extends View {
       // The process running in the tab's lead pane, not its folder: the
       // folder already shows in the pane header (nested-tabs).
       // An agent's own report is a slug ("claude-code"): show it as words.
-      const raw = p?.program?.name || p?.title || "";
+      const raw = p?.mod ? (MOD_NAME[p.mod] ?? "") : (p?.program?.name || p?.title || "");
       const proc = p?.program?.agent && /^[a-z0-9]+(-[a-z0-9]+)+$/.test(raw)
         ? raw.split("-").map((w) => w[0].toUpperCase() + w.slice(1)).join(" ")
         : raw;
