@@ -3,10 +3,11 @@
 // in cria-file-preview. No file operations: those are asked of the agent.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, ScrollHandle } from "gpui-base";
-import { exec, watchFolder, window, theme, settings, home, notify, nextCommand, checking, shared } from "herdr";
+import { exec, watchFolder, window, theme, settings, home, notify, nextCommand, checking, shared, setShared, props, openOverlay, closeOverlay } from "herdr";
 import { breadcrumb, parentOf, childOf, parseListing, sortEntries, filterEntries, parsePorcelain, marksFor, keyAction } from "./lib/nav.js";
 import { fileType } from "./lib/filetype.js";
-import { openExternal, openDefault } from "./lib/external-open.js";
+import { openExternal, openDefault, externalRule } from "./lib/external-open.js";
+import { editFile } from "./lib/edit-open.js";
 import { openInViewer } from "./lib/open.js";
 import { terminalLocation, fallbackLocation } from "./lib/location.js";
 
@@ -54,6 +55,8 @@ async function machineOf(on) {
 
 export default class Nav extends View {
   init(_props, cx) {
+    if (props()?.menu) { this.initMenu(cx); return; }
+    this.copyId = Math.random().toString(36).slice(2); // for its context menu's requests
     this.follow = true;
     this.path = null; this.on = null; this.space = null;
     this.entries = []; this.overflow = false; this.error = null;
@@ -242,7 +245,85 @@ export default class Nav extends View {
     } else this.go(q.path, q.on ?? null, cx);
   }
 
+  // ---- the context menu (a popup copy of this mod) ------------------------------
+  // props: { menu: true, path, on, dir, repo, from }. "Open" goes back to the copy
+  // it came from (`from`), which owns the viewer bookkeeping; the rest act here.
+
+  initMenu(cx) {
+    const p = props();
+    this.at = 0;
+    this.handle = cx.focus_handle();
+    this.handle.focus();
+    if (!p.dir) cx.spawn(async (cx) => { this.rule = await externalRule(p.path, p.on ?? null); cx.notify(); });
+  }
+
+  menuItems() {
+    const p = props();
+    const on = p.on ?? null;
+    const copy = (text, what) => (cx) => { cx.write_to_clipboard(text); notify({ title: `${what} copied`, body: text, level: "success", timeout: 2000 }); };
+    const open = () => setShared("nav.menu", { from: p.from, action: p.dir ? "browse" : "view", path: p.path, on, at: Date.now() });
+    const items = p.dir
+      ? [{ label: "Open", act: open }, { label: "Open with default app", act: () => openDefault(p.path, on) }]
+      : [
+          { label: "Open", act: open },
+          { label: "Edit", act: () => editFile({ path: p.path, on }) },
+          ...(this.rule && this.rule.app !== "default app" ? [{ label: `Open in ${this.rule.app}`, act: () => openExternal(p.path, on) }] : []),
+          { label: "Open with default app", act: () => openDefault(p.path, on) },
+        ];
+    items.push({ sep: true }, { label: "Copy path", act: copy(p.path, "Path") });
+    if (p.repo && p.path.startsWith(p.repo + "/")) items.push({ label: "Copy path from repository root", act: copy(p.path.slice(p.repo.length + 1), "Relative path") });
+    return items;
+  }
+
+  choose(it, cx) {
+    if (!it || it.sep || this.busy) return;
+    this.busy = true;
+    const overlay = props()?.overlay;
+    // Run the entry, then close: closing the popup cancels its pending calls.
+    cx.spawn(async (cx) => { try { await it.act(cx); } finally { closeOverlay(overlay); } });
+  }
+
+  renderMenu() {
+    const t = theme();
+    const items = this.menuItems();
+    const real = items.map((it, k) => (it.sep ? -1 : k)).filter((k) => k >= 0);
+    if (!real.includes(this.at)) this.at = real[0] ?? 0;
+    return v_flex().id("nav-menu").track_focus(this.handle).w_full().min_h(0).p(5).bg(t.popover).text_color(t.foreground).text_size(12.8)
+      .on_key_down((e, cx) => {
+        const pos = real.indexOf(this.at);
+        if (e.key === "down") this.at = real[(pos + 1) % real.length];
+        else if (e.key === "up") this.at = real[(pos - 1 + real.length) % real.length];
+        else if (e.key === "enter") this.choose(items[this.at], cx);
+        else if (e.key === "escape") closeOverlay(props().overlay);
+        else return;
+        cx.notify();
+      })
+      .children(items.map((it, k) => it.sep
+        ? div().mx(7).my(4).h(1).bg(t.border)
+        : h_flex().id(`nav-mi-${k}`).h(30).px(9).rounded(6).items_center()
+            .when(k === this.at, (el) => el.bg(t.selected)).hover((s) => s.bg(t.hover)).cursor_pointer()
+            .on_click((_e, cx) => this.choose(it, cx))
+            .child(div().flex_1().truncate().child(it.label))));
+  }
+
+  // A menu's "Open" for this copy: view a file, or browse into a folder.
+  takeMenu(cx) {
+    const q = shared("nav.menu");
+    if (!q || q.from !== this.copyId || q.at <= (this.menuAt ?? 0)) return;
+    this.menuAt = q.at;
+    if (q.action === "browse") this.browse(q.path, cx);
+    else openInViewer(cx, { path: q.path, on: q.on, space: this.space ?? undefined });
+  }
+
+  openMenu(entry) {
+    const full = childOf(this.path, entry.name);
+    openOverlay({ mod: "nav", kind: "popup", width: 250,
+      props: { menu: true, path: full, on: this.on, dir: entry.dir, repo: this.repo ?? null, from: this.copyId } });
+  }
+
   render(cx) {
+    if (props()?.menu) return this.renderMenu();
+    this.takeMenu(cx);
     this.takeRequest(cx);
     // Following: a focus change, tab switch or cd moves nav; a mod pane or dock block does not.
     const loc = terminalLocation();
@@ -293,6 +374,7 @@ export default class Nav extends View {
       return h_flex().id(`nav-row-${i}`).h(ROW).flex_none().px(8).gap(8).items_center().rounded(6).cursor_pointer().when(wide, (el) => el.w(CELL))
         .when(sel, (el) => el.bg(t.selected)).hover((s) => s.bg(sel ? t.selected : t.hover))
         .on_click((_e, cx) => { this.selected = e.name; this.activate(e, cx); cx.notify(); })
+        .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); this.selected = e.name; this.openMenu(e); cx.notify(); })
         .child(svg(`mods/nav/${e.dir ? "folder" : "file"}.svg`).size(14).flex_none().text_color(tint))
         .child(div().flex_1().min_w(0).truncate().text_color(e.name.startsWith(".") ? t.muted : t.foreground).when(e.dir, (el) => el.font_medium()).child(e.name))
         .when(Boolean(m), (el) => el.child(div().w(14).flex_none().text_size(11).font_semibold().text_color(mark[m] ?? t.muted).child(m)))

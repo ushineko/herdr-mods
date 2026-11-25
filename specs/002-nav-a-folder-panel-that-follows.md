@@ -78,6 +78,14 @@ and marks git status; it is the starting point for the reading code
   ansi colours the shipped `files` uses; the follow light pulses once
   (`.transition`) when it re-locks.
 
+- R15 **Context menu** (operator, 2026-11-24): right-click a row. Files: Open
+  (viewer), Edit (the person's editor, spec 005 R6a), Open in <app> (its
+  external rule, when not the default app), Open with default app, Copy path,
+  Copy path from repository root. Folders: Open (browse), Open with default app,
+  Copy path. Keyboard: up/down, Enter, Esc. "Open" is carried out by the nav copy
+  the menu came from (shared `nav.menu`, tagged with that copy's id), so a second
+  nav (the other dock) does not open it too.
+
 ### Layout
 
 - R14 **Horizontal and vertical** (operator, 2026-11-24: the docks are on the
