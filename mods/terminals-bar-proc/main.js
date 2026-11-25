@@ -108,7 +108,7 @@ function windowButton(id, icon, command) {
   );
 }
 
-function iconButton(id, icon, onClick) {
+function iconButton(id, icon, onClick, onRight) {
   return own(div())
     .id(id)
     .flex_none()
@@ -118,6 +118,7 @@ function iconButton(id, icon, onClick) {
     .cursor_pointer()
     .hover((s) => s.bg(C.chip).text_color(C.text))
     .on_click(onClick)
+    .when(Boolean(onRight), (el) => el.on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); onRight(); }))
     .child(svg(`mods/terminals-bar-proc/${icon}.svg`).size(17));
 }
 
@@ -222,7 +223,9 @@ export default class TerminalsBar extends View {
       // which leaves them room; none here.
       // (The space picker pill is gone: the spaces bar above shows every space.)
       // New tab, at the left end (operator, 2026-11-25), ahead of the tabs.
-      .child(div().flex_none().pl(8).child(iconButton("tm-new", "plus", () => run("tab.new", { space: space.id }))))
+      // Right-click: New tab, an agent, or a chat (nested-tabs' menu, "top" mode).
+      .child(div().flex_none().pl(8).child(iconButton("tm-new", "plus", () => run("tab.new", { space: space.id }),
+        () => openOverlay({ mod: "nested-tabs", kind: "popup", width: 260, props: { menu: "top", space: space.id, on: space.machine ?? null } }))))
       // A remote space says so before its tabs: these terminals run elsewhere.
       .when(Boolean(space.machine), (el) =>
         el.child(

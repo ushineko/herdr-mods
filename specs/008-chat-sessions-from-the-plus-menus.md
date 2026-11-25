@@ -75,6 +75,11 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
   `cow.svg`, tinted like the other icons.
 - R2 **Entries**: right-click **+** in nested tabs and in docks lists, after the
   New … tab entries, **New Claude Code chat** and/or **New Codex chat**.
+- R2a **The tab bar's +** (operator, 2026-11-25: it only started a shell): right-click
+  lists New tab, New <agent> tab (each installed agent, run in the shown space) and the
+  chat entries (a new tab holding only the chat, its agent in the focused terminal's
+  folder there, else the space's). It is nested-tabs' menu in a "top" mode, so the
+  three + menus match; the space's machine decides the agents and chats offered.
 - R3 **Hidden where it can't run**. An entry shows only when all of these hold:
   - the platform is not Windows;
   - the agent (`claude` or `codex`) is installed on the machine the session would
@@ -204,6 +209,7 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
       (operator: "works", njv-cachyos, 2026-11-25.)
 - [x] R1f, Mac: a line in the agent's input shows as the row; the parser reads "go ahead
       with 3c" from the hayami screen on njv-cachyos; Ctrl+U empties the line.
+- [ ] R2a: right-click on the tab bar's + shows the entries; each opens its tab.
 - [ ] R9: Back to terminal from a New chat tab (Mac, by command: yes), an Open as chat
       tab with its terminal hidden (Mac, by command: yes), and a dock chat subtab (menu) (Mac: the pane-less case's steps by hand work: the agent gets a pane in
       the chat's tab and survives the chat closing).

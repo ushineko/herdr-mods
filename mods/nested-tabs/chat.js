@@ -16,10 +16,12 @@ const where = (base) => {
 const pause = () => exec("sh", ["-c", "sleep 0.1"]);
 
 /** The "New … chat" entries for the machine `base` runs on; [] where the chat can't run. */
-export async function options(base) {
+export const options = (base) => optionsOn(where(base).on);
+
+/** The "New … chat" entries for machine `on` (null: this computer). */
+export async function optionsOn(on) {
   const platform = window().platform;
   if (platform === "windows") return [];
-  const { on } = where(base);
   let agents = [], python = false;
   try { agents = await knownAgents({ on }); } catch {}
   try { python = (await exec("sh", ["-c", "command -v python3"], { on, timeout: 5000 })).code === 0; } catch {}
@@ -35,10 +37,17 @@ function fail(r) {
  * opens a new tab in `pane`'s space whose only pane is a chat bound to it.
  */
 export async function open(pane, base, command, name) {
-  const { on } = where(base);
   const me = panes().find((p) => p.pane === pane);
   const cwd = me?.cwd || terminals().find((t) => t.address === base)?.cwd || null;
   const space = spaces().find((s) => s.tabs?.some((t) => t.id === me?.tab))?.id;
+  return openIn(space, where(base).on, cwd, command, name);
+}
+
+/**
+ * The same from the tab bar's +: `command` in a pane-less shell on machine `on`, in
+ * `cwd` (null: that machine's home), and a new tab in `space` holding only the chat.
+ */
+export async function openIn(space, on, cwd, command, name) {
   let r;
   try {
     r = await hc(["run", "--bg", "--json", ...(on ? ["--on", on] : []), "--no-parent",

@@ -12,7 +12,7 @@
 
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input, ScrollHandle } from "gpui-base";
-import { panes, terminals, props, run, home, theme, focused, nextCommand, openOverlay, closeOverlay, knownAgents, checking, notify, setShared, shared } from "herdr";
+import { panes, terminals, spaces, props, run, home, theme, focused, nextCommand, openOverlay, closeOverlay, knownAgents, checking, notify, setShared, shared } from "herdr";
 import * as S from "./stack.js";
 import * as Panel from "./panel.js";
 import * as Chat from "./chat.js";
@@ -335,18 +335,20 @@ export default class NestedTabs extends View {
     this.handle = cx.focus_handle();
     this.handle.focus();
     cx.spawn(async (cx) => {
+      const { base, menu, on } = props() ?? {};
       try {
-        this.agents = (await knownAgents()).filter((a) => a.installed && a.run?.length).slice(0, 4);
+        // The tab bar's + (menu "top") asks for its space's machine.
+        this.agents = (await knownAgents(menu === "top" ? { on: on ?? null } : undefined)).filter((a) => a.installed && a.run?.length).slice(0, 4);
       } catch { this.agents = []; }
       cx.notify();
-      const { base } = props() ?? {};
-      this.chats = base ? await Chat.options(base) : [];
+      this.chats = menu === "top" ? await Chat.optionsOn(on ?? null) : base ? await Chat.options(base) : [];
       cx.notify();
     });
   }
 
   menuItems() {
     const { menu, pane, base, target } = props() ?? {};
+    if (menu === "top") return this.topItems();
     const newItems = [
       { label: "New tab", icon: "terminal", act: () => S.add(pane, base) },
       ...this.agents.map((a) => ({ label: `New ${a.name} tab`, icon: "terminal", act: () => S.add(pane, base, a.run.join(" ")) })),
@@ -373,6 +375,19 @@ export default class NestedTabs extends View {
       ? { label: "Close pane (all tabs)", icon: "close", act: () => run("pane.close", { pane }) }
       : { label: "Close tab", icon: "x", act: () => S.close(pane, base, target) });
     return items.filter((it, k, all) => !(it.sep && (k === 0 || k === all.length - 1 || all[k - 1]?.sep)));
+  }
+
+  // The tab bar's + (right-click): a new top-level tab in the shown space, as a shell,
+  // an agent, or a chat (spec 008). A chat starts in the focused terminal's folder there.
+  topItems() {
+    const { space, on } = props() ?? {};
+    const f = focused();
+    const cwd = (f?.space === space && panes().find((p) => p.pane === f.pane)?.cwd) || spaces().find((s) => s.id === space)?.folder || null;
+    return [
+      { label: "New tab", icon: "terminal", act: () => run("tab.new", { space }) },
+      ...this.agents.map((a) => ({ label: `New ${a.name} tab`, icon: "terminal", act: () => run("tab.new", { space, argv: a.run, ...(cwd ? { folder: cwd } : {}) }) })),
+      ...this.chats.map((c) => ({ label: c.label, icon: "layers", act: () => Chat.openIn(space, on ?? null, cwd, c.run.join(" "), c.label.replace(/^New /, "")) })),
+    ];
   }
 
   // Run the entry, then close: closing the popup cancels its pending calls,
