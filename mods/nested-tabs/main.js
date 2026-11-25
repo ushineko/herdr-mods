@@ -1,0 +1,446 @@
+// Nested tabs (pane stacks) for the Herdr app.
+//
+// Used three ways, told apart by props:
+//   - pane header ({ pane, terminal } from the layout): the strip of tabs
+//   - popup menu  ({ menu: "tab" | "new", pane, base, target? })
+//   - rename dialog ({ rename: true, target, value })
+//
+// Mouse: click a tab to show it, double-click to rename, middle-click to
+// close, right-click for its menu, wheel over the strip to cycle, drag a tab
+// onto another to reorder. "+" adds a shell; right-click "+" to start an agent.
+// Keys (keys.json): nested-tabs.add / .next / .prev / .close.
+
+import { View, div, svg, image } from "gpui-kit";
+import { h_flex, v_flex, InputState, Input } from "gpui-base";
+import { panes, props, run, home, theme, focused, nextCommand, openOverlay, closeOverlay, knownAgents, checking, notify, setShared, shared } from "herdr";
+import * as S from "./stack.js";
+import * as Panel from "./panel.js";
+
+// Each pane header's size (≈ its pane's width), for sizing the panel split.
+const sizes = new Map();
+
+const ICON = (name) => `mods/nested-tabs/${name}.svg`;
+
+function short(cwd) {
+  if (!cwd) return "";
+  const h = home();
+  if (cwd === h) return "~";
+  return cwd.split("/").filter(Boolean).pop() ?? cwd;
+}
+
+function folder(cwd) {
+  if (!cwd) return "";
+  const h = home();
+  return cwd === h ? "~" : cwd.startsWith(h + "/") ? "~" + cwd.slice(h.length) : cwd;
+}
+
+// Several copies get each key command; only the first within a moment acts.
+let lastCommand = { name: "", at: 0 };
+
+export default class NestedTabs extends View {
+  init(_props, cx) {
+    const p = props() ?? {};
+    if (p.menu) return this.initMenu(cx);
+    if (p.rename) return this.initRename(cx);
+    this.applied = undefined;
+    this.drag = null;
+    this.over = null;
+    this.wheel = 0;
+    // Requests older than this copy were for a copy that no longer exists.
+    this.seenRequest = Date.now();
+    if (checking()) return;
+    S.prune();
+    cx.spawn(async (cx) => {
+      for (;;) {
+        const c = await nextCommand();
+        try { await this.command(c, cx); } catch (e) { notify({ title: `nested-tabs.${c} failed`, body: String(e), level: "error" }); }
+        cx.notify();
+      }
+    });
+  }
+
+  // ---- pane header -------------------------------------------------------
+
+  base() {
+    const p = props() ?? {};
+    return p.terminal ?? panes().find((x) => x.pane === p.pane)?.terminal ?? null;
+  }
+
+  async command(c, cx) {
+    const pane = props()?.pane, base = this.base();
+    const f = focused();
+    const now = Date.now();
+    // Focus in a layout terminal block (a dock): hand the key to dock-tabs.
+    if (f && !f.pane && f.terminal) {
+      if (lastCommand.name === c && now - lastCommand.at < 120) return;
+      lastCommand = { name: c, at: now };
+      setShared("dock-tabs.cmd", { c, at: now });
+      return;
+    }
+    if (!pane || !base || f?.pane !== pane) return;
+    if (lastCommand.name === c && now - lastCommand.at < 120) return;
+    lastCommand = { name: c, at: now };
+    if (c === "panel") await Panel.toggle(cx, "right", sizes);
+    else if (c === "panel-portrait") await Panel.toggle(cx, "portrait", sizes);
+    else if (c === "add") S.add(pane, base);
+    else if (c === "next") S.cycle(pane, base, 1);
+    else if (c === "prev") S.cycle(pane, base, -1);
+    else if (c === "close") {
+      const shown = S.shownOf(pane, base);
+      if (shown === base && S.members(pane, base).length > 1)
+        notify({ title: "That's the pane's first tab", body: "Closing it closes the pane and all its tabs: use its menu or × for that.", level: "warning" });
+      else S.close(pane, base, shown);
+    }
+  }
+
+  // Make the pane show what the shared state says.
+  reconcile(pane, base) {
+    const want = S.shownOf(pane, base);
+    if (this.applied === want) return;
+    const first = this.applied === undefined;
+    this.applied = want;
+    if (first && want === base) return;
+    run("terminal.show", want === base ? { pane } : { terminal: want, pane });
+  }
+
+  menu(kind, pane, base, target) {
+    openOverlay({ mod: "nested-tabs", kind: "popup", width: 260, props: { menu: kind, pane, base, target } });
+  }
+
+  button(id, icon, tip, onClick, onRight) {
+    const t = theme();
+    return div()
+      .id(id)
+      .flex_none()
+      .p(4)
+      .rounded(5)
+      .text_color(t.dim)
+      .cursor_pointer()
+      .hover((s) => s.bg(t.hover).text_color(t.foreground))
+      .tooltip(tip)
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .on_click((_e, cx) => { cx.stop_propagation(); onClick(); })
+      .when(Boolean(onRight), (el) => el.on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); onRight(); }))
+      .child(svg(ICON(icon)).size(15));
+  }
+
+  paneButtons(me, pane, base) {
+    return h_flex()
+      .flex_none()
+      .gap(1)
+      .items_center()
+      .when(Boolean(base), (el) =>
+        el.child(this.button(`nt-add-${pane}`, "plus", "New nested tab (right-click: start an agent)",
+          () => S.add(pane, base), () => this.menu("new", pane, base))))
+      .child(this.button(`nt-r-${pane}`, "split-right", "Split right", () => run("pane.split", { direction: "right", pane })))
+      .child(this.button(`nt-d-${pane}`, "split-down", "Split down", () => run("pane.split", { direction: "down", pane })))
+      .child(this.button(`nt-z-${pane}`, me.zoomed ? "unzoom" : "zoom", me.zoomed ? "Unzoom" : "Zoom", () => run("pane.zoom", { pane })))
+      .child(this.button(`nt-x-${pane}`, "close", "Close pane (all its tabs)", () => run("pane.close", { pane })));
+  }
+
+  programIcon(g, color) {
+    if (!g?.icon) return null;
+    return g.tint ? svg(g.icon).size(15).flex_none().text_color(color) : image(g.icon).w(15).h(15).flex_none();
+  }
+
+  // One pane, one terminal: the plain header (title, folder) plus "+".
+  single(me, pane, base) {
+    const t = theme();
+    const title = me.title || "shell";
+    const where = folder(me.cwd);
+    const dir = where && !title.includes(where) && !/^[~/]/.test(title) ? where : "";
+    const icon = this.programIcon(me.program, t.foreground);
+    return h_flex()
+      .id(`nt-head-${pane}`)
+      .size_full()
+      .pl(12)
+      .pr(8)
+      .gap(8)
+      .items_center()
+      .text_size(14)
+      .on_click(() => run("pane.focus", { pane }))
+      .when(Boolean(icon), (el) => el.child(icon))
+      .child(div().flex_none().max_w(320).truncate().font_semibold().text_color(me.focused ? t.foreground : t.muted).child(title))
+      .child(div().flex_1().truncate().text_color(t.dim).child(dir))
+      .child(this.paneButtons(me, pane, base));
+  }
+
+  chip(m, index, ctx) {
+    const { t, pane, base, shown, count } = ctx;
+    const active = m.address === shown;
+    const term = m.term;
+    const name = S.label(m, null);
+    const where = short(term?.cwd);
+    const status = term?.status;
+    const dot = status && status !== "idle" && t[status] ? t[status] : null;
+    const icon = this.programIcon(term?.program, active ? t.foreground : t.muted);
+    const target = this.drag && this.drag !== m.address && this.over === m.address;
+    return h_flex()
+      .id(`nt-chip-${pane}-${m.address}`)
+      .flex_shrink(1)
+      .min_w(56)
+      .max_w(240)
+      .h(28)
+      .pl(8)
+      .pr(active && count > 1 ? 3 : 8)
+      .gap(6)
+      .items_center()
+      .rounded(8)
+      .border_1()
+      .cursor_pointer()
+      .text_size(13)
+      .when(active, (el) => el.bg(t.raised).border_color(t.border).text_color(t.foreground))
+      .when(!active, (el) => el.border_color("#00000000").text_color(t.muted).hover((s) => s.bg(t.hover)))
+      .when(target, (el) => el.border_color(t.accent))
+      .tooltip(`${name}${term?.cwd ? " · " + folder(term.cwd) : ""} · ${m.address}${m.base ? " (pane's own)" : ""}`)
+      .on_mouse_down("left", (_e, cx) => { cx.stop_propagation(); this.drag = m.address; })
+      .on_hover((hovered, cx) => {
+        if (!this.drag) return;
+        if (hovered) this.over = m.address;
+        else if (this.over === m.address) this.over = null;
+        cx.notify();
+      })
+      .on_mouse_up("left", (_e, cx) => {
+        const from = this.drag;
+        this.drag = null;
+        this.over = null;
+        if (from && from !== m.address) S.reorder(pane, base, from, m.address);
+        cx.notify();
+      })
+      .on_click((e) => {
+        if (e.click_count >= 2) this.rename(m);
+        else S.select(pane, base, m.address);
+      })
+      .on_mouse_down("middle", (_e, cx) => { cx.stop_propagation(); S.close(pane, base, m.address); })
+      .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); this.menu("tab", pane, base, m.address); })
+      .child(div().flex_none().text_size(11).text_color(t.dim).child(String(index + 1)))
+      .when(Boolean(icon), (el) => el.child(icon))
+      .child(div().flex_none().max_w(150).truncate().child(name))
+      .when(Boolean(where) && where !== name, (el) => el.child(div().truncate().text_size(12).text_color(t.dim).child(where)))
+      .when(Boolean(dot), (el) => el.child(div().flex_none().w(7).h(7).rounded_full().bg(dot)))
+      .when(active && count > 1, (el) =>
+        el.child(
+          div()
+            .id(`nt-chip-x-${pane}-${m.address}`)
+            .flex_none()
+            .p(3)
+            .rounded(5)
+            .text_color(t.dim)
+            .hover((s) => s.bg(t.hover).text_color(t.foreground))
+            .tooltip(m.base ? "Close pane (all its tabs)" : "Close tab")
+            .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+            .on_click((_e, cx) => { cx.stop_propagation(); S.close(pane, base, m.address); })
+            .child(svg(ICON("x")).size(12)),
+        ),
+      );
+  }
+
+  rename(m) {
+    openOverlay({ mod: "nested-tabs", kind: "dialog", width: 380, props: { rename: true, target: m.address, value: m.term?.labels?.[S.TITLE] ?? "" } });
+  }
+
+  onWheel(e, pane, base) {
+    const lines = e.delta_lines;
+    const d = lines ? (lines.y || lines.x) : (e.delta.y || e.delta.x) / 40;
+    this.wheel += d;
+    while (this.wheel >= 1) { S.cycle(pane, base, -1); this.wheel -= 1; }
+    while (this.wheel <= -1) { S.cycle(pane, base, 1); this.wheel += 1; }
+  }
+
+  renderHeader() {
+    const p = props() ?? {};
+    const me = panes().find((x) => x.pane === p.pane);
+    if (!me) return div();
+    const pane = me.pane, base = this.base();
+    const sized = (el) => el.on_size_change((size) => { sizes.set(pane, size); });
+    if (!base) return sized(this.single(me, pane, null));
+    // Another mod (the spaces bar's agent picker) asking to show a nested tab here.
+    const req = shared("nested-tabs.request");
+    if (req && req.pane === pane && req.at > (this.seenRequest ?? 0)) {
+      this.seenRequest = req.at;
+      if (S.members(pane, base).some((m) => m.address === req.terminal)) S.select(pane, base, req.terminal);
+    }
+    this.reconcile(pane, base);
+    const list = S.members(pane, base);
+    if (list.length < 2) return sized(this.single(me, pane, base));
+    const t = theme();
+    const ctx = { t, pane, base, shown: S.shownOf(pane, base), count: list.length };
+    return sized(h_flex())
+      .id(`nt-head-${pane}`)
+      .size_full()
+      .pl(5)
+      .pr(8)
+      .gap(6)
+      .items_center()
+      .on_click(() => run("pane.focus", { pane }))
+      .on_window_mouse_up("left", (_e, cx) => {
+        if (this.drag) { this.drag = null; this.over = null; cx.notify(); }
+      })
+      .child(
+        h_flex()
+          .id(`nt-strip-${pane}`)
+          .flex_1()
+          .min_w(0)
+          .h_full()
+          .gap(3)
+          .items_center()
+          .overflow_hidden()
+          .on_scroll_wheel((e) => this.onWheel(e, pane, base))
+          .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); this.menu("new", pane, base); })
+          .children(list.map((m, i) => this.chip(m, i, ctx))),
+      )
+      .child(this.paneButtons(me, pane, base));
+  }
+
+  // ---- popup menu --------------------------------------------------------
+
+  initMenu(cx) {
+    this.at = 0;
+    this.agents = [];
+    this.handle = cx.focus_handle();
+    this.handle.focus();
+    cx.spawn(async (cx) => {
+      try {
+        this.agents = (await knownAgents()).filter((a) => a.installed && a.run?.length).slice(0, 4);
+      } catch { this.agents = []; }
+      cx.notify();
+    });
+  }
+
+  menuItems() {
+    const { menu, pane, base, target } = props() ?? {};
+    const newItems = [
+      { label: "New tab", icon: "terminal", act: () => S.add(pane, base) },
+      ...this.agents.map((a) => ({ label: `New ${a.name} tab`, icon: "terminal", act: () => S.add(pane, base, a.run.join(" ")) })),
+    ];
+    if (menu !== "tab") return newItems;
+    const list = S.members(pane, base);
+    const i = list.findIndex((m) => m.address === target);
+    const m = list[i];
+    if (!m) return newItems;
+    const items = [];
+    if (S.shownOf(pane, base) !== target) items.push({ label: "Show", icon: "layers", act: () => S.select(pane, base, target) });
+    items.push({ label: "Rename…", icon: "square-pen", act: () => this.rename(m) });
+    items.push({ sep: true }, ...newItems, { sep: true });
+    if (i > 0) items.push({ label: "Move left", icon: "chevron-left", act: () => S.move(pane, base, target, -1) });
+    if (i < list.length - 1) items.push({ label: "Move right", icon: "chevron-right", act: () => S.move(pane, base, target, 1) });
+    if (!m.base) {
+      items.push({ label: "Move to own pane (right)", icon: "split-right", act: () => S.popOut(pane, base, target, "right") });
+      items.push({ label: "Move to own pane (below)", icon: "split-down", act: () => S.popOut(pane, base, target, "down") });
+    }
+    items.push({ sep: true });
+    if (list.length > 1) items.push({ label: "Close other tabs", icon: "x", act: () => S.closeOthers(pane, base, target) });
+    items.push(m.base
+      ? { label: "Close pane (all tabs)", icon: "close", act: () => run("pane.close", { pane }) }
+      : { label: "Close tab", icon: "x", act: () => S.close(pane, base, target) });
+    return items.filter((it, k, all) => !(it.sep && (k === 0 || k === all.length - 1 || all[k - 1]?.sep)));
+  }
+
+  // Run the entry, then close: closing the popup cancels its pending calls,
+  // so an async action (hc run, hc send) must finish first.
+  choose(it, cx) {
+    if (!it || it.sep || this.busy) return;
+    this.busy = true;
+    const overlay = props()?.overlay;
+    cx.spawn(async () => {
+      try { await it.act(); }
+      finally { closeOverlay(overlay); }
+    });
+  }
+
+  renderMenu() {
+    const t = theme();
+    const items = this.menuItems();
+    const real = items.map((it, k) => (it.sep ? -1 : k)).filter((k) => k >= 0);
+    if (!real.includes(this.at)) this.at = real[0] ?? 0;
+    return v_flex()
+      .id("nt-menu")
+      .track_focus(this.handle)
+      .w_full()
+      .min_h(0)
+      .p(5)
+      .bg(t.popover)
+      .text_size(12.8)
+      .on_key_down((e, cx) => {
+        const pos = real.indexOf(this.at);
+        if (e.key === "down") this.at = real[(pos + 1) % real.length];
+        else if (e.key === "up") this.at = real[(pos - 1 + real.length) % real.length];
+        else if (e.key === "enter") this.choose(items[this.at], cx);
+        else if (e.key === "escape") closeOverlay(props().overlay);
+        else return;
+        cx.notify();
+      })
+      .children(
+        items.map((it, k) =>
+          it.sep
+            ? div().mx(7).my(4).h(1).bg(t.border)
+            : h_flex()
+                .id(`nt-mi-${k}`)
+                .h(31)
+                .px(8)
+                .gap(9)
+                .rounded(7)
+                .items_center()
+                .text_color(t.foreground)
+                .when(k === this.at, (el) => el.bg(t.selected))
+                .hover((s) => s.bg(t.hover))
+                .on_click((_e, cx) => this.choose(it, cx))
+                .child(svg(ICON(it.icon)).size(14).flex_none().text_color(t.muted))
+                .child(div().flex_1().truncate().child(it.label)),
+        ),
+      );
+  }
+
+  // ---- rename dialog -----------------------------------------------------
+
+  initRename(cx) {
+    const value = props()?.value ?? "";
+    this.input = InputState.new({ value });
+    if (value) this.input.set_selected_range({ start: 0, end: value.length });
+    this.input.on("submit", () => this.submitRename());
+    this.input.focus();
+    cx.timer.after(600, () => this.input.focus());
+    this.handle = cx.focus_handle();
+  }
+
+  submitRename() {
+    const p = props();
+    closeOverlay(p.overlay);
+    S.rename(p.target, this.input.value());
+  }
+
+  renderRename() {
+    const t = theme();
+    const button = (id, text, primary, action) => h_flex().id(id).h(32).px(14).items_center().rounded(8)
+      .border_1().border_color(primary ? t.solid : t.input).bg(primary ? t.solid : t.raised)
+      .text_color(primary ? t.solid_foreground : t.foreground).text_size(12.5).cursor_pointer()
+      .hover((s) => s.opacity(0.88)).on_click(action).child(text);
+    return v_flex()
+      .id("nt-rename")
+      .track_focus(this.handle)
+      .on_key_down((e, cx) => { if (e.key === "escape") { closeOverlay(props().overlay); cx.stop_propagation(); } })
+      .w_full()
+      .min_h(0)
+      .p(18)
+      .gap(12)
+      .bg(t.popover)
+      .text_color(t.foreground)
+      .child(div().text_size(14).font_semibold().child("Rename nested tab"))
+      .child(div().text_size(11.5).text_color(t.dim).child("Empty: back to the program's own title."))
+      .child(Input.new(this.input).h(34).px(10).rounded(8).border_1().border_color(t.input).bg(t.background))
+      .child(
+        h_flex()
+          .gap(8)
+          .justify_end()
+          .child(button("nt-rn-cancel", "Cancel", false, () => closeOverlay(props().overlay)))
+          .child(button("nt-rn-ok", "Rename", true, () => this.submitRename())),
+      );
+  }
+
+  render() {
+    const p = props() ?? {};
+    if (p.menu) return this.renderMenu();
+    if (p.rename) return this.renderRename();
+    return this.renderHeader();
+  }
+}

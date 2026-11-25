@@ -1,0 +1,5 @@
+{
+  "place": "none",
+  "title": "UI Lab",
+  "palette": [{ "title": "UI Lab", "command": "tab.new", "args": { "name": "UI Lab", "mod": "ui-lab" }, "words": "demo experiment" }]
+}
