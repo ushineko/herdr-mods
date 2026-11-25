@@ -373,8 +373,9 @@ export default class Nav extends View {
       const count = e.dir ? this.marks.folders[e.name] : 0;
       return h_flex().id(`nav-row-${i}`).h(ROW).flex_none().px(8).gap(8).items_center().rounded(6).cursor_pointer().when(wide, (el) => el.w(CELL))
         .when(sel, (el) => el.bg(t.selected)).hover((s) => s.bg(sel ? t.selected : t.hover))
-        .on_click((_e, cx) => { this.selected = e.name; this.activate(e, cx); cx.notify(); })
-        .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); this.selected = e.name; this.openMenu(e); cx.notify(); })
+        // A click right after a right-click is the same press: the menu, not "open".
+        .on_click((_e, cx) => { if (Date.now() - (this.rightAt ?? 0) < 500) return; this.selected = e.name; this.activate(e, cx); cx.notify(); })
+        .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); this.rightAt = Date.now(); this.selected = e.name; this.openMenu(e); cx.notify(); })
         .child(svg(`mods/nav/${e.dir ? "folder" : "file"}.svg`).size(14).flex_none().text_color(tint))
         .child(div().flex_1().min_w(0).truncate().text_color(e.name.startsWith(".") ? t.muted : t.foreground).when(e.dir, (el) => el.font_medium()).child(e.name))
         .when(Boolean(m), (el) => el.child(div().w(14).flex_none().text_size(11).font_semibold().text_color(mark[m] ?? t.muted).child(m)))

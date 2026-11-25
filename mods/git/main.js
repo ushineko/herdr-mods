@@ -648,8 +648,10 @@ export default class Git extends View {
       const n = this.counts[w.path];
       return h_flex().id(`git-wt-${i}`).h(26).px(10).gap(8).items_center().rounded(6).mx(4).cursor_pointer()
         .when(shown, (el) => el.bg(t.selected)).when(cur && !shown, (el) => el.bg(t.hover)).hover((x) => x.bg(shown ? t.selected : t.hover))
-        .on_click((_e, cx) => this.showWorktree(w, cx))
-        .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); this.planWorktreeCleanup([w.path], cx); })
+        // A right-click is the clean-up; a click right after it is the same press, not
+        // "show this worktree" (which would turn following off).
+        .on_click((_e, cx) => { if (Date.now() - (this.rightAt ?? 0) > 500) this.showWorktree(w, cx); })
+        .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); this.rightAt = Date.now(); this.planWorktreeCleanup([w.path], cx); })
         .tooltip(w.main ? "The main worktree" : "Click: show it · right-click: clean it up")
         .child(div().w(10).text_color(t.accent).child(here ? "●" : ""))
         .child(div().max_w(150).truncate().font_medium().child(w.branch ?? `detached ${String(w.head ?? "").slice(0, 7)}`))
