@@ -19,12 +19,15 @@ JavaScript panels drawn natively by Herdr's GPUI shell.
 | `cria-file-preview` | File viewer in a tab (vendored from gsydler/herdr-cria, Apache-2.0; see `vendor/cria/VENDOR.md`): Markdown with images and links, PDF, images, CSV/TSV, JSON, code, plus local diff view and "Open in <app>" |
 | `ushi-naruse`, `ushi-naruse-file` | A chat view for Claude Code and Codex: our fork of naruse/herdr-chat, see [ushi-naruse](#ushi-naruse-chat-a-fork-of-naruseherdr-chat) |
 | `term-menu` | Dock-aware terminal right-click menu |
-| `ui-lab` | Capability demo: Claude ↔ panel round trip, hayami usage meters, floating window |
+| `ui-lab` | Capability demo: Claude ↔ panel round trip, usage meters, floating window |
 
 ## Gallery
 
 Screenshots from a demo window with made-up projects ("acme-api", "orbit-ui") and
-authors.
+authors. `tools/gallery.sh` takes them again: it runs its own Herdr window on its own
+herdr-core session (none of your spaces show), builds the demo projects in
+`/tmp/herdr-demo`, sets up the scenes, takes the shots, checks each image with OCR for
+your user, host and home folder, and removes everything it made.
 
 | | |
 |---|---|
@@ -67,7 +70,8 @@ What we changed from upstream:
 - **Back to terminal**, and a `hide` prop that hides the terminal behind the chat when it
   opens (Open as chat).
 - **One chat in every window**: the agent is found by a label (`ushi.id`), not by its
-  address, which differs between windows (the Mac's and njv-cachyos's own); and it
+  address, which differs between windows (a machine's own window and another
+  computer's window on it); and it
   hides its terminal when another mod asks (`×` on that terminal).
 
 What the other mods add around it: the menu entries, hidden only where the chat can't
@@ -109,8 +113,8 @@ npm test    # ./run-tests.sh: ours + the vendored cria tests, under a throwaway 
 ```sh
 ./install.sh                     # all mods into ~/.config/herdr-app
 ./install.sh ui-lab              # one mod
-# njv-cachyos: default home gets copies, work home gets symlinks to them
-./install.sh --home ~/.config/herdr-app --link ~/.config/herdr-app-work
+# Two app homes on one machine: the first gets copies, the second links to them
+./install.sh --home ~/.config/herdr-app --link ~/.config/herdr-app-second
 ```
 
 Herdr does not hot-reload a mod reached through a symlink, so the app home
@@ -123,6 +127,5 @@ The API reference is written by the app on every start:
 
 ## History
 
-The first six mods were moved here from
-`ushineko/dotfiles:setup/njv-cachyos/herdr-app/default/mods` (last commit there:
-`fe01cbb`). Their earlier history is in that repo.
+The first six mods were moved here from a private configuration repository; their
+earlier history stays there.
