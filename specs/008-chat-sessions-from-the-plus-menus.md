@@ -54,6 +54,12 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
     own larger size and could be selected; the lines can't be).
   - R1c the conversation, message box and panels fill the pane (an 18 px margin);
     upstream keeps them to a centered 900 px column, as the Claude app does.
+- R1e **Parked sessions** (found on njv-cachyos, 2026-11-25): a Claude Code session
+  parked as a background job is written by that job. Its terminal's session file says
+  `"parkedJobId":"X"`; the job's file says `"jobId":"X"` and holds the live session id
+  first (later ones, in `formerNames`, are earlier sessions). Upstream read the
+  terminal's own id (no log) and the last id on the line, so Open as chat showed
+  nothing while messages still reached the terminal.
 - R1d **A cow icon** (ushi: cow; operator, 2026-11-25) marks a chat: on its tab in the
   tab bar (`terminals-bar-proc`, which also names it "chat"), in its pane header
   (`nested-tabs`) and on a dock chat subtab (`dock-tabs`). One 16 px line drawing,

@@ -16,11 +16,19 @@ export function agentKind(term) {
 }
 
 // Claude Code writes ~/.claude/sessions/<pid>.json with the live session id.
+// ushi-naruse: a session parked as a background job ("parkedJobId") is written by
+// that job; its own file ("jobId") holds the live session id, first in the file.
 const CLAUDE = `
 for p in "$1" $(pgrep -P "$1"); do
   f="$HOME/.claude/sessions/$p.json"
   [ -f "$f" ] || continue
-  id=$(sed -n 's/.*"sessionId":"\\([^"]*\\)".*/\\1/p' "$f")
+  job=$(sed -n 's/.*"parkedJobId":"\\([^"]*\\)".*/\\1/p' "$f")
+  if [ -n "$job" ]; then
+    g=$(grep -l "\\"jobId\\":\\"$job\\"" "$HOME"/.claude/sessions/*.json 2>/dev/null | head -1)
+    [ -n "$g" ] && f=$g
+  fi
+  # The first sessionId: a later one (formerNames) is an earlier session.
+  id=$(grep -o '"sessionId":"[^"]*"' "$f" | head -1 | cut -d'"' -f4)
   [ -n "$id" ] || continue
   log=$(ls "$HOME"/.claude/projects/*/"$id".jsonl 2>/dev/null | head -1)
   [ -n "$log" ] && echo "$log" && exit 0
