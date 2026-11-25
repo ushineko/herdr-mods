@@ -1,6 +1,7 @@
 // Turns Claude Code and Codex session logs (JSONL) into chat entries:
 // { kind: "user" | "assistant" | "tools" | "note", key, text, images, items }.
 // Images come out as { data (base64) | path, ext } for the view to cache.
+import { unwrapPastes } from "./lib/chat-text.js";
 
 const MAX_RESULT = 6000;
 
@@ -73,7 +74,8 @@ export class Transcript {
   note(text) { if (text) this.push({ kind: "note", text }); }
 
   user(text, images = []) {
-    text = (text ?? "").replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, "").trim();
+    // ushi-naruse: pasted text without the tags Claude Code wraps it in.
+    text = unwrapPastes(text ?? "").replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, "").trim();
     // Slash commands and their output, as Claude Code records them.
     const cmd = /<command-name>([^<]*)<\/command-name>/.exec(text);
     if (cmd) {

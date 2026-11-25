@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { plainText, quote, commandOf, menuFor } from "../lib/chat-text.js";
+import { plainText, quote, commandOf, menuFor, unwrapPastes } from "../lib/chat-text.js";
 
 test("plainText drops Markdown marks and keeps words, code and line breaks", () => {
   const md = [
@@ -46,4 +46,11 @@ test("menuFor: entries per target; a selection comes first; no side chat without
   assert.deepEqual(ids(menuFor({ kind: "tool", item: { result: null } })), ["copy-command", "|", "show-terminal"]);
   assert.equal(menuFor({ kind: "tools", items: [1, 2] })[0].label, "Copy commands");
   assert.deepEqual(menuFor(null), []);
+});
+
+test("unwrapPastes: the paste tags Claude Code logs go, the pasted text stays", () => {
+  const logged = '\n\n<pasted_content id="b483">\n> a quoted reply\n\n(this is from the menu)\n</pasted_content id="b483">\n';
+  assert.equal(unwrapPastes(logged), "> a quoted reply\n\n(this is from the menu)");
+  assert.equal(unwrapPastes('see <pasted_content id="a1">\nx\n</pasted_content> and more'), "see \nx\n and more");
+  assert.equal(unwrapPastes("no paste here <b>bold</b>"), "no paste here <b>bold</b>");
 });

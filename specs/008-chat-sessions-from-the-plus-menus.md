@@ -76,6 +76,9 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
   chats and kept (`ushi-naruse.fontSize`); clicking the size, or reaching the
   terminals' size, goes back to following them. Palette: `ushi-naruse.font-bigger`,
   `font-smaller`, `font-reset`.
+- R1h **Pasted text** (operator, 2026-11-25): Claude Code logs a paste wrapped in
+  `<pasted_content id="…">` … `</pasted_content id="…">`; the chat showed the tags. The
+  parser drops them and keeps the pasted text (`unwrapPastes`, unit test).
 - R1d **A cow icon** (ushi: cow; operator, 2026-11-25) marks a chat: on its tab in the
   tab bar (`terminals-bar-proc`, which also names it "chat"), in its pane header
   (`nested-tabs`) and on a dock chat subtab (`dock-tabs`). One 16 px line drawing,
@@ -206,6 +209,8 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
 - [x] R14: right-click a message, a reply and a tool call; each entry does what it says
       (the rows are gone: Mac, `herdr-app shot`; the operator right-clicked a reply and
       sent it back through Quote in message box, 2026-11-25).
+- [x] R1h, Mac: a pasted message in this session's chat shows without its tags
+      (`herdr-app shot`, 2026-11-25).
 - [x] R1g, Mac: the chat follows the terminals' 15 px; two A+ steps give 17 (shown
       highlighted), reset follows the terminals again (2026-11-25).
 - [x] R1d, Mac: the cow on the chat's tab and pane header (`herdr-app shot`).
