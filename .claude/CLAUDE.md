@@ -27,6 +27,18 @@ below.
 
 ---
 
+## Cross-platform (non-negotiable)
+
+Every mod, script and vendored piece must work on macOS and Linux (njv-mbp-m1
+and njv-cachyos), and must not knowingly break Windows. Per-platform programs
+go in a table chosen by `window().platform` (or the file's machine's platform
+for remote files), as `cria-file-preview/programs.js` does. A
+platform-specific tool (`sips`, `open`, `pbcopy`, `xdg-open`, `osascript`) is
+only ever one entry in such a table, never the only path. A change that cannot
+be tested on a platform says so in its commit and spec.
+
+---
+
 ## Selected Policies
 
 Load the following policy modules from `~/.claude/policies/`:

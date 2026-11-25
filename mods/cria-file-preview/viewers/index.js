@@ -15,5 +15,6 @@ import json from "./json.js";
 import markdown from "./markdown.js";
 import pdf from "./pdf.js";
 import table from "./table.js";
+import diff from "./diff.js"; // herdr-mods
 
-export const VIEWERS = { code, image, json, markdown, pdf, table };
+export const VIEWERS = { code, image, json, markdown, pdf, table, diff };

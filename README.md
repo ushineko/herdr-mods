@@ -14,6 +14,13 @@ JavaScript panels drawn natively by Herdr's GPUI shell.
 | `terminals-bar-proc` | Terminals bar showing each terminal's running program |
 | `term-menu` | Dock-aware terminal right-click menu |
 | `ui-lab` | Capability demo: Claude ↔ panel round trip, hayami usage meters, floating window |
+| `cria-file-preview` | File viewer in a tab (vendored from gsydler/herdr-cria, Apache-2.0; see `vendor/cria/VENDOR.md`): Markdown with images and links, PDF, images, CSV/TSV, JSON, code, plus local diff view and "Open in <app>" |
+
+## Tests
+
+```sh
+npm test    # ./run-tests.sh: ours + the vendored cria tests, under a throwaway TMPDIR
+```
 
 ## Install
 

@@ -15,6 +15,7 @@ import { previewId, MOVED } from "./open-file.js";
 import { formatSize } from "./size.js";
 import { programs } from "./programs.js";
 import { systemOf } from "./platform.js";
+import { externalRule, openExternal } from "./external-open.js"; // herdr-mods
 
 export class Preview {
   init(_props, cx) {
@@ -24,6 +25,8 @@ export class Preview {
     this.history = [];
     this.size = { width: 900, height: 700 };
     this.show(file && localPath(file, this.system), cx);
+    // herdr-mods: the external app for this file ("Open in Zettlr"), looked up once.
+    if (file) cx.spawn(async (cx) => { this.external = await externalRule(file, on); cx.notify(); });
   }
 
   env() {
@@ -37,7 +40,8 @@ export class Preview {
     this.file = file; this.error = null;
     if (!file) { this.error = "No file to show"; return; }
     if (!reload) this.watch(cx);
-    const viewer = this.viewer = VIEWERS[viewerFor(file)];
+    // herdr-mods: props.diff shows the file's git diff instead of the file.
+    const viewer = this.viewer = VIEWERS[props()?.diff && samePath(file, props().file) ? "diff" : viewerFor(file)];
     const env = this.env(), loading = this.loading = {};
     cx.spawn(async (cx) => {
       const r = await exec(...programs(this.system).bytes(file), { on: this.on }).catch(() => null);
@@ -118,6 +122,8 @@ export class Preview {
           .when(this.bytes != null, (el) => el.child(div().flex_none().text_size(12).text_color(t.dim).child(formatSize(this.bytes))))
           .child(div().flex_1()))
         .when(Boolean(state && viewer?.toolbar), (el) => el.child(viewer.toolbar(state, env)))
+        .when(Boolean(this.external && this.file), (el) => el.child(control("cria-file-preview-external", `Open in ${this.external.app} ↗`,
+          this.on ? `Opens on ${this.on}'s desktop` : `Open in ${this.external.app}`, () => openExternal(this.file, this.on))))
         .when(Boolean(this.file), (el) => el.child(iconButton("more", "more", "Open in editor, reveal, copy the path…", false, () => openMenu(this.file, this.on)))))
       .child(v_flex().id("cria-file-preview-body").flex_1().min_h(0).on_size_change((size, cx) => { this.size = size; cx.notify(); })
         .child(state ? viewer.render(state, env) : div().p(14).text_color(this.error ? t.ansi1 : t.dim).child(this.error ?? "Loading…")));

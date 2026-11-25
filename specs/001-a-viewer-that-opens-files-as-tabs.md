@@ -6,11 +6,22 @@
 
 ## Executive Summary
 
-A `viewer` mod that shows one file in a tab of the current space: Markdown
-rendered (with a source toggle), source code highlighted, images drawn, git
-diffs coloured. `nav` (002) and `git` (003) open files through it, so it comes
-first. It also brings the `lib/` mechanism: pure helpers shared by mods,
-copied in by `install.sh` and unit-tested with `node --test`.
+One file in a tab of the current space: Markdown rendered (images and
+in-document links working), code highlighted, images, PDF pages, CSV/TSV
+tables, JSON as a tree, and git diffs. `nav` (002) and `git` (003) open files
+through it, so it comes first.
+
+**Revised 2026-11-24**: the viewer is `gsydler/herdr-cria`'s file preview,
+vendored as `mods/cria-file-preview` (Apache-2.0; `vendor/cria/VENDOR.md`),
+with local additions for diffs, external apps and a bounded cache. The first
+build (our own `viewer` mod) rendered Markdown through Herdr's `TextView`,
+which draws no images and cannot scroll to anchors; the operator found both,
+and two gallery mods had already solved them. `herdr-cria` was chosen over
+`ryanthedev/herdr-md` (richer, but macOS-only tools and `npm install` +
+Chrome at run time): **cross-platform is non-negotiable** (`.claude/CLAUDE.md`).
+
+The spec also brings the `lib/` mechanism: pure helpers shared by mods, copied
+in by `install.sh` and unit-tested with `node --test`.
 
 ## Context
 
@@ -21,130 +32,97 @@ read in a tab, beside the terminal that is working on it.
 
 ## Requirements
 
-### Opening
+### From the vendored base (cria file preview)
 
-- R1 **One way in.** A viewer tab is opened with
-  `run("tab.new", { name, space, mod: "viewer", props: { path, on, line?, diff? } })`:
-  `path` absolute, `on` the herdr machine name or null for this computer,
-  `line` 1-based, `diff` a `{ repo, staged }` request (R9). `name` is the file's
-  base name (a diff: `Δ <base name>`).
+- R1 **Opening**: `tab.new { name, space, mod: "cria-file-preview", props: { file, on, diff? } }`,
+  `file` absolute, `on` the herdr machine or null.
+- R4 **Kinds** by extension: Markdown, image, PDF, CSV/TSV, JSON, else code
+  (cria `kinds.js`). Binary text says so.
+- R5 **Markdown**: rendered; local images drawn between text blocks; web
+  images after a click; `#anchor`, relative and absolute file links work, with
+  Back; table of contents; Preview | Raw.
+- R6 **Code**: read-only editor, syntax colours from `theme()`, wrap toggle.
+- R7 **Images**: fitted, zoomable; local only.
+- R8 Large text is cut with a note; missing and unreadable files say so.
+- R10 **Follows the file**: a local file reloads when it changes on disk.
+- R11 Header: name, folder and size (click copies), the viewer's controls, ⋯
+  menu (open in editor / default app, reveal, copy path).
+- R12 Colours from `theme()` only.
+
+### Local additions (herdr-mods)
+
 - R2 **No duplicates.** Opening a path already shown in a viewer tab of that
-  space selects that tab instead (and moves to `line` when given). Open viewer
-  tabs are tracked in shared state (`viewer.open`: key `on|path|diff?` → tab
-  id), pruned of tabs that no longer exist.
-- R3 **A helper for callers.** `lib/open.js` exports `openInViewer({ path, on, line, diff })`,
-  used by `nav`, `git`, `ui-lab`, the agent inbox (005) and later a terminal
-  link handler.
+  space selects that tab. `lib/open.js` records tab ids in shared state
+  (`viewer.open`), learning a new tab's id by what appeared (S3).
+- R3 **One helper for callers**: `lib/open.js` `openInViewer(cx, { path, on, line, diff, space, focus })`,
+  used by `nav`, `git`, the agent inbox (005) and later a link handler.
+- R7a **The cache is bounded**: copies older than a day are pruned, at most 200
+  files are kept (newest), and staging a changed image removes its older copy.
+  Pruned when an image, PDF or Markdown document with pictures opens.
+- R9 **Diffs**: with `props.diff = { repo, staged }`, `git diff [--cached]` for
+  the file, coloured, with old/new line numbers; an untracked file diffs
+  against nothing.
+- R13 **`lib/`**: pure modules a mod lists in `mod.json` (`"lib": [...]`);
+  `install.sh` copies them into the installed mod's `lib/`, and fails on a
+  missing one.
+- R14 **Open external**: "Open in <app> ↗" in the header for the file's rule in
+  `~/.config/herdr-mods/external.json` (005 R9–R11; default Markdown → Zettlr,
+  else the system opener; Windows: the system opener). Runs on the file's
+  machine.
 
-### Showing
+### Not done (follow-ups, not blocking)
 
-- R4 **Type by extension, then content**, decided by `lib/filetype.js`:
-  `markdown` (`.md`, `.markdown`, `.mdx`), `image` (`.png`, `.jpg`, `.jpeg`,
-  `.gif`, `.webp`, `.svg`), `code` (a language from a table covering at least
-  js/ts/jsx/tsx/mjs, py, go, rs, sh/bash/zsh, json/jsonc, yaml/yml/toml, html,
-  css, c/h/cpp, java, rb, lua, sql, Dockerfile, Makefile), else `text`.
-  A file containing NUL is `binary`.
-- R5 **Markdown** renders with `TextView.markdown`, selectable, links opening
-  in the browser. A toggle in the header (and `m` when focused) switches to the
-  source in the code editor with Markdown highlighting. The choice is
-  remembered per tab.
-- R6 **Code and text** show in a read-only `Editor` with line numbers, the
-  person's terminal font, syntax colours from `theme()`, and soft wrap off
-  (toggle `w`). `line` puts the cursor on that line (spike S1).
-- R7 **Images** are drawn fitted to the tab, never upscaled past 2×, with their
-  pixel size in the header when known. Local files only (spike S2); a remote
-  image says so.
-- R7a **The image cache is bounded.** Each image tab keeps one copy in
-  `~/.config/herdr-app/data/herdr-mods-viewer/` (S2), named for that tab and
-  replaced, not added to, on reload. The copy is deleted when the tab closes
-  (`close()`); on start the viewer deletes copies older than a day and keeps
-  at most 20 files (newest). Nothing else is written.
-- R8 **Binary, missing, too large**: a short message in place of the content.
-  Text over 2 MB shows the first 2 MB and says it was cut.
-- R9 **Diffs.** With `props.diff`, the viewer runs
-  `git diff [--cached] --no-color -- <path>` in `diff.repo` (on `on`), and draws
-  it with hunk headers dimmed, `+` lines on a green tint, `-` lines on a red
-  tint, and old/new line numbers in a gutter. An untracked file diffs against
-  nothing (all `+`).
-
-### Living with change
-
-- R10 **Follows the file.** A local file is watched (`watchFolder` on its
-  folder) and reloaded when it changes, keeping the scroll position where the
-  editor allows; a remote file is re-read every 5 s while its tab is shown. A
-  diff tab refreshes the same way. A reload that finds the file gone shows R8's
-  "missing" message and keeps watching.
-
-### Look
-
-- R11 **Header**: file-type glyph, the path relative to the repository root if
-  in one (else to home, `~/…`), a machine pill when `on` is set, size and line
-  count, the Markdown toggle. Breadcrumb segments are clickable and open `nav`
-  (002) at that folder once `nav` exists; until then they are plain text.
-- R12 Colours come from `theme()` only, so light and dark themes both work.
-
-### Open external
-
-- R14 **An external app per file type**, configured per machine in
-  `~/.config/herdr-mods/external.json` (format and defaults: 005 R9–R11;
-  default Markdown → Zettlr). The header shows "Open in <app>" for the file's
-  rule, and `e` does the same when the tab has the keyboard. It runs on the
-  file's machine (005 R10). Diff tabs open the file itself.
-
-### Shared code
-
-- R13 **`lib/`**: pure modules with no `herdr`/`gpui-kit` imports. A mod lists
-  the ones it uses in `mod.json` (`"lib": ["filetype.js", "open.js"]`);
-  `install.sh` copies them into the mod's folder as `lib/<file>` before the
-  rsync, and fails if a listed file is missing. `open.js` is the exception that
-  imports `herdr` (it calls `run`); it is not unit-tested.
+- `line` (jump to a line in a code view): our first viewer had it (S1); cria
+  does not. Needed when `git`/agents open at a line.
+- Pictures inside a **remote** Markdown file: cria shows a chip instead.
+  Fetching them (base64 over `exec`, chunked as `herdr-md` does) is a later
+  local change.
 
 ## Spikes
 
 | # | Question | Answer (2026-11-24, njv-mbp-m1) |
 |---|---|---|
-| S1 | Does `EditorState.set_selected_range` scroll a read-only editor to that range? | **Yes.** A 300-line editor with line 250 selected opened scrolled to it, the line number bold. R6's `line` uses it. |
-| S2 | Does `image()` accept an absolute path outside the app home? | **No**: an absolute path and a `file://` URL both draw nothing. A path under the app home's `data/` draws (`data/herdr-mods-viewer/<hash>.<ext>`). A hidden folder inside the mod does not survive `install.sh` (its `--delete`). R7: local images are copied to `data/herdr-mods-viewer/` and drawn from there; copies are pruned when their tab closes and on start (older than a day). |
-| S3 | Can a mod learn its own tab, to rebuild `viewer.open`? | **No**: `props()` holds only what `tab.new` passed; at `init` the new pane is not yet in `panes()` and focus has not moved. In-mod `run()` returns null (the `herdr-app do` CLI does print the new tab id). R2: `openInViewer` records the space's tab ids before `tab.new`, then waits (up to 2 s, 50 ms steps) for the new one and stores it in `viewer.open`; it therefore takes a `cx`. Shared state does not survive an app restart, so a file opened before a restart may get a second tab. |
+| S1 | Does `EditorState.set_selected_range` scroll a read-only editor to that range? | **Yes** (line 250 of 300 scrolled into view, its number bold). |
+| S2 | Does `image()` accept an absolute path outside the app home? | **No**: absolute paths and `file://` draw nothing; paths under the app home's `data/` draw. A hidden folder inside a mod does not survive `install.sh`. cria stages pictures into `data/cria-file-preview/` the same way. |
+| S3 | Can a mod learn its own tab? | **No**: `props()` holds only what `tab.new` passed, and in-mod `run()` returns null. `openInViewer` diffs the space's tab ids before and after. Shared state does not survive an app restart, so a file opened before a restart may get a second tab. |
+| S4 | Does `TextView.markdown` draw images, or report link clicks? | **Draws no images** in any form (relative, absolute, app-home, `file://`, HTML `<img>`); links are clickable and `on_link_click` overrides opening. Why the base was replaced. |
 
 ## Acceptance Criteria
 
-- [ ] `node --test tests/*.test.js` passes: `filetype` for every extension in R4, NUL
-      detection, unknown extension → text; diff parsing (hunks, +/- lines, line
-      numbers, an untracked file).
-- [ ] `install.sh` copies `lib/` files listed in `mod.json`, and fails on a
-      missing one; `shellcheck` clean.
-- [ ] `herdr-app check` passes for `viewer`.
-- [ ] Real window (Mac): a Markdown file renders and toggles to source; a `.go`
-      and a `.py` file are highlighted; a PNG shows; a binary file shows the
-      message; opening the same file twice selects the first tab.
-- [ ] Real window: editing an open local file from the terminal updates the tab
-      within 2 s.
-- [ ] Real window: a diff tab for a modified file shows coloured hunks.
-- [ ] Closing an image tab removes its copy from `data/herdr-mods-viewer/`;
-      the folder never holds more than 20 files.
-- [ ] Real window (Mac, remote file on njv-cachyos): a Markdown file on
-      `njv-cachyos-default` opens and renders.
-- [ ] Real window: "Open in Zettlr" on a Markdown tab opens Zettlr (Mac);
-      with no `external.json`, a `.png` opens in the system viewer.
-- [x] Spike answers S1–S3 written into this spec.
+- [x] `npm test`: ours (filetype, diff incl. untracked, external rules incl.
+      Windows defaults) and cria's (programs incl. bounded prune and stale-copy
+      removal, samples, links, paths, windows commands) pass; no temp folders
+      left behind.
+- [x] `install.sh` copies listed `lib/` files and fails on a missing one;
+      `shellcheck install.sh run-tests.sh` clean.
+- [x] `herdr-app check` passes for `cria-file-preview`.
+- [x] Real window (Mac): Markdown with a local image renders the image,
+      including one written inline in a sentence (`doc.md` fixture).
+- [x] Real window: the hayami README renders with ToC, Preview | Raw, ⋯.
+- [x] Real window: a diff tab for a modified file shows coloured hunks, line
+      numbers, `+2 −1`, "Working tree".
+- [ ] Real window: an `#anchor` link scrolls to its heading; a relative `.md`
+      link opens that file with Back (operator click).
+- [ ] Real window: "Open in Zettlr" on a Markdown file opens Zettlr (Mac); on a
+      njv-cachyos file it opens on that machine (operator click).
+- [ ] Real window: a remote Markdown file on `njv-cachyos-default` opens.
+- [ ] Real window: editing an open local file from the terminal updates it.
+- [ ] Opening the same file twice through `openInViewer` selects the first tab
+      (checked with `nav`, 002).
+- [ ] The cache folder never holds more than 200 files; an edited image leaves
+      one copy.
 
 ## Threat model delta
 
-No new boundary: the viewer reads files the person's terminals can already
-read, through herdr's own `readTextFile`/`exec`. Paths come from other mods,
-not from file content. `git diff` is run with an argument vector, never a
-shell string.
+The vendored code reads files the person's terminals can already read and runs
+fixed argument vectors (`git`, `sh`, `file`/`sips`, `pdftoppm`/PDFKit, PowerShell
+on Windows). New: web images are downloaded with `curl` (https only, 5 MB,
+10 s) **only after a click** on the document's "Load them" bar. "Open in
+editor" asks the login shell for `$VISUAL`/`$EDITOR`. External apps come from
+the person's own config. Diffs run `git diff` with paths after `--`.
 
 ## Risks & Assumptions
 
-- Very large files make the editor slow; R8's 2 MB cut bounds it.
-- `watchFolder` has a 64-folder limit across mods; one watch per open viewer
-  tab is well inside it for normal use.
-
-## E2E Test Plan
-
-On the Mac: `open` the repo's README via `ui-lab`'s state file or `herdr-app do tab.new`
-with props; screenshot; edit it with `echo >> README.md`; screenshot again;
-toggle source; open a diff of a modified file. Repeat the Markdown case with a
-file on njv-cachyos.
+- Upstream changes are merged by hand (VENDOR.md); local changes are marked
+  `herdr-mods` in the code.
+- `watchFolder` has a 64-folder limit across mods; one watch per open preview.

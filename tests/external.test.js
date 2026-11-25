@@ -22,6 +22,11 @@ test("defaults: markdown -> Zettlr, anything else -> system opener", () => {
   assert.equal(pickRule(DEFAULT_RULES, "/a/pic.png", "macos").app, "default app");
 });
 
+test("defaults on Windows: no Zettlr rule there, so Markdown falls through to the default app", () => {
+  assert.equal(pickRule(DEFAULT_RULES, "C:\\a\\README.md", "windows").app, "default app");
+  assert.deepEqual(argvFor(pickRule(DEFAULT_RULES, "C:\\a\\x.png", "windows"), "windows", "C:\\a\\x.png"), ["cmd", "/c", "start", "", "C:\\a\\x.png"]);
+});
+
 test("rules are tried in order; ext and type both match", () => {
   const rules = [
     { match: { ext: ["PDF"] }, app: "Preview", macos: ["open", "{path}"] },

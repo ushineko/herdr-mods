@@ -14,7 +14,7 @@ import { resolveLink } from "../links.js";
 import { readText, codeState, codeView } from "./text.js";
 import { rawToggle, iconButton, wrapButton } from "./controls.js";
 import { splitBlocks, imageNote } from "../markdown-blocks.js";
-import { stageImage, fetchImage } from "../media.js";
+import { stageImage, fetchImage, pruneCache } from "../media.js";
 
 let views = 0;
 
@@ -58,6 +58,7 @@ export default {
       else if (to.file && !env.on) block.image.picture = await stageImage(to.file).catch((e) => { block.image.failed = String(e?.message ?? e); return null; });
       else if (to.error) block.image.failed = to.error;
     }
+    if (blocks.some((b) => b.image)) pruneCache(); // herdr-mods: Markdown pictures are cached too
     const raw = previous?.raw ?? false;
     const state = { text, blocks, raw, editor: raw ? codeState(text, "markdown") : null, from: null,
       contents: previous?.contents ?? false, web: previous?.web === "loaded" ? "loading" : "ask", id: `cria-file-preview-md-${++views}` };

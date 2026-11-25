@@ -8,7 +8,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { programs, pdfPages, pictureSize, popplerPages } from "../../../mods/cria-file-preview/programs.js";
+import { programs, pdfPages, pictureSize, popplerPages, KEEP } from "../../../mods/cria-file-preview/programs.js";
 import { commands, powershell } from "../../../mods/cria-file-preview/platform.js";
 import { terminalEditor } from "../../../mods/cria-file-preview/editor-command.js";
 
@@ -98,13 +98,41 @@ test("head: the first bytes, exactly", () => {
   assert.deepEqual(spawnSync(program, args).stdout, Buffer.from("0123"));
 });
 
-test("prune: drops only what is over two weeks old", () => {
+// herdr-mods: the cache keeps a day (was two weeks) and at most KEEP files.
+test("prune: drops what is over a day old", () => {
   const dir = mkdtempSync(join(tmpdir(), "cria-prune-")), old = join(dir, "old.png"), fresh = join(dir, "fresh.png");
   writeFileSync(old, "x"); writeFileSync(fresh, "x");
-  utimesSync(old, new Date(Date.now() - 20 * 864e5), new Date(Date.now() - 20 * 864e5));
+  utimesSync(old, new Date(Date.now() - 2 * 864e5), new Date(Date.now() - 2 * 864e5));
   const r = run(P.prune(dir));
   assert.equal(r.status, 0, r.stderr);
   assert.deepEqual(readdirSync(dir), ["fresh.png"]);
+});
+
+test("prune: keeps only the newest KEEP files", { skip: process.platform === "win32" }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "cria-prune-"));
+  for (let i = 0; i < KEEP + 3; i++) {
+    const f = join(dir, `f${i}.png`);
+    writeFileSync(f, "x");
+    const t = new Date(Date.now() - (KEEP + 3 - i) * 1000);
+    utimesSync(f, t, t);
+  }
+  assert.equal(run(P.prune(dir)).status, 0);
+  const left = readdirSync(dir);
+  assert.equal(left.length, KEEP);
+  for (const gone of ["f0.png", "f1.png", "f2.png"]) assert.ok(!left.includes(gone), gone);
+});
+
+test("stage: a changed file replaces its older copy, and leaves PDF pages alone", { skip: process.platform === "win32" }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "cria-stage-")), src = join(dir, "a.png"), cache = join(dir, "cache");
+  writeFileSync(src, "one");
+  utimesSync(src, new Date(1e12), new Date(1e12));
+  const first = run(P.stage(src, cache, "k", "png")).stdout.trim();
+  writeFileSync(join(cache, "k-1000000000-p1.png"), "page");
+  writeFileSync(src, "two");
+  utimesSync(src, new Date(2e12), new Date(2e12));
+  const second = run(P.stage(src, cache, "k", "png")).stdout.trim();
+  assert.notEqual(first, second);
+  assert.deepEqual(readdirSync(cache).sort(), ["k-1000000000-p1.png", second].sort());
 });
 
 test("prune: reaches hidden files too", windows, () => {

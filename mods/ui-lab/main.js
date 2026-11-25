@@ -87,7 +87,7 @@ export default class UiLab extends View {
   }
 
   popOut() {
-    openOverlay({ mod: "ui-lab", props: { compact: true }, kind: "window", key: "ui-lab-usage", keep: true, width: 380, frame: "none" });
+    openOverlay({ mod: "ui-lab", props: { compact: true }, kind: "window", key: "ui-lab-usage", width: 380, frame: "none" });
   }
 
   usageRows(t) {

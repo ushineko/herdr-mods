@@ -1,1 +1,1 @@
-{ "place": "none" }
+{ "place": "none", "lib": ["filetype.js", "diff.js", "external.js"] }

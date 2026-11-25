@@ -143,7 +143,7 @@ test("other systems keep their commands", () => {
   assert.equal(mac.fetch("https://x/a.png", "/d", "k")[0], "sh");
   assert.equal(programs("remote").bytes("/a.png")[0], "sh");
   assert.equal(programs("remote").head("/a.txt", 5)[0], "sh");
-  assert.equal(linux.prune("/d")[0], "find");
+  assert.equal(linux.prune("/d")[0], "sh"); // herdr-mods: prune is a script (age + count)
   assert.deepEqual(linux.move("/a", "/b"), ["mv", ["-f", "/a", "/b"]]);
   assert.deepEqual(mac.remove("/a"), ["rm", ["-f", "/a"]]);
   assert.equal(mac.pdf("/a.pdf", "/d", "k", 1, 6, 1600)[0], "osascript");

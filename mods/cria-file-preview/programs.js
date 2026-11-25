@@ -11,12 +11,24 @@ import { GONE } from "./text-file.js";
 const MTIME = String.raw`$(stat -c %Y "$src" 2>/dev/null || stat -f %m "$src")`;
 
 // sh: copies `src` into `dir` as <key>-<mtime>.<ext> unless there already; prints the name.
+// herdr-mods: older copies of the same file (an earlier mtime) are removed.
 const STAGE = String.raw`
 src=$1 dir=$2 key=$3 ext=$4
 [ -f "$src" ] || { echo "${GONE}" >&2; exit 1; }
 name="$key-${MTIME}.$ext"
 mkdir -p "$dir" && { [ -f "$dir/$name" ] || cp "$src" "$dir/$name"; } || exit 1
+for old in "$dir/$key"-*."$ext"; do
+  case $old in "$dir/$name"|*-p[0-9]*) ;; *) [ -f "$old" ] && rm -f -- "$old" ;; esac
+done
 echo "$name"`;
+
+// herdr-mods: the cache is bounded: nothing older than a day, at most KEEP files (newest).
+export const KEEP = 200;
+const PRUNE = String.raw`
+dir=$1 keep=$2
+[ -d "$dir" ] || exit 0
+find "$dir" -type f -mmin +1440 -exec rm -f {} +
+ls -t "$dir" | tail -n +$((keep + 1)) | while IFS= read -r f; do rm -f -- "$dir/$f"; done`;
 
 // sh: downloads `url` to <dir>/<key>.download (https only, 10 s, 5 MB); prints its MIME type.
 const FETCH = String.raw`
@@ -46,6 +58,8 @@ if (-not [IO.File]::Exists($out)) {
   [IO.File]::WriteAllBytes($tmp, [IO.File]::ReadAllBytes($src))
   ${PLACE}
 }
+# herdr-mods: older copies of the same file go (untested on Windows).
+Get-ChildItem -LiteralPath $dir -File -Filter ($key + '-*.' + $ext) | Where-Object { $_.Name -ne $name -and $_.Name -notmatch '-p\d+\.' } | Remove-Item -Force -ErrorAction SilentlyContinue
 $name`;
 
 // `file --mime-type` for what the preview draws: the type of the bytes in $tmp. An SVG's
@@ -89,9 +103,12 @@ try {
   $out.Flush()
 } finally { $stream.Dispose() }`;
 
+// herdr-mods: a day and KEEP files, as PRUNE (untested on Windows).
 const PRUNE_WINDOWS = String.raw`
-$old = (Get-Date).AddDays(-14)
-Get-ChildItem -LiteralPath $args[0] -File -Force | Where-Object { $_.LastWriteTime -lt $old } | Remove-Item -Force -ErrorAction SilentlyContinue`;
+if (-not [IO.Directory]::Exists($args[0])) { exit 0 }
+$old = (Get-Date).AddDays(-1)
+Get-ChildItem -LiteralPath $args[0] -File -Force | Where-Object { $_.LastWriteTime -lt $old } | Remove-Item -Force -ErrorAction SilentlyContinue
+Get-ChildItem -LiteralPath $args[0] -File -Force | Sort-Object LastWriteTime -Descending | Select-Object -Skip ([int]$args[1]) | Remove-Item -Force -ErrorAction SilentlyContinue`;
 
 /** { width, height } from sips or `file -b` output; zeros when it names no size. */
 export function pictureSize(text) {
@@ -220,7 +237,7 @@ const POSIX = {
   size: (file) => ["file", ["-b", file]],
   bytes: (file) => ["sh", ["-c", 'wc -c < "$1"', "size", file]],
   head: (file, bytes) => ["sh", ["-c", 'head -c "$2" "$1"', "head", file, String(bytes)]],
-  prune: (dir) => ["find", [dir, "-type", "f", "-mtime", "+14", "-delete"]],
+  prune: (dir) => ["sh", ["-c", PRUNE, "prune", dir, String(KEEP)]],
   move: (from, to) => ["mv", ["-f", from, to]],
   remove: (file) => ["rm", ["-f", file]],
   pdf: (file, dir, key, from, to, wide) => ["sh", ["-c", POPPLER, "pdf", file, dir, key, String(from), String(to), String(wide)]],
@@ -240,7 +257,7 @@ const WINDOWS = {
   size: (file) => powershell(SIZE_WINDOWS, win(file)),
   bytes: (file) => powershell("(Get-Item -LiteralPath $args[0]).Length", win(file)),
   head: (file, bytes) => powershell(HEAD_WINDOWS, win(file), String(bytes)),
-  prune: (dir) => powershell(PRUNE_WINDOWS, win(dir)),
+  prune: (dir) => powershell(PRUNE_WINDOWS, win(dir), String(KEEP)),
   move: (from, to) => powershell("Move-Item -LiteralPath $args[0] -Destination $args[1] -Force", win(from), win(to)),
   remove: (file) => powershell("Remove-Item -LiteralPath $args[0] -Force -ErrorAction SilentlyContinue", win(file)),
   pdf: (file, dir, key, from, to, wide) => powershell(PDF_WINDOWS, win(file), win(dir), key, String(from), String(to), String(wide)),

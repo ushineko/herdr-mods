@@ -51,7 +51,7 @@ export async function fetchImage(url) {
   return picture(`${k}.${ext}`).catch(async (e) => { await exec(...here().remove(kept)); throw e; });
 }
 
-/** Drops cached pages and pictures older than two weeks. */
+/** Drops cached pages and pictures older than a day, and all but the newest KEEP (herdr-mods). */
 export function pruneCache() {
   return exec(...here().prune(DIR())).catch(() => null);
 }
