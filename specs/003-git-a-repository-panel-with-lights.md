@@ -110,7 +110,18 @@ the panel should answer at a glance.
   the shared status scan (002 R6); worktree list and upstream distance refresh
   with it; agent lights are live (herdr data, no polling).
 
+### Layout
+
+- R14 **Horizontal and vertical** (operator, 2026-11-24: the docks are on the
+  right and at the bottom). The mod measures its block (`on_size_change`,
+  divided by `settings().zoom`): wider than 1.8 × its height is horizontal,
+  else vertical, re-decided on every resize. Vertical is the layout above.
+  Horizontal: the header is one line (branch, upstream, follow light, machine, repository, lock) and the body is three columns side by side, each scrolling: worktrees (300 px), changes with the commit field, recent commits (320 px); keys are unchanged.
+
 ## Acceptance Criteria
+
+- [ ] Real window: in a wide, short block the horizontal layout shows; in a
+      narrow, tall one the vertical; resizing switches between them.
 
 - [ ] `node --test tests/*.test.js`: `git worktree list --porcelain` parsing (main,
       linked, detached, locked, prunable); porcelain v1 `-z` into the three

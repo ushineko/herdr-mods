@@ -78,7 +78,18 @@ and marks git status; it is the starting point for the reading code
   ansi colours the shipped `files` uses; the follow light pulses once
   (`.transition`) when it re-locks.
 
+### Layout
+
+- R14 **Horizontal and vertical** (operator, 2026-11-24: the docks are on the
+  right and at the bottom). The mod measures its block (`on_size_change`,
+  divided by `settings().zoom`): wider than 1.8 × its height is horizontal,
+  else vertical, re-decided on every resize. Vertical is the layout above.
+  Horizontal: the header is one line (light, machine, breadcrumb, branch) and the entries wrap into a grid of 240 px cells; keys are unchanged.
+
 ## Acceptance Criteria
+
+- [ ] Real window: in a wide, short block the horizontal layout shows; in a
+      narrow, tall one the vertical; resizing switches between them.
 
 - [ ] `node --test tests/*.test.js`: breadcrumb from (home, cwd) on Linux and macOS
       paths; entry sorting and hidden filtering; porcelain parsing into marks

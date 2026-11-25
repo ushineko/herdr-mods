@@ -1,6 +1,6 @@
 {
   "place": "none",
   "focusable": true,
-  "lib": ["nav.js", "filetype.js", "external.js", "external-open.js", "open.js"],
+  "lib": ["nav.js", "filetype.js", "external.js", "external-open.js", "open.js", "location.js"],
   "palette": [{ "title": "Nav: open beside", "command": "pane.split", "args": { "direction": "right", "mod": "nav" }, "words": "files folder browser yazi" }]
 }

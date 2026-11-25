@@ -3,15 +3,17 @@
 // in cria-file-preview. No file operations: those are asked of the agent.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, ScrollHandle } from "gpui-base";
-import { spaces, panes, focused, terminals, exec, watchFolder, window, theme, settings, home, notify, nextCommand, checking } from "herdr";
+import { exec, watchFolder, window, theme, settings, home, notify, nextCommand, checking } from "herdr";
 import { breadcrumb, parentOf, childOf, parseListing, sortEntries, filterEntries, parsePorcelain, marksFor, keyAction } from "./lib/nav.js";
 import { fileType } from "./lib/filetype.js";
 import { openExternal, openDefault } from "./lib/external-open.js";
 import { openInViewer } from "./lib/open.js";
+import { terminalLocation, fallbackLocation } from "./lib/location.js";
 
 const PER_FOLDER = 500;
 const REMOTE_POLL = 5000;
 const ROW = 26;
+const CELL = 240; // a grid cell's width in the horizontal layout
 const READ = ["--no-optional-locks", "-c", "core.fsmonitor=false"];
 
 // NUL-separated kind/name pairs, .git skipped, one past the cap so overflow shows.
@@ -50,23 +52,6 @@ async function machineOf(on) {
   return info;
 }
 
-// The focused tab pane's terminal folder. Layout blocks (dock shells, the usage strip)
-// and mod panes (nav itself, git, a viewer) do not count: following keeps the last one.
-function terminalLocation() {
-  const f = focused();
-  if (!f?.pane) return null;
-  const pane = panes().find((p) => p.pane === f.pane);
-  if (!pane?.terminal) return null;
-  let cwd = pane.cwd;
-  if (f.shown && f.shown !== pane.terminal) {
-    const shown = terminals().find((t) => t.address === f.shown || t.id === f.shown);
-    cwd = shown?.cwd ?? cwd;
-  }
-  if (!cwd) return null;
-  const space = spaces().find((s) => s.id === f.space) ?? spaces().find((s) => s.active);
-  return { cwd, on: space?.machine ?? null, space: space?.id ?? null };
-}
-
 export default class Nav extends View {
   init(_props, cx) {
     this.follow = true;
@@ -79,7 +64,7 @@ export default class Nav extends View {
     this.filter = InputState.new({ placeholder: "Filter" });
     this.filter.on("change", (_e, cx) => { this.query = this.filter.value(); this.keepSelection(); cx.notify(); });
     this.filter.on("submit", (_e, cx) => { this.filtering = false; this.handle.focus(); cx.notify(); });
-    this.last = terminalLocation();
+    this.last = terminalLocation() ?? fallbackLocation();
     if (this.last) this.go(this.last.cwd, this.last.on, cx, { space: this.last.space });
     if (checking()) return;
     cx.spawn(async (cx) => {
@@ -115,7 +100,7 @@ export default class Nav extends View {
 
   relock(cx) {
     this.follow = true;
-    const loc = terminalLocation() ?? this.last;
+    const loc = terminalLocation() ?? this.last ?? fallbackLocation();
     if (loc) this.go(loc.cwd, loc.on, cx, { space: loc.space });
     cx.notify();
   }
@@ -248,6 +233,9 @@ export default class Nav extends View {
     if (this.follow && loc && (loc.cwd !== this.path || loc.on !== this.on)) this.go(loc.cwd, loc.on, cx, { space: loc.space });
 
     const t = theme();
+    // Horizontal in a wide, short block (the bottom dock), vertical otherwise (R14).
+    const zoom = settings().zoom ?? 1;
+    const wide = Boolean(this.size) && this.size.width / zoom > 1.8 * (this.size.height / zoom);
     const crumbs = this.path ? breadcrumb(this.path, this.home) : [];
     const rows = this.rows();
     const lit = this.follow;
@@ -257,24 +245,26 @@ export default class Nav extends View {
       .tooltip(lit ? "Following the focused terminal (click: stay here)" : "Not following (click or F: follow the focused terminal)")
       .on_click((_e, cx) => { if (this.follow) { this.follow = false; cx.notify(); } else this.relock(cx); });
 
-    const header = v_flex().flex_none().px(10).pt(8).pb(6).gap(6).border_b(1).border_color(t.border)
-      .child(h_flex().gap(8).items_center()
-        .child(light)
-        .child(div().px(7).h(20).flex().items_center().rounded(10).border_1().border_color(t.border).text_size(11).text_color(t.muted)
-          .child(this.on ?? "local"))
-        .child(div().flex_1())
-        .when(Boolean(this.branch), (el) => el.child(h_flex().gap(5).items_center().px(7).h(20).rounded(10).bg(t.raised).text_size(11.5)
-          .child(div().text_color(t.muted).child("⎇"))
-          .child(div().max_w(160).truncate().child(this.branch))
-          .when(this.dirty > 0, (el) => el.child(div().size(7).rounded(4).bg(t.blocked))))))
-      .child(h_flex().flex_wrap().gap(2).items_center().text_size(12.5)
-        .children(crumbs.flatMap((c, i) => {
-          const last = i === crumbs.length - 1;
-          const seg = div().id(`nav-crumb-${i}`).px(4).rounded(4).cursor_pointer().hover((s) => s.bg(t.hover))
-            .text_color(last ? t.foreground : t.muted).when(last, (el) => el.font_semibold())
-            .on_click((_e, cx) => this.browse(c.path, cx)).child(c.label);
-          return i ? [div().text_color(t.dim).child("›"), seg] : [seg];
-        })));
+    const pill = div().px(7).h(20).flex().flex_none().items_center().rounded(10).border_1().border_color(t.border).text_size(11).text_color(t.muted)
+      .child(this.on ?? "local");
+    const branchChip = this.branch && h_flex().flex_none().gap(5).items_center().px(7).h(20).rounded(10).bg(t.raised).text_size(11.5)
+      .child(div().text_color(t.muted).child("⎇"))
+      .child(div().max_w(160).truncate().child(this.branch))
+      .when(this.dirty > 0, (el) => el.child(div().size(7).rounded(4).bg(t.blocked)));
+    const crumbRow = h_flex().gap(2).items_center().text_size(12.5).when(!wide, (el) => el.flex_wrap()).when(wide, (el) => el.flex_1().min_w(0).overflow_hidden())
+      .children(crumbs.flatMap((c, i) => {
+        const last = i === crumbs.length - 1;
+        const seg = div().id(`nav-crumb-${i}`).flex_none().px(4).rounded(4).cursor_pointer().hover((s) => s.bg(t.hover))
+          .text_color(last ? t.foreground : t.muted).when(last, (el) => el.font_semibold())
+          .on_click((_e, cx) => this.browse(c.path, cx)).child(c.label);
+        return i ? [div().flex_none().text_color(t.dim).child("›"), seg] : [seg];
+      }));
+    const header = wide
+      ? h_flex().flex_none().h(34).px(10).gap(8).items_center().border_b(1).border_color(t.border)
+        .child(light).child(pill).child(crumbRow).when(Boolean(branchChip), (el) => el.child(branchChip))
+      : v_flex().flex_none().px(10).pt(8).pb(6).gap(6).border_b(1).border_color(t.border)
+        .child(h_flex().gap(8).items_center().child(light).child(pill).child(div().flex_1()).when(Boolean(branchChip), (el) => el.child(branchChip)))
+        .child(crumbRow);
 
     const mark = { M: t.blocked, A: t.ansi2, D: t.ansi1, U: t.ansi1, "?": t.ansi2 };
     const row = (e, i) => {
@@ -283,7 +273,7 @@ export default class Nav extends View {
       const tint = e.dir ? t.ansi4 : kind === "markdown" ? t.ansi6 : kind === "image" ? t.ansi3 : t.muted;
       const m = e.dir ? null : this.marks.files[e.name];
       const count = e.dir ? this.marks.folders[e.name] : 0;
-      return h_flex().id(`nav-row-${i}`).h(ROW).flex_none().px(8).gap(8).items_center().rounded(6).cursor_pointer()
+      return h_flex().id(`nav-row-${i}`).h(ROW).flex_none().px(8).gap(8).items_center().rounded(6).cursor_pointer().when(wide, (el) => el.w(CELL))
         .when(sel, (el) => el.bg(t.selected)).hover((s) => s.bg(sel ? t.selected : t.hover))
         .on_click((_e, cx) => { this.selected = e.name; this.activate(e, cx); cx.notify(); })
         .child(svg(`mods/nav/${e.dir ? "folder" : "file"}.svg`).size(14).flex_none().text_color(tint))
@@ -298,7 +288,9 @@ export default class Nav extends View {
         ? div().p(12).text_size(12).text_color(t.dim).child("Focus a terminal to show its folder")
         : !rows.length
           ? div().p(12).text_size(12).text_color(t.dim).child(this.loading ? "Loading…" : this.query ? "Nothing matches" : "Empty folder")
-          : v_flex().id("nav-list").flex_1().min_h(0).p(4).overflow_y_scrollbar().track_scroll(this.scroll).children(rows.map(row));
+          : wide
+            ? h_flex().id("nav-list").flex_1().min_h(0).p(4).flex_wrap().content_start().items_start().overflow_y_scrollbar().track_scroll(this.scroll).children(rows.map(row))
+            : v_flex().id("nav-list").flex_1().min_h(0).p(4).overflow_y_scrollbar().track_scroll(this.scroll).children(rows.map(row));
 
     const footer = h_flex().h(28).flex_none().px(10).gap(8).items_center().border_t(1).border_color(t.border).text_size(11).text_color(t.dim)
       .when(this.filtering || Boolean(this.query), (el) => el.child(Input.new(this.filter).flex_1().h(22).px(6).rounded(5).border_1().border_color(t.input).bg(t.background).text_size(12)))
@@ -307,6 +299,7 @@ export default class Nav extends View {
         .child(div().child("/ filter · . hidden · F follow")));
 
     return v_flex().id("nav").track_focus(this.handle)
+      .on_size_change((size, cx) => { this.size = size; cx.notify(); })
       .on_key_down((e, cx) => {
         if (this.filtering && e.key !== "escape") return;
         if (this.filtering) { this.filtering = false; this.query = ""; this.filter.set_value(""); this.filter.blur(); this.handle.focus(); this.keepSelection(); cx.notify(); cx.stop_propagation(); return; }
