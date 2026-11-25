@@ -81,6 +81,8 @@ the panel should answer at a glance.
   staged diff); `o` opens the file itself.
 - R8 **Recent commits**: the last 50 on the branch (short hash, subject,
   relative age) in their own scrolling pane (operator, 2026-11-24; was 5).
+- R8a-1 A drill-down closes when the panel moves to another folder or worktree (it
+  stayed open over the new repository; operator, 2026-11-25).
 - R8b **Recent fills the panel** (operator, 2026-11-25): an expand/collapse button in the
   Recent header; expanded, the commit list is the whole body (worktrees and changes
   hidden), kept across reloads.

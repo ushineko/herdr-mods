@@ -120,7 +120,8 @@ export default class Git extends View {
   goTo(loc, cx) {
     const moved = !this.loc || loc.cwd !== this.loc.cwd || loc.on !== this.loc.on;
     // The same folder keeps its location object: the folder watch runs while it is current.
-    if (moved) { this.loc = loc; this.root = undefined; this.logLimit = RECENT; this.watchHere(cx); }
+    // Another folder: a commit drill-down open for the old one closes (R8a), back to the lists.
+    if (moved) { this.loc = loc; this.root = undefined; this.logLimit = RECENT; this.commit = null; this.watchHere(cx); }
     else this.loc.space = loc.space ?? this.loc.space;
     this.refresh(cx);
   }
@@ -191,7 +192,10 @@ export default class Git extends View {
         // looked up on every render.
         this.index = indexWorktrees(this.worktrees);
         const here = this.index.lookup(loc.cwd);
+        const was = this.shown;
         if (this.follow || !this.worktrees.some((w) => w.path === this.shown)) this.shown = here?.path ?? this.worktrees[0]?.path;
+        if (this.shown !== was) this.commit = null; // another worktree: its own lists, not the old commit
+
         await this.readShown();
         await this.readCounts();
         this.readAt = Date.now();
