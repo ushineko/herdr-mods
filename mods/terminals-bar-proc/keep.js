@@ -3,7 +3,7 @@
 // named like the closing tab, first; then the tab closes. The chat closes with it.
 
 import { panes, spaces, terminals, hc, run, notify } from "herdr";
-import { agentsToKeep, localId } from "./lib/chat-entries.js";
+import { agentsToKeep, localId, visibleNeighbour } from "./lib/chat-entries.js";
 
 const machinePart = (id) => (String(id).includes("/") ? String(id).slice(0, String(id).lastIndexOf("/") + 1) : "");
 const wait = (cx, ms) => new Promise((done) => cx.timer.after(ms, () => done()));
@@ -28,10 +28,28 @@ async function moveOut(addr, space, name, cx) {
   return true;
 }
 
+/**
+ * Before the shown tab closes, shows a visible neighbour and waits for it: the app
+ * would pick one itself, a chat's hidden (settled) terminal tab included, which
+ * flashed up until the chat sent it back.
+ */
+export async function leaveTab(tab, cx) {
+  const tabs = spaces().find((s) => s.tabs?.some((t) => t.id === tab))?.tabs ?? [];
+  if (!tabs.find((t) => t.id === tab)?.active) return;
+  const next = visibleNeighbour(tabs, tab);
+  if (!next) return;
+  run("tab.select", { id: next });
+  const shown = () => spaces().some((s) => s.tabs?.some((t) => t.id === next && t.active));
+  for (let i = 0; i < 20 && !shown(); i++) await wait(cx, 50);
+}
+
 /** Closes tab `tab` (of `space`, named `name`), keeping the chat agents in it alive. */
 export function closeTab(tab, space, name, cx) {
   const keep = agentsToKeep(tab, panes(), terminals());
-  if (!keep.length) { run("tab.close", { id: tab }); return; }
+  if (!keep.length) {
+    cx.spawn(async (cx) => { await leaveTab(tab, cx); run("tab.close", { id: tab }); });
+    return;
+  }
   cx.spawn(async (cx) => {
     for (const addr of keep) {
       if (!(await moveOut(addr, space, name, cx))) {
@@ -39,6 +57,7 @@ export function closeTab(tab, space, name, cx) {
         return;
       }
     }
+    await leaveTab(tab, cx);
     run("tab.close", { id: tab, confirmed: true });
   });
 }

@@ -6,7 +6,7 @@
 // it ends when the chat (or its tab) is closed (sweep).
 
 import { knownAgents, exec, hc, panes, spaces, terminals, run, window, notify, setShared } from "herdr";
-import { chatEntries, strayChats, orphanedHidden, toSettle, toRename, localId, newChatId, ID_LABEL, CHAT_LABEL, HIDDEN_LABEL, OWNER_LABEL } from "./lib/chat-entries.js";
+import { chatEntries, strayChats, orphanedHidden, toSettle, toRename, localId, newChatId, ID_LABEL, visibleNeighbour, CHAT_LABEL, HIDDEN_LABEL, OWNER_LABEL } from "./lib/chat-entries.js";
 
 const where = (base) => {
   const i = base.indexOf("/");
@@ -72,6 +72,25 @@ async function openChat(addr, make, more = []) {
     if (chat) return hc(["label", addr, ...[OWNER_LABEL, ...more].map((k) => `${k}=${localId(chat.pane)}`)]);
     await pause();
   }
+}
+
+/**
+ * Closes pane `pane`. When it is the shown tab's last pane, the tab closes with it and
+ * the app picks a neighbour itself, a chat's hidden (settled) terminal tab included,
+ * which flashed up: a visible neighbour is shown first.
+ */
+export function closePane(pane, cx) {
+  const me = panes().find((p) => p.pane === pane);
+  const last = me && !panes().some((p) => p.tab === me.tab && p.pane !== pane);
+  const tabs = spaces().find((s) => s.tabs?.some((t) => t.id === me?.tab))?.tabs ?? [];
+  const next = last && tabs.find((t) => t.id === me.tab)?.active ? visibleNeighbour(tabs, me.tab) : null;
+  if (!next) { run("pane.close", { pane }); return; }
+  run("tab.select", { id: next });
+  cx.spawn(async (cx) => {
+    const shown = () => spaces().some((s) => s.tabs?.some((t) => t.id === next && t.active));
+    for (let i = 0; i < 20 && !shown(); i++) await new Promise((done) => cx.timer.after(50, () => done()));
+    run("pane.close", { pane });
+  });
 }
 
 /**

@@ -169,6 +169,12 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
   only then closes the tab (`agentsToKeep`, terminals-bar-proc `keep.js`); if the move
   fails the tab stays open with a warning. The pane-close key still closes a pane: no
   mod can stand in for it.
+  **No flash of a hidden terminal** (operator, 2026-11-25): when the shown tab closes,
+  the app picks a neighbour itself, a settled tab included, so a chat's hidden terminal
+  showed until the chat sent it back. The tab bar's × and a pane header's × (on a tab's
+  last pane, and the close-pane command) first show the nearest visible neighbour
+  (`visibleNeighbour`) and wait for it, then close. Measured on the Mac: the app's own
+  close showed the hidden tab for ~7 samples at 50 ms; with this, none.
 - R13 **Commands** for the chat actions (palette, keys; also how they are tested end to
   end without clicks): `nested-tabs.chat` (new chat), `nested-tabs.open-chat`,
   `nested-tabs.close-pane` (the ×), `dock-tabs.chat`, `ushi-naruse.back` (Back to

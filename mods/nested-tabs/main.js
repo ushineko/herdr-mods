@@ -85,6 +85,8 @@ export default class NestedTabs extends View {
       setShared("dock-tabs.cmd", { c, at: now });
       return;
     }
+    // Close this pane also works on a mod pane (a viewer), which has no terminal.
+    if (c === "close-pane" && pane && !base && f?.pane === pane) { Chat.closePane(pane, cx); return; }
     if (!pane || !base || f?.pane !== pane) return;
     if (lastCommand.name === c && now - lastCommand.at < 120) return;
     lastCommand = { name: c, at: now };
@@ -100,7 +102,7 @@ export default class NestedTabs extends View {
     }
     else if (c === "close-pane") {
       const shown = S.shownOf(pane, base), term = terminals().find((t) => t.address === shown);
-      if (Chat.chatOf(term)) Chat.hideBehindChat(shown); else run("pane.close", { pane });
+      if (Chat.chatOf(term)) Chat.hideBehindChat(shown); else Chat.closePane(pane, cx);
     }
     else if (c === "next") S.cycle(pane, base, 1);
     else if (c === "prev") S.cycle(pane, base, -1);
@@ -138,7 +140,7 @@ export default class NestedTabs extends View {
       .hover((s) => s.bg(t.hover).text_color(t.foreground))
       .tooltip(tip)
       .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
-      .on_click((_e, cx) => { cx.stop_propagation(); onClick(); })
+      .on_click((_e, cx) => { cx.stop_propagation(); onClick(cx); })
       .when(Boolean(onRight), (el) => el.on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); onRight(); }))
       .child(svg(ICON(icon)).size(15));
   }
@@ -166,7 +168,7 @@ export default class NestedTabs extends View {
       // A terminal a chat shows is hidden, not closed: the chat keeps the session (spec 008).
       .child(Chat.chatOf(term)
         ? this.button(`nt-x-${pane}`, "close", "Hide (the chat keeps the session; its Show terminal brings it back)", () => Chat.hideBehindChat(shown))
-        : this.button(`nt-x-${pane}`, "close", "Close pane (all its tabs)", () => run("pane.close", { pane })));
+        : this.button(`nt-x-${pane}`, "close", "Close pane (all its tabs)", (cx) => Chat.closePane(pane, cx)));
   }
 
   programIcon(g, color) {

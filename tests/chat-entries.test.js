@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chatEntries, strayChats, orphanedHidden, toSettle, toRename, localId, agentsToKeep } from "../lib/chat-entries.js";
+import { chatEntries, strayChats, orphanedHidden, toSettle, toRename, localId, agentsToKeep, visibleNeighbour } from "../lib/chat-entries.js";
 
 const claude = { key: "claude", name: "Claude Code", installed: true, run: ["claude"] };
 const codex = { key: "codex", name: "Codex", installed: true, run: ["codex", "--no-daemon"] };
@@ -120,4 +120,12 @@ test("closing a tab keeps the agent its chat shows; a shell, or a tab without a 
   assert.deepEqual(agentsToKeep("T", panes, terms), ["m/t1"], "t4 belongs to another chat");
   assert.deepEqual(agentsToKeep("U", panes, terms), [], "no chat in U");
   assert.deepEqual(agentsToKeep("T", panes, [{ address: "m/t4", labels: {} }]), ["m/t1", "m/t4"], "unlabelled agents beside a chat");
+});
+
+test("closing the shown tab shows a visible neighbour, never a hidden terminal's tab", () => {
+  const tabs = [{ id: "a" }, { id: "chat" }, { id: "hidden", settled: true }, { id: "readme" }];
+  assert.equal(visibleNeighbour(tabs, "readme"), "chat", "left past the hidden tab");
+  assert.equal(visibleNeighbour(tabs, "chat"), "readme", "right past the hidden tab");
+  assert.equal(visibleNeighbour([{ id: "x" }, { id: "h", settled: true }], "x"), null);
+  assert.equal(visibleNeighbour(tabs, "nope"), null);
 });
