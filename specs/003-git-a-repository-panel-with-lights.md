@@ -88,7 +88,7 @@ the panel should answer at a glance.
 
 ## Acceptance Criteria
 
-- [ ] `node --test tests/`: `git worktree list --porcelain` parsing (main,
+- [ ] `node --test tests/*.test.js`: `git worktree list --porcelain` parsing (main,
       linked, detached, locked, prunable); porcelain v1 `-z` into the three
       groups (including renames and a file both staged and unstaged);
       `--numstat` merging; agent-to-worktree matching by folder prefix (not a

@@ -80,7 +80,7 @@ and marks git status; it is the starting point for the reading code
 
 ## Acceptance Criteria
 
-- [ ] `node --test tests/`: breadcrumb from (home, cwd) on Linux and macOS
+- [ ] `node --test tests/*.test.js`: breadcrumb from (home, cwd) on Linux and macOS
       paths; entry sorting and hidden filtering; porcelain parsing into marks
       and per-folder change counts; key map → action names.
 - [ ] `herdr-app check` passes for `nav`.

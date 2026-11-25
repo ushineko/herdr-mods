@@ -99,7 +99,7 @@ install.sh       copies mods (and lib/) into an app home
 
 - **Unit**: pure helpers in `lib/` (parsing `git status`/`git worktree list`,
   path and breadcrumb logic, language detection, key maps) are tested with
-  `node --test tests/`. They take plain data and return plain data.
+  `node --test tests/*.test.js`. They take plain data and return plain data.
 - **Load**: `herdr-app check` on every mod.
 - **Real window**: anything visual is checked in the running app with
   `herdr-app shot` and read back; a spec's E2E section lists what to look at.

@@ -1,0 +1,5 @@
+{
+  "place": "none",
+  "focusable": true,
+  "lib": ["filetype.js", "diff.js", "external.js", "open.js"]
+}

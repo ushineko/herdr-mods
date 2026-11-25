@@ -131,7 +131,7 @@ request came from.
 
 ## Acceptance Criteria
 
-- [ ] `node --test tests/`: request JSON building/escaping (quotes,
+- [ ] `node --test tests/*.test.js`: request JSON building/escaping (quotes,
       backslashes, newlines, non-ASCII in paths); session from a socket path;
       rule matching (type, ext, any, order, missing file → defaults);
       `{path}` substitution as one argument; stale-request age check.
@@ -171,4 +171,5 @@ Remote inboxes are read through herdr's own machine connection.
   window is visible; acceptable, and stopped when hidden.
 - A Zettlr window opened on njv-cachyos for a remote file appears on that
   machine's display, not the Mac's. That is R10's choice; copying the file to
-  the Mac would edit a copy.
+  the Mac would edit a copy. Confirmed by the operator on 2026-11-24: an external app
+  opens on the desktop of the file's machine, and is checked at that desk.

@@ -54,6 +54,11 @@ read in a tab, beside the terminal that is working on it.
 - R7 **Images** are drawn fitted to the tab, never upscaled past 2×, with their
   pixel size in the header when known. Local files only (spike S2); a remote
   image says so.
+- R7a **The image cache is bounded.** Each image tab keeps one copy in
+  `~/.config/herdr-app/data/herdr-mods-viewer/` (S2), named for that tab and
+  replaced, not added to, on reload. The copy is deleted when the tab closes
+  (`close()`); on start the viewer deletes copies older than a day and keeps
+  at most 20 files (newest). Nothing else is written.
 - R8 **Binary, missing, too large**: a short message in place of the content.
   Text over 2 MB shows the first 2 MB and says it was cut.
 - R9 **Diffs.** With `props.diff`, the viewer runs
@@ -96,15 +101,15 @@ read in a tab, beside the terminal that is working on it.
 
 ## Spikes
 
-| # | Question | If no |
+| # | Question | Answer (2026-11-24, njv-mbp-m1) |
 |---|---|---|
-| S1 | Does `EditorState.set_selected_range` scroll a read-only editor to that range? | Drop `line` positioning; show the line number in the header instead |
-| S2 | Does `image()` accept an absolute path outside the app home? | Copy the image into `mods/viewer/.cache/` (writable: under the app home) and show that; prune on close |
-| S3 | Can a mod read a tab's name/props to rebuild `viewer.open` after an app restart? | Keep `viewer.open` best-effort; a duplicate tab after a restart is acceptable |
+| S1 | Does `EditorState.set_selected_range` scroll a read-only editor to that range? | **Yes.** A 300-line editor with line 250 selected opened scrolled to it, the line number bold. R6's `line` uses it. |
+| S2 | Does `image()` accept an absolute path outside the app home? | **No**: an absolute path and a `file://` URL both draw nothing. A path under the app home's `data/` draws (`data/herdr-mods-viewer/<hash>.<ext>`). A hidden folder inside the mod does not survive `install.sh` (its `--delete`). R7: local images are copied to `data/herdr-mods-viewer/` and drawn from there; copies are pruned when their tab closes and on start (older than a day). |
+| S3 | Can a mod learn its own tab, to rebuild `viewer.open`? | **No**: `props()` holds only what `tab.new` passed; at `init` the new pane is not yet in `panes()` and focus has not moved. In-mod `run()` returns null (the `herdr-app do` CLI does print the new tab id). R2: `openInViewer` records the space's tab ids before `tab.new`, then waits (up to 2 s, 50 ms steps) for the new one and stores it in `viewer.open`; it therefore takes a `cx`. Shared state does not survive an app restart, so a file opened before a restart may get a second tab. |
 
 ## Acceptance Criteria
 
-- [ ] `node --test tests/` passes: `filetype` for every extension in R4, NUL
+- [ ] `node --test tests/*.test.js` passes: `filetype` for every extension in R4, NUL
       detection, unknown extension → text; diff parsing (hunks, +/- lines, line
       numbers, an untracked file).
 - [ ] `install.sh` copies `lib/` files listed in `mod.json`, and fails on a
@@ -116,11 +121,13 @@ read in a tab, beside the terminal that is working on it.
 - [ ] Real window: editing an open local file from the terminal updates the tab
       within 2 s.
 - [ ] Real window: a diff tab for a modified file shows coloured hunks.
+- [ ] Closing an image tab removes its copy from `data/herdr-mods-viewer/`;
+      the folder never holds more than 20 files.
 - [ ] Real window (Mac, remote file on njv-cachyos): a Markdown file on
       `njv-cachyos-default` opens and renders.
 - [ ] Real window: "Open in Zettlr" on a Markdown tab opens Zettlr (Mac);
       with no `external.json`, a `.png` opens in the system viewer.
-- [ ] Spike answers S1–S3 written into this spec.
+- [x] Spike answers S1–S3 written into this spec.
 
 ## Threat model delta
 
