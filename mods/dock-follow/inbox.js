@@ -90,7 +90,9 @@ export class Inbox {
       ? exec("powershell", ["-NoProfile", "-NonInteractive", "-Command", `& { ${CLAIM_PS} } '${session.replace(/'/g, "''")}' ${wait}`])
       : exec("sh", ["-c", CLAIM_SH, "claim", session, wait], { on })).catch(() => null);
     if (!r || r.code !== 0) return;
-    for (const text of splitClaimed(r.stdout)) this.handle(text, on, cx);
+    // Carried out from a timer: its callback has the view's own context. Work started
+    // from this (possibly short-lived) task's context could be stranded when it ends.
+    for (const text of splitClaimed(r.stdout)) cx.timer.after(1, (cx) => this.handle(text, on, cx));
   }
 
   // The space of the terminal that asked, else the shown one.
