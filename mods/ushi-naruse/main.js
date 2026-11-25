@@ -1641,9 +1641,13 @@ export default class Chat extends View {
     const items = menuFor(this.ctx.target, { selection: this.selection, side: !this.dialog });
     if (!items.length) return null;
     const W = 230, rowH = fs(28), h = items.reduce((n, it) => n + (it.sep ? 9 : rowH), 10);
-    const size = this.rootSize ?? { width: 800, height: 600 };
-    const x = Math.max(4, Math.min(this.ctx.at.x, size.width - W - 8));
-    const y = Math.max(4, Math.min(this.ctx.at.y, size.height - h - 8));
+    // Event positions and sizes come zoomed, while left/top/w are zoomed again when
+    // drawn: divided by the app's zoom, the menu sits at the pointer (it landed 10 %
+    // further down and right at zoom 1.1).
+    const z = Number(settings()?.zoom) || 1;
+    const size = this.rootSize ?? { width: 800 * z, height: 600 * z };
+    const x = Math.max(4, Math.min(this.ctx.at.x / z, size.width / z - W - 8));
+    const y = Math.max(4, Math.min(this.ctx.at.y / z, size.height / z - h - 8));
     return v_flex().id("ctx-menu").absolute().left(x).top(y).w(W).p(5).rounded(10).border_1().border_color(t.border)
       .bg(t.popover).shadow_lg().text_size(fs(12.5))
       .on_mouse_down_out((_e, cx) => { if (this.ctx) { this.ctx = null; cx.notify(); } })
@@ -1653,6 +1657,18 @@ export default class Chat extends View {
             .hover((s) => s.bg(t.hover))
             .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
             .on_click((_e, cx) => this.menuAction(it.id, cx)).child(it.label)));
+  }
+
+  // Re-sets each text box's value (chips and cursor kept) so it lays out at the new size.
+  relayBoxes() {
+    for (const st of [this.input, this.sideInput, this.search]) {
+      if (!st) continue;
+      try {
+        const range = st.selected_range();
+        st.set_value(st.content());
+        st.set_selected_range(range);
+      } catch { /* a box mid-edit: it lays out on its next change */ }
+    }
   }
 
   // ushi-naruse: the chat's text size, one px a step; 0 goes back to the terminals'.
@@ -2397,6 +2413,11 @@ export default class Chat extends View {
 
   render(cx) {
     SCALE = chatFont() / BASE_TEXT;
+    // A text box lays its text out once: after a size change it kept the old size until
+    // its value changed (picking a suggestion did). Setting the value again lays it out
+    // anew; not during render.
+    if (cx && this.lastScale !== undefined && this.lastScale !== SCALE) cx.timer.after(1, (cx) => { this.relayBoxes(); cx.notify(); });
+    this.lastScale = SCALE;
     const t = theme();
     const term = this.term ? this.terminal() : null;
     // ushi-naruse: herdr-mods asks to hide this chat's terminal (× on it): not in render.
