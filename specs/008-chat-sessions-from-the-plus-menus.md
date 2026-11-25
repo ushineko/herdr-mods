@@ -2,7 +2,7 @@
 
 **Issue**: #12
 
-## Status: INCOMPLETE
+## Status: COMPLETE
 
 ## Executive Summary
 
@@ -215,7 +215,8 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
       (operator: "works", njv-cachyos, 2026-11-25.)
 - [x] R1f, Mac: a line in the agent's input shows as the row; the parser reads "go ahead
       with 3c" from the hayami screen on njv-cachyos; Ctrl+U empties the line.
-- [ ] R2a: right-click on the tab bar's + shows the entries; each opens its tab.
+- [x] R2a: right-click on the tab bar's + shows the entries; each opens its tab
+      (operator, 2026-11-25).
 - [x] R9: Back to terminal from a New chat tab (Mac, by command: yes), an Open as chat
       tab with its terminal hidden (Mac, by command: yes), and a dock chat subtab (menu) (Mac: the pane-less case's steps by hand work: the agent gets a pane in
       the chat's tab and survives the chat closing).
