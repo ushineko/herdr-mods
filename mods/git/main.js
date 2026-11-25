@@ -8,15 +8,17 @@ import { exec, hc, watchFolder, window, theme, settings, terminals, notify, next
 import {
   READ, parseStatus, parseNumstat, parseWorktrees, worktreeOf, placeAgent, lockedBy, within, WORKTREE_LABEL,
   stageArgs, unstageArgs, stageAllArgs, unstageAllArgs, commitArgs, pullArgs, pushArgs, fetchArgs,
-  LOG_FORMAT, parseLog, ago, gitKeyAction, WRITES,
+  LOG_FORMAT, parseLog, ago, gitKeyAction, WRITES, COMMIT_FORMAT, parseCommit, parseCommitFiles,
 } from "./lib/git.js";
 import { openInViewer } from "./lib/open.js";
+import { editFile } from "./lib/edit-open.js";
 import { terminalLocation, fallbackLocation } from "./lib/location.js";
 
 const REMOTE_POLL = 5000;
 const AGENT_POLL = 3000;
 const ROW = 24;
 const LONG = 120000; // pull, push, fetch
+const RECENT = 50;  // commits in the Recent pane (R8)
 // Pane sizes in px (R15): horizontal column widths, vertical section heights. Dragged
 // by the dividers between them; remembered in localStorage.
 const SIZES = "git.sizes";
@@ -140,7 +142,7 @@ export default class Git extends View {
       this.git([...READ, "-C", w, "status", "--porcelain=v2", "--branch", "-z", "--untracked-files=normal"]),
       this.git([...READ, "-C", w, "diff", "--numstat", "-z", "--no-ext-diff", "--no-textconv"]),
       this.git([...READ, "-C", w, "diff", "--cached", "--numstat", "-z", "--no-ext-diff", "--no-textconv"]),
-      this.git([...READ, "-C", w, "log", "-n5", `--format=${LOG_FORMAT}`]),
+      this.git([...READ, "-C", w, "log", `-n${RECENT}`, `--format=${LOG_FORMAT}`]),
     ]);
     if (st.code !== 0) throw new Error(st.stderr.trim() || "git status failed");
     this.status = parseStatus(st.stdout);
@@ -239,7 +241,99 @@ export default class Git extends View {
     cx.notify();
   }
 
+  // ---- one commit (R8a): details, files, and diff / view / edit per file ----------
+
+  openCommit(hash, cx) {
+    const w = this.shown;
+    this.commit = { hash, loading: true, info: null, files: [], cursor: 0 };
+    cx.notify();
+    cx.spawn(async (cx) => {
+      const [info, names, nums] = await Promise.all([
+        this.git([...READ, "-C", w, "show", "-s", `--format=${COMMIT_FORMAT}`, hash]),
+        this.git([...READ, "-C", w, "show", "--format=", "--name-status", "-z", "--no-renames", hash]),
+        this.git([...READ, "-C", w, "show", "--format=", "--numstat", "-z", "--no-renames", hash]),
+      ]).catch((e) => [{ code: 1, stderr: String(e) }]);
+      if (this.commit?.hash !== hash) return;
+      if (info.code !== 0) { this.commit = { ...this.commit, loading: false, error: (info.stderr || "git show failed").trim() }; cx.notify(); return; }
+      this.commit = { ...this.commit, loading: false, info: parseCommit(info.stdout), files: parseCommitFiles(names.stdout, nums.stdout) };
+      cx.notify();
+    });
+  }
+
+  commitFileAction(kind, f, cx) {
+    const path = join(this.shown, f.path);
+    const at = { on: this.loc.on, space: this.loc.space ?? undefined };
+    if (kind === "diff") openInViewer(cx, { path, ...at, diff: { repo: this.shown, commit: this.commit.info?.hash ?? this.commit.hash } });
+    else if (kind === "view") openInViewer(cx, { path, ...at });
+    else editFile({ path, on: this.loc.on });
+  }
+
+  actCommit(action, cx) {
+    const c = this.commit;
+    const f = c.files[c.cursor];
+    switch (action) {
+      case "down": c.cursor = Math.min(c.files.length - 1, c.cursor + 1); break;
+      case "up": c.cursor = Math.max(0, c.cursor - 1); break;
+      case "diff": if (f) this.commitFileAction("diff", f, cx); break;
+      case "open": if (f && f.code !== "D") this.commitFileAction("view", f, cx); break;
+      case "edit": if (f && f.code !== "D") this.commitFileAction("edit", f, cx); break;
+      case "escape": this.commit = null; break;
+      case "help": this.help = !this.help; break;
+      default: return false; // writes and the rest do nothing here
+    }
+    cx.notify();
+    return true;
+  }
+
+  renderCommit(t) {
+    const c = this.commit, i = c.info;
+    const back = div().id("git-commit-back").px(8).h(24).flex().items_center().rounded(6).cursor_pointer().text_size(12)
+      .text_color(t.muted).hover((x) => x.bg(t.hover).text_color(t.foreground))
+      .on_click((_e, cx) => { this.commit = null; cx.notify(); }).child("← Back");
+    const chip = (id, label, act, enabled = true) => div().id(id).px(6).h(20).flex().items_center().rounded(5).text_size(11)
+      .when(enabled, (el) => el.cursor_pointer().text_color(t.muted).bg(t.raised).hover((x) => x.bg(t.hover).text_color(t.foreground))
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+        .on_click((_e, cx) => { cx.stop_propagation(); act(cx); }))
+      .when(!enabled, (el) => el.text_color(t.dim).opacity(0.5))
+      .child(label);
+    const codeColor = { M: t.blocked, A: t.ansi2, D: t.ansi1, R: t.ansi4, C: t.ansi4, T: t.blocked };
+    const head = h_flex().flex_none().px(10).py(6).gap(10).items_center().border_b(1).border_color(t.border)
+      .child(back)
+      .child(div().font_family(settings().font_family).text_color(t.ansi4).child((i?.hash ?? c.hash).slice(0, 10)))
+      .when(Boolean(i), (el) => el.child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.dim)
+        .child(`${i.author} · ${new Date(i.time * 1000).toLocaleString()} · ${ago(i.time)} ago`)));
+    if (c.loading) return v_flex().flex_1().min_h(0).child(head).child(div().p(12).text_color(t.dim).child("Reading the commit…"));
+    if (c.error) return v_flex().flex_1().min_h(0).child(head).child(div().p(12).text_color(t.ansi1).child(c.error));
+    const rows = c.files.map((f, k) => {
+      const slash = f.path.lastIndexOf("/");
+      const cur = k === c.cursor, gone = f.code === "D";
+      return h_flex().id(`git-cf-${k}`).h(26).px(10).mx(4).gap(8).items_center().rounded(6).cursor_pointer()
+        .when(cur, (el) => el.bg(t.selected)).hover((x) => x.bg(cur ? t.selected : t.hover))
+        .on_click((_e, cx) => { c.cursor = k; this.commitFileAction("diff", f, cx); cx.notify(); })
+        .child(div().w(12).flex_none().font_semibold().text_size(11.5).text_color(codeColor[f.code] ?? t.muted).child(f.code))
+        .child(h_flex().flex_1().min_w(0).gap(4).text_size(12.5)
+          .child(div().flex_shrink(0).max_w(240).truncate().child(slash < 0 ? f.path : f.path.slice(slash + 1)))
+          .when(slash >= 0, (el) => el.child(div().min_w(0).truncate().text_size(11).text_color(t.dim).child(f.path.slice(0, slash)))))
+        .when(f.added != null, (el) => el.child(h_flex().flex_none().gap(4).text_size(11)
+          .child(div().text_color(t.ansi2).child(`+${f.added}`)).child(div().text_color(t.ansi1).child(`−${f.removed}`))))
+        .child(h_flex().flex_none().gap(4)
+          .child(chip(`git-cf-diff-${k}`, "diff", (cx) => this.commitFileAction("diff", f, cx)))
+          .child(chip(`git-cf-view-${k}`, "view", (cx) => this.commitFileAction("view", f, cx), !gone))
+          .child(chip(`git-cf-edit-${k}`, "edit", (cx) => this.commitFileAction("edit", f, cx), !gone)));
+    });
+    return v_flex().flex_1().min_h(0).child(head)
+      .child(v_flex().id("git-commit-body").flex_1().min_h(0).overflow_y_scrollbar().pb(8)
+        .child(v_flex().px(12).pt(10).pb(6).gap(6)
+          .child(div().font_semibold().text_size(13.5).child(i.subject))
+          .when(Boolean(i.body), (el) => el.child(div().text_size(12.5).text_color(t.muted).child(i.body))))
+        .child(h_flex().h(22).px(10).mt(6).gap(6).items_center().text_size(10.5).font_semibold().text_color(t.dim)
+          .child(div().child("FILES")).child(div().child(String(c.files.length)))
+          .child(div().flex_1()).child(div().text_size(10.5).text_color(t.dim).child("enter diff · o view · e edit · esc back")))
+        .children(rows));
+  }
+
   act(action, cx) {
+    if (this.commit) return this.actCommit(action, cx);
     const items = this.items();
     const sel = items[Math.min(this.cursor, items.length - 1)];
     if (WRITES.has(action)) {
@@ -447,9 +541,11 @@ export default class Git extends View {
     else if (!this.loc) body = div().p(12).text_size(12).text_color(t.dim).child("Focus a terminal in a repository");
     else if (this.root === null) body = div().p(12).text_size(12).text_color(t.dim).child("Not a git repository");
     else if (!s) body = div().p(12).text_size(12).text_color(t.dim).child("Reading…");
+    else if (this.commit && !this.help) body = this.renderCommit(t);
     else if (this.help) {
       const keys = [["j / k", "move"], ["space", "stage / unstage"], ["a", "stage all / unstage all"], ["c", "commit"], ["p", "pull (fast-forward only)"], ["P", "push"], ["f", "fetch"],
-        ["enter", "open the diff"], ["o", "open the file"], ["w", "worktrees"], ["r", "refresh"], ["F", "follow the terminal"], ["?", "close this"]];
+        ["enter", "open the diff"], ["o", "open the file"], ["w", "worktrees"], ["r", "refresh"], ["F", "follow the terminal"], ["?", "close this"],
+        ["click a commit", "its details and files; there: enter diff, o view, e edit, esc back"]];
       body = v_flex().p(12).gap(4).text_size(12.5).children(keys.map(([k, what]) => h_flex().gap(10)
         .child(div().w(70).text_color(t.accent).child(k)).child(div().text_color(t.muted).child(what))))
         .child(div().pt(8).text_size(11.5).text_color(t.dim).child("Writes are locked while an agent works in this worktree."));
@@ -462,7 +558,9 @@ export default class Git extends View {
         ...(changeBlocks.length ? changeBlocks : [div().px(14).py(10).text_size(12).text_color(t.dim).child("Nothing to commit · working tree clean")]),
         ...(this.committing ? [div().px(10).pt(8).child(Input.new(this.message).h(30).px(8).rounded(6).border_1().border_color(t.accent).bg(t.background).text_size(12.5))] : []),
       ];
-      const recentBlock = this.log.length ? [section("Recent", this.log.length, null), ...this.log.map((c, i) => h_flex().id(`git-log-${i}`).h(22).px(14).gap(8).items_center().text_size(11.5).text_color(t.dim)
+      const recentBlock = this.log.length ? [section("Recent", this.log.length, null), ...this.log.map((c, i) => h_flex().id(`git-log-${i}`).h(22).px(10).mx(4).gap(8).items_center().rounded(6).text_size(11.5).text_color(t.dim)
+        .cursor_pointer().hover((x) => x.bg(t.hover)).tooltip("Details, files and diffs")
+        .on_click((_e, cx) => this.openCommit(c.hash, cx))
         .child(div().w(56).flex_none().text_color(t.ansi4).child(c.hash)).child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(c.subject)).child(div().flex_none().child(ago(c.time))))] : [];
       const pane = (id, kids) => v_flex().id(id).min_h(0).min_w(0).overflow_y_scrollbar().pb(8).children(kids);
       const sz = this.sizes;

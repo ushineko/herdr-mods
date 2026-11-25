@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   parseStatus, parseNumstat, parseWorktrees, within, worktreeOf, placeAgent, lockedBy,
   stageArgs, unstageArgs, unstageAllArgs, pushArgs, pullArgs, fetchArgs, commitArgs,
-  parseLog, ago, gitKeyAction, WRITES,
+  parseLog, ago, gitKeyAction, WRITES, parseCommit, parseCommitFiles,
 } from "../lib/git.js";
 
 const z = (...recs) => recs.join("\0") + "\0";
@@ -122,4 +122,22 @@ test("gitKeyAction: lazygit keys; writes are the lockable set", () => {
   assert.equal(gitKeyAction({ key: "/", key_char: "?", modifiers: { shift: true } }), "help");
   assert.equal(gitKeyAction({ key: "p", key_char: "p", modifiers: { platform: true } }), null);
   assert.deepEqual([...WRITES].sort(), ["all", "commit", "fetch", "pull", "push", "toggle"]);
+});
+
+test("parseCommit: subject, body, author, time", () => {
+  const c = parseCommit("abc123\x1fAda\x1fada@x.y\x1f1700000000\x1ffix: a thing\n\nWhy it was wrong.\nMore.\n\n");
+  assert.deepEqual(c, { hash: "abc123", author: "Ada", email: "ada@x.y", time: 1700000000, subject: "fix: a thing", body: "Why it was wrong.\nMore." });
+  assert.equal(parseCommit("h\x1fa\x1fe\x1f1\x1fone line").body, "");
+});
+
+test("parseCommitFiles: status, renames, counts, binary", () => {
+  const names = ["M", "a.js", "A", "new file.md", "D", "gone.txt", "R100", "old.md", "moved.md", "M", "img.png", ""].join("\0");
+  const nums = ["3\t1\ta.js", "10\t0\tnew file.md", "0\t4\tgone.txt", "0\t0\t", "old.md", "moved.md", "-\t-\timg.png", ""].join("\0");
+  assert.deepEqual(parseCommitFiles(names, nums), [
+    { path: "a.js", code: "M", added: 3, removed: 1 },
+    { path: "new file.md", code: "A", added: 10, removed: 0 },
+    { path: "gone.txt", code: "D", added: 0, removed: 4 },
+    { path: "moved.md", code: "R", orig: "old.md", added: 0, removed: 0 },
+    { path: "img.png", code: "M", added: null, removed: null },
+  ]);
 });

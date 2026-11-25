@@ -70,8 +70,15 @@ the panel should answer at a glance.
   part dim, and for text changes `+n −m` from `git diff --numstat`.
 - R7 Clicking a row, or Enter, opens its diff in `viewer` (staged rows the
   staged diff); `o` opens the file itself.
-- R8 **Recent commits**: the last 5 on the branch (short hash, subject,
-  relative age), dim, under the changes.
+- R8 **Recent commits**: the last 50 on the branch (short hash, subject,
+  relative age) in their own scrolling pane (operator, 2026-11-24; was 5).
+- R8a **Commit drill-down** (operator, 2026-11-24): clicking a commit replaces the
+  body with its details — hash, author, date, full message — and its files
+  (status, +/- counts), each with **diff** (what the commit changed, in the
+  viewer: `git show <commit> -- <file>`), **view** (the file now) and **edit**
+  (the person's editor); view/edit are off for files the commit deleted. Keys:
+  `j`/`k`, Enter diff, `o` view, `e` edit, Esc back (also "← Back"). Writing keys
+  do nothing there.
 
 ### Keys (mod focusable)
 

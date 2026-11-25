@@ -1,5 +1,6 @@
 // herdr-mods addition (not upstream): a file's git diff, chosen when the preview is
-// opened with props.diff = { repo, staged }. Hunk headers on `raised`, added lines on a
+// opened with props.diff = { repo, staged } (working tree or index) or { repo, commit }
+// (what that commit changed in the file). Hunk headers on `raised`, added lines on a
 // green tint, removed on a red one, old and new line numbers in a gutter. An untracked
 // file diffs against nothing (every line added).
 import { div } from "gpui-kit";
@@ -15,20 +16,22 @@ let views = 0;
 export default {
   id: "diff",
   async load(file, env) {
-    const { repo, staged = false } = props()?.diff ?? {};
+    const { repo, staged = false, commit = null } = props()?.diff ?? {};
     if (!repo) throw new Error("No repository given for this diff");
     const git = (args) => exec("git", [...READ, ...args], { cwd: repo, on: env.on });
-    const r = await git(["diff", ...(staged ? ["--cached"] : []), "--no-color", "--no-ext-diff", "--", file]);
+    const r = commit
+      ? await git(["show", "--format=", "--no-color", "--no-ext-diff", commit, "--", file])
+      : await git(["diff", ...(staged ? ["--cached"] : []), "--no-color", "--no-ext-diff", "--", file]);
     if (r.code !== 0) throw new Error(r.stderr.trim() || "git diff failed");
     let parsed = parseDiff(r.stdout);
-    if (!parsed.rows.length && !staged) {
+    if (!parsed.rows.length && !staged && !commit) {
       const tracked = await git(["ls-files", "--error-unmatch", "--", file]);
       if (tracked.code !== 0) {
         const text = await readTextFile(file, { on: env.on }).catch(() => null);
         if (text !== null && !text.includes("\0")) parsed = untrackedDiff(text);
       }
     }
-    return { ...parsed, staged, id: `cria-file-preview-diff-${++views}` };
+    return { ...parsed, staged, commit, id: `cria-file-preview-diff-${++views}` };
   },
 
   toolbar: (state) => {
@@ -36,7 +39,7 @@ export default {
     return h_flex().gap(10).items_center().text_size(12)
       .child(div().text_color(t.ansi2).child(`+${state.added}`))
       .child(div().text_color(t.ansi1).child(`−${state.removed}`))
-      .child(div().px(8).py(2).rounded(5).bg(t.raised).text_color(t.muted).child(state.staged ? "Staged" : "Working tree"));
+      .child(div().px(8).py(2).rounded(5).bg(t.raised).text_color(t.muted).child(state.commit ? `Commit ${state.commit.slice(0, 7)}` : state.staged ? "Staged" : "Working tree"));
   },
 
   render(state) {

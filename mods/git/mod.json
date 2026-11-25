@@ -1,6 +1,23 @@
 {
   "place": "none",
   "focusable": true,
-  "lib": ["git.js", "filetype.js", "open.js", "location.js"],
-  "palette": [{ "title": "Git: open beside", "command": "pane.split", "args": { "direction": "right", "mod": "git" }, "words": "lazygit changes worktrees" }]
+  "lib": [
+    "git.js",
+    "filetype.js",
+    "open.js",
+    "location.js",
+    "editor.js",
+    "edit-open.js"
+  ],
+  "palette": [
+    {
+      "title": "Git: open beside",
+      "command": "pane.split",
+      "args": {
+        "direction": "right",
+        "mod": "git"
+      },
+      "words": "lazygit changes worktrees"
+    }
+  ]
 }
