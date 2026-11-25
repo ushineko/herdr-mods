@@ -129,7 +129,31 @@ function setTabs(names, active, chats = {}) {
     const wantId = want && (FIXED.some((f) => f.key === want) ? fixedId(dock, want) : names.includes(want) ? childId(dock, want) : null);
     st.active = wantId ?? (st.children.some((c) => c.id === st.active) ? st.active : st.children[0]?.id);
   }
-  run("layout.set", { layout: t });
+  setLayout(t).catch((e) => fail("Dock: the layout could not be changed", `${e?.message ?? e}`));
+}
+
+// The herdr-app CLI, per platform (Windows untested: no Herdr app there yet).
+const HERDR_APP = {
+  macos: () => ["herdr-app", `${home()}/.local/bin/herdr-app`],
+  linux: () => ["herdr-app", `${home()}/.local/bin/herdr-app`],
+  windows: () => ["herdr-app.exe", "herdr-app"],
+};
+
+// layout.set. The app refuses a command argument nested more than 16 levels deep,
+// and a layout with docks inside the work column is 16 deep itself (#15): then the
+// layout goes as text through the CLI, which has no such limit.
+async function setLayout(t) {
+  try { run("layout.set", { layout: t }); return; } catch (e) {
+    if (!/nest/i.test(String(e?.message ?? e))) throw e;
+  }
+  const json = JSON.stringify({ layout: t });
+  let last = null;
+  for (const bin of (HERDR_APP[window().platform] ?? HERDR_APP.linux)()) {
+    const r = await exec(bin, ["do", "layout.set", json]).catch((e) => ({ code: -1, stderr: String(e?.message ?? e) }));
+    if (r.code === 0 && !/"error"/.test(r.stdout ?? "")) return;
+    last = r;
+  }
+  throw new Error((last?.stdout || last?.stderr || "herdr-app not found").trim().slice(0, 300));
 }
 
 // True when a dock's stack does not start with the nav + git split of the right
@@ -270,7 +294,9 @@ export default class DockTabs extends View {
     if (c === "refresh" && cx) { this.ensureDock(cx, currentMachine()); return; }
     if (c === "next") cycle(dock, 1);
     else if (c === "prev") cycle(dock, -1);
-    else if (c === "add") addTab(dock);
+    else if (c === "add") addTab(dock).catch((e) => fail("New dock tab failed", `${e?.message ?? e}`));
+    else if (c === "chat") chatOptions(currentMachine()).then(([e]) => e && addTab(dock, e.run.join(" "), { chat: true }))
+      .catch((e) => fail("New chat failed", `${e?.message ?? e}`));
     else if (c === "close") { const t = tabs(dock).find((x) => x.id === activeOf(dock)); if (t && !t.fixed) closeTab(dock, t); }
   }
 
