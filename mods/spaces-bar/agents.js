@@ -45,7 +45,8 @@ export function allAgents() {
     if (!was && !t.program?.agent && !t.status) continue;
     out.set(t.address, {
       address: t.address, status: was?.status ?? (norm(t.status) || "idle"), program: was?.program ?? t.program,
-      title: was?.title ?? t.program?.name ?? t.title, space: info.space, tab: chat.tab, tab_name: info.tab_name,
+      // Named as the chat it opens: "Claude Code chat".
+      title: `${t.program?.name ?? was?.title ?? t.title ?? "Agent"} chat`, space: info.space, tab: chat.tab, tab_name: info.tab_name,
       pane: chat.pane, nested: false, chat: true,
     });
   }

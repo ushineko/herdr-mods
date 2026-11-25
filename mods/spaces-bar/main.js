@@ -50,6 +50,8 @@ function glyph(t, status, size = 12) {
 }
 
 function programIcon(p, color) {
+  // A chat's agent (spec 008) shows as its chat: the cow.
+  if (p?.chat) return svg("mods/spaces-bar/cow.svg").size(14).flex_none().text_color(color);
   const g = p?.program;
   if (!g?.icon) return null;
   return g.tint ? svg(g.icon).size(14).flex_none().text_color(color) : image(g.icon).w(14).h(14).flex_none();
@@ -297,7 +299,7 @@ export default class SpacesBar extends View {
           .child(glyph(t, a.status))
           .when(Boolean(programIcon(a, t.foreground)), (el) => el.child(programIcon(a, t.foreground)))
           .child(div().flex_none().max_w(150).truncate().child(a.title ?? a.address))
-          .child(div().flex_1().truncate().text_color(t.dim).child(`${a.tab_name ?? ""}${a.nested ? " · nested" : a.chat ? " · chat" : ""}`))));
+          .child(div().flex_1().truncate().text_color(t.dim).child(`${a.tab_name ?? ""}${a.nested ? " · nested" : ""}`))));
   }
 
   // ---- "new space on…" machine menu ----------------------------------------------
@@ -421,7 +423,7 @@ export default class SpacesBar extends View {
             .child(glyph(t, a.status))
             .when(Boolean(programIcon(a, t.foreground)), (x) => x.child(programIcon(a, t.foreground)))
             .child(div().flex_none().max_w(150).truncate().child(a.title ?? a.address))
-            .child(div().flex_1().truncate().text_color(t.dim).child(`${a.tab_name ?? ""}${a.nested ? " · nested" : a.chat ? " · chat" : ""}`))))));
+            .child(div().flex_1().truncate().text_color(t.dim).child(`${a.tab_name ?? ""}${a.nested ? " · nested" : ""}`))))));
   }
 
   render() {

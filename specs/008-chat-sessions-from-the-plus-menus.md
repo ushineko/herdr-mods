@@ -132,7 +132,8 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
     terminal's) for nav and git (`lib/location.js`), so they follow when the chat's
     tab is shown.
   - **Agents list** (spaces-bar): such an agent is listed in the chat's tab, marked
-    "· chat", and opens the chat; it was listed in its hidden settled tab (a number),
+    shown as its chat (the cow, "Claude Code chat"), and opens the chat; it was listed
+    in its hidden settled tab (a number),
     and opening it showed that tab before the chat took it back. An agent started for
     a chat, with no pane, is listed too.
   - Back to terminal clears the label.
