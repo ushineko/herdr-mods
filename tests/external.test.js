@@ -22,6 +22,14 @@ test("defaults: markdown -> Zettlr, anything else -> system opener", () => {
   assert.equal(pickRule(DEFAULT_RULES, "/a/pic.png", "macos").app, "default app");
 });
 
+test("defaults on Linux detach the app so exec does not wait for it", () => {
+  assert.deepEqual(argvFor(pickRule(DEFAULT_RULES, "/a/b.md", "linux"), "linux", "/a/b.md"), ["setsid", "-f", "zettlr", "/a/b.md"]);
+  const argv = argvFor(pickRule(DEFAULT_RULES, "/a/b.png", "linux"), "linux", "/a/b.png");
+  assert.equal(argv[0], "sh");
+  assert.equal(argv.at(-1), "/a/b.png", "the path is its own argument, not part of the script");
+  assert.ok(!argv[2].includes("/a/b.png"));
+});
+
 test("defaults on Windows: no Zettlr rule there, so Markdown falls through to the default app", () => {
   assert.equal(pickRule(DEFAULT_RULES, "C:\\a\\README.md", "windows").app, "default app");
   assert.deepEqual(argvFor(pickRule(DEFAULT_RULES, "C:\\a\\x.png", "windows"), "windows", "C:\\a\\x.png"), ["cmd", "/c", "start", "", "C:\\a\\x.png"]);
