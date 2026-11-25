@@ -1,0 +1,141 @@
+{
+  "README.md": {
+    "viewer": "markdown",
+    "facts": {
+      "headings": ["cria-file-preview-samples", "contents", "markdown-links", "images", "every-sample"],
+      "images": 5,
+      "webImages": 1,
+      "missingFiles": ["img/missing.png"],
+      "unresolvedAnchors": ["nowhere"],
+      "refused": ["//elsewhere/share/notes.md", "//elsewhere/share/x.png"]
+    },
+    "visible": [
+      "Header: README.md, its folder, a size in KB, the ToC icon, Preview | Raw with Preview on, the ⋯ button",
+      "A bar above the document: \"1 web image not loaded · Load them\"",
+      "Rendered Markdown: headings, the Contents list as links, a code block, the Kind | Viewer table",
+      "The blue SVG with an orange circle and the word SVG, drawn inline",
+      "A chip \"Image: gone (not found)\", a chip \"Image: badge (on the web)\", and on Windows a chip \"Image: elsewhere (Can't open links to another computer)\""
+    ],
+    "manual": [
+      { "do": "Click the ToC icon, then \"Images\" in the table of contents", "expect": "A 240px column of headings on the left; the document shows from Images, with a bar \"↑ Showing from “Images” · show the whole document\"" },
+      { "do": "Click \"A heading on this page\"", "expect": "The document shows from Every sample" },
+      { "do": "Click \"A missing heading\"", "expect": "A toast \"No such heading here\" with #nowhere; the view stays" },
+      { "do": "Click \"the same at a heading\"", "expect": "setup.md opens from its Install heading; a ← appears in the header" },
+      { "do": "Click ←", "expect": "Back on README.md; the ← is gone" },
+      { "do": "Click the PNG picture", "expect": "sample.pdf opens in the same preview" },
+      { "do": "Click \"Load them\"", "expect": "The bar goes; the badge loads or says \"(couldn't load)\"" },
+      { "do": "On Windows, click \"A link to another computer\"", "expect": "A warning \"Can't open this link\"; the view stays" },
+      { "do": "Click \"The Herdr website\"", "expect": "herdr.dev opens in the browser" },
+      { "do": "Click Raw", "expect": "The Markdown source with line numbers and colors, the Wrap lines icon before Preview | Raw" }
+    ]
+  },
+  "docs/setup.md": {
+    "viewer": "markdown",
+    "facts": { "headings": ["setup", "install"], "images": 0, "webImages": 0, "missingFiles": [], "unresolvedAnchors": [] },
+    "visible": ["A Setup heading, an Install heading, links to the index and its images"],
+    "manual": []
+  },
+  "sample.pdf": {
+    "viewer": "pdf",
+    "facts": {},
+    "visible": [
+      "Toolbar: ‹ 1 / 2 ›, a Go to field, − Fit +",
+      "Page 1 drawn as the pane is wide, with a shadow, on a darker canvas"
+    ],
+    "manual": [
+      { "do": "Type 2 in Go to and press Enter", "expect": "Page 2 at the top; the counter says 2 / 2" },
+      { "do": "Click + twice, then the percentage", "expect": "The page grows, the middle shows a percentage; the click returns to Fit" }
+    ]
+  },
+  "img/logo.svg": {
+    "viewer": "image",
+    "facts": { "width": 240, "height": 120 },
+    "visible": ["Toolbar: 240 × 120 and − Fit +", "The blue SVG centered at its own size"],
+    "manual": [
+      { "do": "Click + until 400%, then drag the picture and scroll over it", "expect": "The picture grows past the pane, the pointer is a hand, and both the drag and the wheel move it; it never leaves more than a small margin of canvas at an edge" },
+      { "do": "Hold cmd (ctrl elsewhere) and scroll over a corner of the picture, then click the percentage", "expect": "The picture zooms around the pointer, the corner staying under it; the click returns to Fit, centered" }
+    ]
+  },
+  "img/picture.png": {
+    "viewer": "image",
+    "facts": {},
+    "visible": ["Toolbar: 480 × 270", "The picture centered, fitted to the pane"],
+    "manual": []
+  },
+  "img/picture.jpg": {
+    "viewer": "image",
+    "facts": {},
+    "visible": ["Toolbar: 480 × 270", "The picture centered, fitted to the pane"],
+    "manual": []
+  },
+  "img/picture.gif": {
+    "viewer": "image",
+    "facts": {},
+    "visible": ["Toolbar: 480 × 270", "The picture centered, fitted to the pane"],
+    "manual": []
+  },
+  "table.csv": {
+    "viewer": "table",
+    "facts": { "delimiter": ",", "rows": 500, "columns": 5, "cell": [4, 2, "quoted, with a comma"] },
+    "visible": [
+      "Toolbar: 500 rows × 5 columns, Table | Raw",
+      "A header row id, city, note, amount, a long column header…; row numbers in a column on the left; striped rows",
+      "Row 4's note reads: quoted, with a comma"
+    ],
+    "manual": [
+      { "do": "Scroll down, then sideways", "expect": "The header row stays; the long column scrolls into view" }
+    ]
+  },
+  "table.tsv": {
+    "viewer": "table",
+    "facts": { "delimiter": "\t", "rows": 50, "columns": 3 },
+    "visible": ["Toolbar: 50 rows × 3 columns", "Columns id, city, amount"],
+    "manual": []
+  },
+  "data.json": {
+    "viewer": "json",
+    "facts": { "valid": true, "keys": 7 },
+    "visible": [
+      "A tree: the root open with its 7 keys, ▾ on tags, nested and list, ▸ on nested's deep",
+      "Toolbar: the expand icon and Tree | Raw"
+    ],
+    "manual": [
+      { "do": "Alt-click the nested row twice", "expect": "The first closes nested; the second opens it all the way down to \"leaf\": \"found\"" },
+      { "do": "Click the expand icon, then the collapse icon", "expect": "Everything opens, then everything closes but the root" }
+    ]
+  },
+  "bom.json": {
+    "viewer": "json",
+    "facts": { "valid": true, "keys": 2, "bom": true },
+    "visible": ["A tree with the root open and its 2 keys, and no \"Invalid JSON\" in the toolbar"],
+    "manual": []
+  },
+  "broken.json": {
+    "viewer": "json",
+    "facts": { "valid": false },
+    "visible": ["Toolbar: \"Invalid JSON: …\" in red", "The source with line numbers"],
+    "manual": []
+  },
+  "notutf8.txt": {
+    "viewer": "code",
+    "facts": { "language": "txt" },
+    "visible": ["The body says: Binary or non-UTF-8 file · no text preview"],
+    "manual": []
+  },
+  "code.js": {
+    "viewer": "code",
+    "facts": { "language": "js" },
+    "visible": ["The code with line numbers and syntax colors"],
+    "manual": []
+  },
+  "notes.txt": {
+    "viewer": "code",
+    "facts": { "language": "txt" },
+    "visible": ["Plain text with line numbers", "Toolbar: the Wrap lines icon, not pressed"],
+    "manual": [
+      { "do": "Click the Wrap lines icon", "expect": "The long last line folds at the pane's edge under its own line number; the icon shows pressed" },
+      { "do": "Open code.js in another tab", "expect": "It opens with Wrap lines on, the choice remembered" },
+      { "do": "Click the icon again", "expect": "Lines no longer wrap; the long one scrolls sideways" }
+    ]
+  }
+}
