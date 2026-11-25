@@ -556,7 +556,8 @@ export default class Git extends View {
         // removable, in one round trip (a full tree walk when there are none).
         times.terminals = Date.now() - t0 - times.scan;
         let plan = planCleanup(items);
-        const candidates = plan.filter((p) => p.eligible).map((p) => p.path);
+        // Removable ones and kept ones Really remove could take (it hands such files back first).
+        const candidates = plan.filter((p) => p.eligible || p.force?.allowed).map((p) => p.path);
         if (candidates.length && !(!on && window()?.platform === "windows")) {
           this.busy = `${what}: file owners`;
           cx.notify();
@@ -674,11 +675,26 @@ export default class Git extends View {
   async forceRemove(cx, item) {
     const { on } = props().cleanup;
     if (!(!on && window()?.platform === "windows")) {
-      const fr = await exec("sh", ["-c", FOREIGN_SCAN_SH, "owners", item.path], { on, timeout: 120000 }).catch(() => null);
-      const f = fr ? parseForeignScan(fr.stdout)[item.path] : null;
+      const owners = async () => {
+        const fr = await exec("sh", ["-c", FOREIGN_SCAN_SH, "owners", item.path], { on, timeout: 120000 }).catch(() => null);
+        return fr ? parseForeignScan(fr.stdout)[item.path] : null;
+      };
+      const sudo = `sudo chown -R "$USER" -- '${item.path.replace(/'/g, "'\\''")}'`;
+      let f = await owners();
       if (f) {
-        this.noteResult(cx, false, `${item.branch ?? item.path} not removed: files owned by ${f.owner} inside (e.g. ${f.path}); fix ownership first: sudo chown -R "$USER" -- '${item.path.replace(/'/g, "'\\''")}'`);
-        return;
+        // Part of the confirmed discard: handed back through default Docker only.
+        const pre = await exec("sh", ["-c", DOCKER_PREFLIGHT_SH], { on, timeout: 30000 }).catch((e) => ({ code: 1, stderr: String(e?.message ?? e) }));
+        if (pre.code !== 0) {
+          this.noteResult(cx, false, `${item.branch ?? item.path} not removed: files owned by ${f.owner} inside, and Fix ownership ${(pre.stderr || pre.stdout || "").trim().split("\n").pop() || "was refused"}: ${sudo}`);
+          return;
+        }
+        const r = await exec("sh", ["-c", DOCKER_CHOWN_SH, "fix", item.path], { on, timeout: 600000 }).catch((e) => ({ code: 1, stderr: String(e?.message ?? e) }));
+        f = r.code === 0 ? await owners() : f;
+        if (f) {
+          this.noteResult(cx, false, `${item.branch ?? item.path} not removed: files owned by ${f.owner} are still inside (e.g. ${f.path})${r.code === 0 ? "" : `; docker: ${(r.stderr || r.stdout || "").trim().split("\n").pop()}`}. Run: ${sudo}`);
+          return;
+        }
+        this.noteResult(cx, true, `handed ${item.branch ?? item.path}'s ${item.force.chown}-owned files back (docker chown)`);
       }
     }
     if (await this.removeOne(cx, item, { force: true })) {
@@ -709,6 +725,7 @@ export default class Git extends View {
         .children(f.lost.map((l) => div().text_size(12).font_semibold().text_color(t.ansi1).child(`✗ LOST: ${l}`)))
         .children(f.kept.map((k) => div().text_size(12).text_color(t.muted).child(`• ${k}`)))
         .when(f.locked, (el) => el.child(div().text_size(12).text_color(t.muted).child("• it is locked; the lock is overridden")))
+        .when(Boolean(f.chown), (el) => el.child(div().text_size(12).text_color(t.muted).child(`• files owned by ${f.chown} are handed back first (Docker; default Docker only)`)))
         .children(f.shells.map((sh) => div().text_size(11.5).text_color(t.muted).child(`• shell ${sh.address} moves to ${p.parent}`)))
         .child(div().text_size(11.5).text_color(t.dim).child(`Runs: git worktree remove ${f.locked ? "--force --force" : "--force"} — the folder is deleted and cannot be restored.`))
         .child(h_flex().pt(4).gap(8).justify_end()

@@ -303,7 +303,7 @@ esac
 test("planCleanup force: what Really remove would lose or keep, and when it is refused", () => {
   const force = (o) => planCleanup([wt(o)])[0].force;
   assert.equal(planCleanup([wt()])[0].force, undefined);
-  assert.deepEqual(force({ changes: 3, ahead: 2 }), { allowed: true, locked: false, shells: [],
+  assert.deepEqual(force({ changes: 3, ahead: 2 }), { allowed: true, locked: false, chown: null, shells: [],
     lost: ["3 uncommitted changes (untracked files included)"], kept: ["branch feat keeps its 2 unpushed commits"] });
   assert.deepEqual(force({ upstream: null }).kept, ["branch feat keeps its commits (it was never pushed)"]);
   const d = force({ detached: true, branch: null, upstream: null, onRemote: false, last: { hash: "abc1234", subject: "s", time: 1 } });
@@ -313,7 +313,9 @@ test("planCleanup force: what Really remove would lose or keep, and when it is r
   assert.deepEqual(force({ main: true }), { allowed: false, refused: "the main worktree is never removed" });
   assert.match(force({ changes: 1, agents: ["claude-code"] }).refused, /agent is working in it \(claude-code\)/);
   assert.match(force({ terminals: [{ address: "t9", program: "nvim" }] }).refused, /nvim \(t9\) running in it; close it first/);
-  assert.match(force({ foreign: { path: "/x", owner: "root" } }).refused, /fix ownership first/);
+  const o = planCleanup([wt({ changes: 2, foreign: { path: "/r.wt/feat/x", owner: "root" } })])[0];
+  assert.deepEqual([o.reason, o.owner, o.force.allowed, o.force.chown], ["2 uncommitted changes", "root", true, "root"]);
+  assert.equal(force({ changes: 1 }).chown, null);
 });
 
 test("removeArgs: --force once, twice for a locked worktree", () => {

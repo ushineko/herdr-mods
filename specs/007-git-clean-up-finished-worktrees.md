@@ -79,8 +79,10 @@ changes and which agents are where (003 R5a).
   on no branch or remote), what is kept (the branch and its commits), an overridden
   lock and shells moved; "Discard and remove" runs `git worktree remove --force`
   (twice for a locked one). Still refused: the main worktree, an agent working in
-  it, another program running in it, another user's files (checked again just
-  before).
+  it, another program running in it. Another user's files are no longer a refusal:
+  they are looked for in kept worktrees too (Fix ownership on the card), and Really
+  remove hands them back through default Docker first (checked again just before;
+  refused with the sudo command when Docker is not the default setup).
 - R3f While removing, the results replace the list in the scrolling area so the
   buttons stay in view; the dialog is at most 640 px tall.
 
