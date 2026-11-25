@@ -14,6 +14,7 @@ import * as fs from "fs/promises";
 import { Buffer } from "buffer";
 import { createHash } from "crypto";
 import { Transcript } from "./parse.js";
+import { plainText, quote, commandOf, menuFor } from "./lib/chat-text.js";
 import { Tail, locate, agentKind, machineOf } from "./source.js";
 import { catalog, launchArgv, modelName, switchModel } from "./models.js";
 import { emojify, PICKER, emojiMatches } from "./emoji.js";
@@ -375,20 +376,7 @@ export default class Chat extends View {
     });
   }
 
-  hover(key) {
-    return (on, cx) => {
-      if (on && this.hovered !== key) { this.hovered = key; cx.notify(); }
-      else if (!on && this.hovered === key) { this.hovered = null; cx.notify(); }
-    };
-  }
 
-  tinyButton(id, icon, tip, action, t) {
-    return div().id(id).flex_none().size(24).flex().items_center().justify_center().rounded(6).cursor_pointer()
-      .bg(t.background).border_1().border_color(t.border).text_color(t.muted)
-      .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip(tip)
-      .on_mouse_down("left", (_e, cx) => cx.stop_propagation()).on_click(action)
-      .child(svg(`mods/ushi-naruse/icons/${icon}.svg`).size(12));
-  }
 
   // A terminal beside the chat that isn't its agent (a shell split next to it):
   // the one focused last, else the first. Shell code blocks run there.
@@ -1620,6 +1608,53 @@ export default class Chat extends View {
     return this.catalogs[`${kind}@${machine ?? ""}`] ?? null;
   }
 
+  // ushi-naruse: the right-click menu (R14). The row says what was clicked; the root,
+  // which hears the same press, says where (its own coordinates).
+  openMenu(ev, target, cx) {
+    this.ctx = { target, at: this.ctxAt ?? ev.local_position ?? { x: 40, y: 40 } };
+    cx.notify();
+  }
+
+  menuAction(id, cx) {
+    const target = this.ctx?.target;
+    this.ctx = null;
+    const copy = (text) => cx.spawn(async (cx) => {
+      if (!text) return;
+      if (!(await copyText(text))) return notify({ title: "No clipboard tool", body: "Install wl-clipboard or xclip to copy", level: "warning", timeout: 4000 });
+      notify({ title: "Copied", timeout: 1200 });
+    });
+    const commands = () => (target.kind === "tool" ? [target.item] : target.items ?? []).map((i) => commandOf(i.input)).filter(Boolean).join("\n");
+    if (id === "copy-selection") copy(this.selection);
+    else if (id === "copy") copy(target.text);
+    else if (id === "copy-plain") copy(plainText(target.text));
+    else if (id === "copy-command") copy(commands());
+    else if (id === "copy-output") copy(target.item?.result ?? "");
+    else if (id === "edit") { this.input.set_value(""); this.input.replace(target.text); this.input.focus(); }
+    else if (id === "quote") { const v = this.input.value(); this.input.set_value(""); this.input.replace(quote(target.text) + v); this.input.focus(); }
+    else if (id === "ask-side") { this.openSide(null, cx); this.sideInput.set_value(""); this.sideInput.replace(`About this part of the reply:\n${quote(target.text.slice(0, 600))}`); }
+    else if (id === "show-terminal") this.showTerminal(cx);
+    cx.notify();
+  }
+
+  renderMenu(t) {
+    if (!this.ctx) return null;
+    const items = menuFor(this.ctx.target, { selection: this.selection, side: !this.dialog });
+    if (!items.length) return null;
+    const W = 230, rowH = fs(28), h = items.reduce((n, it) => n + (it.sep ? 9 : rowH), 10);
+    const size = this.rootSize ?? { width: 800, height: 600 };
+    const x = Math.max(4, Math.min(this.ctx.at.x, size.width - W - 8));
+    const y = Math.max(4, Math.min(this.ctx.at.y, size.height - h - 8));
+    return v_flex().id("ctx-menu").absolute().left(x).top(y).w(W).p(5).rounded(10).border_1().border_color(t.border)
+      .bg(t.popover).shadow_lg().text_size(fs(12.5))
+      .on_mouse_down_out((_e, cx) => { if (this.ctx) { this.ctx = null; cx.notify(); } })
+      .children(items.map((it, k) => it.sep
+        ? div().mx(6).my(4).h(1).bg(t.border)
+        : h_flex().id(`ctx-${k}`).h(rowH).px(8).rounded(6).items_center().cursor_pointer().text_color(t.foreground)
+            .hover((s) => s.bg(t.hover))
+            .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+            .on_click((_e, cx) => this.menuAction(it.id, cx)).child(it.label)));
+  }
+
   // ushi-naruse: the chat's text size, one px a step; 0 goes back to the terminals'.
   setFont(step) {
     if (!step) return setShared(FONT_KEY, null);
@@ -1769,7 +1804,8 @@ export default class Chat extends View {
   }
 
   markdown(id, text) {
-    return TextView.markdown(id, text).selectable(true);
+    // ushi-naruse: the last selection, for the right-click menu's Copy selection.
+    return TextView.markdown(id, text).selectable(true).on_selection_change((sel) => { this.selection = sel?.text || null; });
   }
 
   entry(e, t, last) {
@@ -1780,25 +1816,19 @@ export default class Chat extends View {
       const max = Math.max(120, Math.floor((this.width - 2 * side) * 0.85));
       const longest = Math.max(0, ...(e.text ?? "").split("\n").map((l) => l.length));
       const w = e.images.length ? max : Math.min(max, Math.ceil(longest * 7.6 * SCALE) + 32);
-      // On hover, Copy and Edit (back into the message box to change and send
-      // again) under the bubble, in a row that's always there.
-      const on = this.hovered === e.key && Boolean(e.text);
       // ushi-naruse: on the left, like the agent's replies (and Claude Code's terminal).
-      return v_flex().id(`row-${e.key}`).w_full().items_start().gap(4).on_hover(this.hover(e.key))
+      // Copy and Edit are in its right-click menu (R14): no row kept for hover buttons.
+      return v_flex().id(`row-${e.key}`).w_full().items_start().pb(10)
+        .on_mouse_down("right", (ev, cx) => this.openMenu(ev, { kind: "user", text: e.text }, cx))
         .child(v_flex().w(w).flex_none().gap(8).px(14).py(10).rounded(14).bg(t.raised)
           .when(e.images.length > 0, (el) => el.child(h_flex().flex_wrap().gap(6).children(e.images.map((i) => this.img(i.ref, t, 280, 200)))))
-          .when(Boolean(e.text), (el) => el.child(this.markdown(e.key, emojify(e.text)))))
-        .child(h_flex().h(24).gap(4).when(on, (el) => el
-          .child(this.tinyButton(`copyu-${e.key}`, this.copied === `u-${e.key}` ? "check" : "copy", "Copy", (_e, cx) => this.copyOut(e.text, `u-${e.key}`, cx), t))
-          .child(this.tinyButton(`edit-${e.key}`, "edit", "Edit and send again", (_e, cx) => { this.input.set_value(""); this.input.replace(e.text); this.input.focus(); cx.notify(); }, t))));
+          .when(Boolean(e.text), (el) => el.child(this.markdown(e.key, emojify(e.text)))));
     }
     if (e.kind === "assistant") {
-      // On hover, Copy for the whole reply, in a row under it that's always there.
-      const on = this.hovered === e.key && e.key !== "streaming";
-      return v_flex().id(`row-${e.key}`).w_full().gap(4).on_hover(this.hover(e.key))
-        .child(this.reply(e, t))
-        .child(h_flex().h(24).gap(4).when(on, (el) => el
-          .child(this.tinyButton(`copya-${e.key}`, this.copied === `a-${e.key}` ? "check" : "copy", "Copy reply", (_e, cx) => this.copyOut(e.text, `a-${e.key}`, cx), t))));
+      // ushi-naruse: Copy and the rest are in its right-click menu (R14).
+      return v_flex().id(`row-${e.key}`).w_full().pb(10)
+        .on_mouse_down("right", (ev, cx) => this.openMenu(ev, { kind: "assistant", text: e.text }, cx))
+        .child(this.reply(e, t));
     }
     if (e.kind === "card") return this.card(e, t);
     // What a slash command printed, as the terminal shows it.
@@ -1936,6 +1966,7 @@ export default class Chat extends View {
     const thumbs = e.items.flatMap((i) => i.images);
     return v_flex().w_full().gap(6)
       .child(h_flex().id(`tg-${e.key}`).gap(6).items_center().cursor_pointer().text_size(fs(TOOL_TEXT)).text_color(t.dim)
+        .on_mouse_down("right", (ev, cx) => this.openMenu(ev, { kind: "tools", items: e.items }, cx))
         .hover((s) => s.text_color(t.muted))
         .on_click((_ev, cx) => { open ? this.open.delete(e.key) : this.open.add(e.key); cx.notify(); })
         .child(div().w(10).flex_none().child(open ? "▾" : "▸"))
@@ -1949,7 +1980,8 @@ export default class Chat extends View {
   tool(key, n, i, t) {
     const result = (i.result ?? "").split("\n");
     const clipped = result.length > 30 ? [...result.slice(0, 30), `… ${result.length - 30} more lines`] : result;
-    return v_flex().pl(16).gap(4)
+    return v_flex().id(`tool-${key}-${n}`).pl(16).gap(4)
+      .on_mouse_down("right", (ev, cx) => this.openMenu(ev, { kind: "tool", item: i }, cx))
       .child(h_flex().gap(6).text_size(fs(TOOL_TEXT))
         .child(div().flex_none().font_semibold().text_color(t.muted).child(i.name))
         .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(i.summary)))
@@ -2385,6 +2417,10 @@ export default class Chat extends View {
         .child(`No agent here. Press ${shortcut("N")} for a new chat.`);
     }
     return v_flex().id("root").size_full().bg(t.background).text_color(t.foreground).text_size(fs(13))
+      // ushi-naruse: the right-click menu's place, the root's size, Esc closes it (R14).
+      .on_mouse_down("right", (ev) => { this.ctxAt = ev.local_position ?? null; if (this.ctx && ev.local_position) this.ctx.at = ev.local_position; })
+      .on_size_change((size) => { this.rootSize = size; })
+      .on_key_down((e, cx) => { if (this.ctx && e.key === "escape") { this.ctx = null; cx.notify(); } })
       .key_context("ChatRoot")
       .on_action("chat_search", (_e, cx) => (this.searching ? this.closeSearch(cx) : this.openSearch(cx)))
       .on_action("chat_side_toggle", (_e, cx) => { this.side.open = !this.side.open; (this.side.open ? this.sideInput : this.input).focus(); cx.notify(); })
@@ -2397,6 +2433,8 @@ export default class Chat extends View {
         .child(h_flex().flex_1().min_h(0)
           .child(v_flex().flex_1().min_w(0).h_full().child(this.body(t)).child(this.footer(term, t)))
           .when(this.side.open, (el) => el.child(this.sidePane(t)))))
-      .when(this.dialog, (el) => el.child(this.newChat(t)).child(this.footer(term, t)));
+      .when(this.dialog, (el) => el.child(this.newChat(t)).child(this.footer(term, t)))
+      // Last, so it draws over the conversation (R14).
+      .when(Boolean(this.ctx), (el) => { const m = this.renderMenu(t); return m ? el.child(m) : el; });
   }
 }

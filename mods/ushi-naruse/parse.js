@@ -129,7 +129,8 @@ export class Transcript {
   toolUse(id, name, input) {
     let group = this.last();
     if (group?.kind !== "tools") group = this.push({ kind: "tools", items: [] });
-    const item = { id, name, summary: summarize(input), result: null, error: false, images: [] };
+    // ushi-naruse: the input too, for the right-click menu's Copy command.
+    const item = { id, name, summary: summarize(input), input, result: null, error: false, images: [] };
     group.items.push(item);
     if (id) this.tools.set(id, item);
   }

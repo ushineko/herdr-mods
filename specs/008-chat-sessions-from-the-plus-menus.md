@@ -2,7 +2,7 @@
 
 **Issue**: #12
 
-## Status: COMPLETE
+## Status: INCOMPLETE
 
 ## Executive Summary
 
@@ -187,6 +187,13 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
   `nested-tabs.close-pane` (the ×), `dock-tabs.chat`, `ushi-naruse.back` (Back to
   terminal) and `ushi-naruse.terminal` (Show/Hide terminal), for the focused pane or
   chat. A chat finds its own pane through its agent's `ushi.chat` label.
+- R14 **Right-click menu** (operator, 2026-11-25: the hover-only Copy buttons kept a
+  24 px row under every message). The rows go; right-click opens a menu the chat draws
+  at the pointer (Esc or a click outside closes it). Your message: Copy, Edit and send
+  again. A reply: Copy reply, Copy as plain text, Quote in message box, Ask about this
+  in side chat. A tool call (or a group of them): Copy command(s), Copy output, Show in
+  terminal. With text selected, Copy selection first. Code blocks keep their Copy and
+  Play buttons. Entries and text conversions are pure (`lib/chat-text.js`, tests).
 - R7 Pure selection logic (which entries to show for a platform, an agent list and
   a python3 check) lives in `lib/` with unit tests.
 
@@ -196,6 +203,8 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
       the listed changes; `herdr-app check` passes for `ushi-naruse` and
       `ushi-naruse-file`.
       (2026-11-25: every difference from 05ef3ed after the renames is R1a–f, R8, R9, R10 or R11; chat-file unchanged.)
+- [ ] R14: right-click a message, a reply and a tool call; each entry does what it says
+      (the rows are gone: Mac, `herdr-app shot`, 2026-11-25).
 - [x] R1g, Mac: the chat follows the terminals' 15 px; two A+ steps give 17 (shown
       highlighted), reset follows the terminals again (2026-11-25).
 - [x] R1d, Mac: the cow on the chat's tab and pane header (`herdr-app shot`).
