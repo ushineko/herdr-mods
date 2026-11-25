@@ -24,7 +24,7 @@ delete them).
 
 | File | Change | Why |
 |---|---|---|
-| `programs.js` | Cache prune: a day (was 14 days) and at most `KEEP` = 200 files, newest kept; POSIX `PRUNE` script and `PRUNE_WINDOWS`. Staging a changed file removes that file's older copies (not PDF pages). | Cache must stay bounded (operator's rule). Windows path untested. |
+| `programs.js` | Cache prune: a day (was 14 days) and at most `KEEP` = 200 files, newest kept; POSIX `PRUNE` script and `PRUNE_WINDOWS`. Staging a changed file removes that file's older copies (not PDF pages). | Cache must stay bounded (operator's rule). Tested on macOS, Linux and Windows (win11-kvm). |
 | `media.js` | Comment for the new prune. | |
 | `viewers/markdown.js` | Calls `pruneCache()` when a document has pictures. | Upstream pruned only from the image and PDF views. |
 | `viewers/diff.js` (new) | A file's git diff, for `props.diff = { repo, staged }`. Uses `lib/diff.js`. | Spec 001 R9; `git` (003) opens diffs here. |

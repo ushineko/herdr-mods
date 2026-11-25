@@ -30,7 +30,8 @@ below.
 ## Cross-platform (non-negotiable)
 
 Every mod, script and vendored piece must work on macOS and Linux (njv-mbp-m1
-and njv-cachyos), and must not knowingly break Windows. Per-platform programs
+and njv-cachyos), and on **Windows**, which is a compatibility target (the
+Herdr app has not been tried there yet; it will be). Per-platform programs
 go in a table chosen by `window().platform` (or the file's machine's platform
 for remote files), as `cria-file-preview/programs.js` does. A
 platform-specific tool (`sips`, `open`, `pbcopy`, `xdg-open`, `osascript`) is
@@ -112,6 +113,8 @@ install.sh       copies mods (and lib/) into an app home
 - **Unit**: pure helpers in `lib/` (parsing `git status`/`git worktree list`,
   path and breadcrumb logic, language detection, key maps) are tested with
   `node --test tests/*.test.js`. They take plain data and return plain data.
+- **Platforms**: `npm test` on the Mac, `./run-tests.sh` on njv-cachyos, and
+  `tools/test-windows.sh` for Windows, before a spec is marked COMPLETE.
 - **Load**: `herdr-app check` on every mod.
 - **Real window**: anything visual is checked in the running app with
   `herdr-app shot` and read back; a spec's E2E section lists what to look at.
@@ -122,6 +125,12 @@ install.sh       copies mods (and lib/) into an app home
 ---
 
 ## Environment
+
+- **Windows test host: win11-kvm**, a Windows 11 VM on njv-cachyos (ssh host
+  `win11-kvm` there, user `nvere`; not reachable from the Mac). It has node,
+  git, PowerShell 5.1 and pwsh, the herdr TUI and `hc`; not the Herdr app yet.
+  `tools/test-windows.sh` runs the unit tests there (from the Mac:
+  `hc exec --on njv-cachyos-default -- bash -c "$(cat tools/test-windows.sh)"`).
 
 - njv-mbp-m1 (macOS): app home `~/.config/herdr-app`, one window.
 - njv-cachyos (CachyOS): app homes `~/.config/herdr-app` (default) and
