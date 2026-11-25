@@ -9,7 +9,8 @@ import { fileType } from "./lib/filetype.js";
 import { openExternal, openDefault, externalRule } from "./lib/external-open.js";
 import { editFile } from "./lib/edit-open.js";
 import { openInViewer } from "./lib/open.js";
-import { terminalLocation, fallbackLocation } from "./lib/location.js";
+import { terminalLocation, fallbackLocation, shownSpace } from "./lib/location.js";
+import { SpaceLocks } from "./lib/space-locks.js";
 
 const PER_FOLDER = 500;
 const REMOTE_POLL = 5000;
@@ -66,6 +67,7 @@ export default class Nav extends View {
     // Agent requests (005) newer than this are carried out: a copy that starts just after
     // one (first shown, or reloaded) still takes a request from the last 10 s.
     this.requestAt = Date.now() - 10000;
+    this.locks = new SpaceLocks(shownSpace());
     this.scroll = ScrollHandle.new();
     this.filter = InputState.new({ placeholder: "Filter" });
     this.filter.on("change", (_e, cx) => { this.query = this.filter.value(); this.keepSelection(); cx.notify(); });
@@ -109,6 +111,18 @@ export default class Nav extends View {
     const loc = terminalLocation() ?? this.last ?? fallbackLocation();
     if (loc) this.go(loc.cwd, loc.on, cx, { space: loc.space });
     cx.notify();
+  }
+
+  // Not following is per space (#8): entering a space shows the folder locked there, or
+  // follows its terminal.
+  enterSpace(cx) {
+    const held = this.follow ? null : { path: this.path, on: this.on, space: this.space, select: this.selected };
+    const lock = this.locks.enter(shownSpace(), held);
+    if (lock === undefined) return;
+    this.follow = !lock;
+    const loc = lock ? null : terminalLocation() ?? fallbackLocation();
+    if (lock) this.go(lock.path, lock.on, cx, { space: lock.space, select: lock.select });
+    else if (loc) this.go(loc.cwd, loc.on, cx, { space: loc.space });
   }
 
   watchHere(cx) {
@@ -237,12 +251,16 @@ export default class Nav extends View {
     const q = shared("nav.request");
     if (!q || q.at <= this.requestAt) return;
     this.requestAt = q.at;
-    if (q.action === "follow") { this.relock(cx); return; }
+    const reveal = q.action === "reveal";
+    const lock = q.action === "follow" ? null : {
+      path: reveal ? parentOf(q.path) : q.path, on: q.on ?? null, space: q.space ?? this.space,
+      select: reveal ? q.path.split(/[\\/]/).filter(Boolean).pop() : null,
+    };
+    // A request from a terminal in another space waits there (#8).
+    if (q.space && q.space !== this.locks.space) { this.locks.set(q.space, lock); return; }
+    if (!lock) { this.relock(cx); return; }
     this.follow = false;
-    if (q.action === "reveal") {
-      const name = q.path.split(/[\\/]/).filter(Boolean).pop();
-      this.go(parentOf(q.path), q.on ?? null, cx, { select: name });
-    } else this.go(q.path, q.on ?? null, cx);
+    this.go(lock.path, lock.on, cx, { select: lock.select });
   }
 
   // ---- the context menu (a popup copy of this mod) ------------------------------
@@ -324,6 +342,7 @@ export default class Nav extends View {
   render(cx) {
     if (props()?.menu) return this.renderMenu();
     this.takeMenu(cx);
+    this.enterSpace(cx);
     this.takeRequest(cx);
     // Following: a focus change, tab switch or cd moves nav; a mod pane or dock block does not.
     const loc = terminalLocation();

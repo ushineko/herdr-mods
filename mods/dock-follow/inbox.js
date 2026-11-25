@@ -129,13 +129,13 @@ export class Inbox {
       case "nav":
       case "reveal":
       case "follow":
-        setShared("nav.request", { action: q.action, path: q.path, on, at: Date.now() });
-        if (q.action === "follow") setShared("git.request", { action: "follow", at: Date.now() });
+        setShared("nav.request", { action: q.action, path: q.path, on, space: space?.id, at: Date.now() });
+        if (q.action === "follow") setShared("git.request", { action: "follow", space: space?.id, at: Date.now() });
         notify({ title: q.action === "follow" ? "nav and git follow the terminal" : `nav → ${name || q.path}`, body: q.path ? `${q.path}${where}` : "", level: "info", timeout: 2500 });
         break;
       case "worktree":
-        setShared("git.request", { action: "worktree", path: q.path, on, at: Date.now() });
-        setShared("nav.request", { action: "nav", path: q.path, on, at: Date.now() });
+        setShared("git.request", { action: "worktree", path: q.path, on, space: space?.id, at: Date.now() });
+        setShared("nav.request", { action: "nav", path: q.path, on, space: space?.id, at: Date.now() });
         notify({ title: `git → worktree ${name}`, body: `${q.path}${where}`, level: "info", timeout: 2500 });
         break;
     }

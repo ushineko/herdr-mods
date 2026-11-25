@@ -8,6 +8,7 @@
     "external-open.js",
     "open.js",
     "location.js",
+    "space-locks.js",
     "editor.js",
     "edit-open.js"
   ],

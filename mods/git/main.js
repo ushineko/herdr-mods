@@ -13,7 +13,8 @@ import {
 } from "./lib/git.js";
 import { openInViewer } from "./lib/open.js";
 import { editFile } from "./lib/edit-open.js";
-import { terminalLocation, fallbackLocation } from "./lib/location.js";
+import { terminalLocation, fallbackLocation, shownSpace } from "./lib/location.js";
+import { SpaceLocks } from "./lib/space-locks.js";
 
 const REMOTE_POLL = 5000;
 const AGENT_POLL = 3000;
@@ -75,6 +76,7 @@ export default class Git extends View {
     // Agent requests (005) newer than this are carried out: a copy that starts just after
     // one (first shown, or reloaded) still takes a request from the last 10 s.
     this.requestAt = Date.now() - 10000;
+    this.locks = new SpaceLocks(shownSpace());
     this.message = InputState.new({ placeholder: "Commit message (Enter commits, Esc cancels)" });
     this.message.on("submit", (_e, cx) => this.commitNow(cx));
     this.last = terminalLocation() ?? fallbackLocation();
@@ -105,6 +107,17 @@ export default class Git extends View {
     const loc = terminalLocation() ?? this.last ?? fallbackLocation();
     if (loc) this.goTo(loc, cx);
     cx.notify();
+  }
+
+  // Not following is per space (#8): entering a space shows the worktree locked there,
+  // or follows its terminal.
+  enterSpace(cx) {
+    const lock = this.locks.enter(shownSpace(), this.follow || !this.loc ? null : { loc: this.loc, shown: this.shown });
+    if (lock === undefined) return;
+    this.follow = !lock;
+    if (lock) { this.shown = lock.shown; this.goTo(lock.loc, cx); return; }
+    const loc = terminalLocation() ?? fallbackLocation();
+    if (loc) this.goTo(loc, cx);
   }
 
   git(args, opts = {}) {
@@ -483,10 +496,14 @@ export default class Git extends View {
     const q = shared("git.request");
     if (!q || q.at <= this.requestAt) return;
     this.requestAt = q.at;
-    if (q.action === "follow") { this.relock(cx); return; }
+    const lock = q.action === "follow" ? null
+      : { loc: { cwd: q.path, on: q.on ?? null, space: q.space ?? this.loc?.space ?? null }, shown: q.path };
+    // A request from a terminal in another space waits there (#8).
+    if (q.space && q.space !== this.locks.space) { this.locks.set(q.space, lock); return; }
+    if (!lock) { this.relock(cx); return; }
     this.follow = false;
-    this.shown = q.path;
-    this.goTo({ cwd: q.path, on: q.on ?? null, space: this.loc?.space ?? null }, cx);
+    this.shown = lock.shown;
+    this.goTo(lock.loc, cx);
   }
 
   // ---- worktree clean-up (spec 007) ------------------------------------------------
@@ -935,6 +952,7 @@ export default class Git extends View {
     this.takeMenu(cx);
     const cleaned = shared("git.cleaned");
     if (cleaned && cleaned.at > (this.cleanedAt ?? 0)) { this.cleanedAt = cleaned.at; if (this.root !== undefined) this.refresh(cx); }
+    this.enterSpace(cx);
     this.takeRequest(cx);
     const loc = terminalLocation();
     if (loc) this.last = loc;
