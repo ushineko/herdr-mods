@@ -59,7 +59,7 @@ changes and which agents are where (003 R5a).
 
 ## Acceptance Criteria
 
-- [ ] `node --test`: the planner (`lib/git.js` `planCleanup`) — main and locked
+- [x] `node --test`: the planner (`lib/git.js` `planCleanup`) — main and locked
       skipped; dirty skipped; no upstream, ahead, detached-not-on-remote skipped;
       behind allowed; agent skipped; program terminal skipped; shells collected
       with their target folder; reasons readable.
@@ -68,7 +68,21 @@ changes and which agents are where (003 R5a).
       in the parent folder; an unpushed one, a dirty one and one with nvim open are
       skipped with those reasons; the branch still exists.
 - [ ] Right-click on one worktree plans just that one.
-- [ ] Nothing is removed on Cancel/Esc.
+- [x] Nothing is removed on Cancel/Esc.
+
+## Notes (2026-11-25)
+
+- Verified by the operator on platform-backend (njv-cachyos-work): one worktree,
+  `AP-22748-release-2026.20`, removed after the prompt; its branch remains
+  (log: `clean-up: removed feature/AP-22748-…`).
+- Bugs found on the way: (1) the check hung — a task spawned from a finished
+  task's context left host calls unsettled; menu actions now start from a timer;
+  (2) the dialog's list had no height inside a content-sized dialog; it now gets a
+  definite height; (3) one attempt reported "permission denied" without removing
+  anything — not traced (files, permissions, mounts, route all fine); every step's
+  result is now shown in the dialog and logged, so a repeat will say exactly what.
+- Still to check: the scratch scenario with skipped reasons (unpushed, dirty, nvim)
+  and the shell move.
 
 ## Threat model delta
 
