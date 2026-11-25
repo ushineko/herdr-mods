@@ -229,14 +229,25 @@ test("CLEANUP_SCAN_SH against real worktrees, parsed by parseCleanupScan", { ski
   g(repo, "worktree", "add", "-q", "-b", "feat", join(dir, "wt feat"));
   writeFileSync(join(dir, "wt feat", "x.txt"), "x");
   g(repo, "worktree", "add", "-q", "--detach", join(dir, "wt-det"));
-  const out = spawnSync("sh", ["-c", CLEANUP_SCAN_SH, "scan", repo, join(dir, "wt feat"), join(dir, "wt-det")], { encoding: "utf8" }).stdout;
+  g(repo, "worktree", "add", "-q", "--detach", join(dir, "wt-local"));
+  g(join(dir, "wt-local"), "commit", "-q", "--allow-empty", "-m", "only here");
+  const tmp = join(dir, "tmp");
+  const { mkdirSync, readdirSync } = await import("node:fs");
+  mkdirSync(tmp);
+  const paths = [repo, join(dir, "wt feat"), join(dir, "wt-det"), join(dir, "wt-local")];
+  const out = spawnSync("sh", ["-c", CLEANUP_SCAN_SH, "scan", ...paths], { encoding: "utf8", env: { ...process.env, TMPDIR: tmp } }).stdout;
   const scan = parseCleanupScan(out);
+  // In the order given, whatever order the parallel checks finished in; nothing left behind.
+  assert.deepEqual(Object.keys(scan), paths);
+  assert.deepEqual(readdirSync(tmp), []);
   assert.equal(scan[repo].status.branch.head, execFileSync("git", ["-C", repo, "branch", "--show-current"], { encoding: "utf8" }).trim());
   assert.equal(scan[repo].last.subject, "init");
   assert.equal(scan[repo].remoteRef, null);
   assert.equal(scan[join(dir, "wt feat")].status.untracked.length, 1);
   assert.equal(scan[join(dir, "wt-det")].status.branch.head, null);
-  assert.match(scan[join(dir, "wt-det")].remoteRef, /origin\//);
+  assert.equal(scan[join(dir, "wt-det")].remoteRef, "a remote branch");
+  assert.equal(scan[join(dir, "wt-local")].remoteRef, null);
+  assert.equal(scan[join(dir, "wt-local")].last.subject, "only here");
 });
 
 test("FOREIGN_SCAN_SH: nothing foreign in a tree the user owns", { skip: process.platform === "win32" }, async () => {

@@ -513,8 +513,9 @@ export default class Git extends View {
             const status = st?.code === 0 ? parseStatus(st.stdout) : null;
             let remoteRef = null;
             if (status && !status.branch.head) {
-              const r = await this.git([...READ, "-C", w.path, "branch", "-r", "--contains", "HEAD"]).catch(() => null);
-              remoteRef = r?.code === 0 ? (r.stdout.split("\n").map((l) => l.trim()).find(Boolean) ?? null) : null;
+              // A commit not reachable from any remote ref, if there is one (fast; see CLEANUP_SCAN_SH).
+              const r = await this.git([...READ, "-C", w.path, "rev-list", "-n", "1", "HEAD", "--not", "--remotes"]).catch(() => null);
+              remoteRef = r?.code === 0 && !r.stdout.trim() ? "a remote branch" : null;
             }
             scan[w.path] = { status, last: lg?.code === 0 ? parseLog(lg.stdout)[0] ?? null : null, remoteRef };
           }
