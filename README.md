@@ -7,14 +7,24 @@ JavaScript panels drawn natively by Herdr's GPUI shell.
 
 | Mod | What it does |
 |---|---|
-| `nested-tabs` | Pane header with nested tabs (port of the herdr TUI fork's pane stacks), and the per-tab yazi/lazygit panel |
-| `dock-tabs` | Tab strip for the window-level dock |
-| `dock-follow` | Keeps the dock's yazi/lazygit in the focused pane's folder |
+| `nav` | Folder panel (spec 002): follows the focused terminal's folder, breadcrumbs, git marks, opens files in the viewer, right-click menu (open, edit, open in app, copy path) |
+| `git` | Repository panel (spec 003): branch and upstream, worktrees with a light per agent (writes locked while an agent works there), changes with diffs, recent commits with drill-down, lazygit keys. **Clean up…** (spec 007) removes worktrees that are clean and pushed, with a checkbox each; root-owned files (Docker writing to a mapped volume) are handed back through default Docker; a kept worktree can be removed anyway with **Really remove…**, which says what is lost |
+| `nested-tabs` | Pane header with nested tabs (port of the herdr TUI fork's pane stacks), and the per-tab nav/git panel |
+| `dock-tabs` | Tab strip for the window-level dock; its fixed tab holds nav and git as a split |
+| `dock-follow` | Keeps the dock's nav and git on the focused pane's folder; handles agent requests (`herdr-open`, `herdr-nav`) |
 | `spaces-bar` | Horizontal spaces bar; remote machines fold into one chip with a dropdown |
 | `terminals-bar-proc` | Terminals bar showing each terminal's running program |
 | `term-menu` | Dock-aware terminal right-click menu |
 | `ui-lab` | Capability demo: Claude ↔ panel round trip, hayami usage meters, floating window |
 | `cria-file-preview` | File viewer in a tab (vendored from gsydler/herdr-cria, Apache-2.0; see `vendor/cria/VENDOR.md`): Markdown with images and links, PDF, images, CSV/TSV, JSON, code, plus local diff view and "Open in <app>" |
+
+## Where mods run
+
+Mods run only in the herdr-app window, on the machine that window runs on. A Mac
+window runs the Mac's copies even for a remote machine's terminals; commands for the
+remote go there through herdr-core (`exec(..., { on })`). A Linux window runs Linux's
+copies. So install on every machine where a window is opened; `bin/` and `skills/`
+go where agents run. A window without these mods works as plain Herdr.
 
 ## Agent commands and skills
 
