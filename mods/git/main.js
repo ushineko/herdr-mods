@@ -154,6 +154,8 @@ export default class Git extends View {
       try {
         if (this.root === undefined) {
           const r = await this.git([...READ, "-C", loc.cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"]).catch(() => null);
+          // Moved meanwhile: this root is the old folder's; the queued refresh finds the new one (#13).
+          if (this.loc !== loc) return;
           this.root = r?.code === 0 ? r.stdout.trim().replace(/[\\/]\.git[\\/]?$/, "") : null;
         }
         if (this.loc !== loc) return;

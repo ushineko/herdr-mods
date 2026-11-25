@@ -82,8 +82,15 @@ test("placeAgent: label, then program folder, then terminal folder", () => {
   const wts = [{ path: "/r" }, { path: "/w/feat" }];
   assert.deepEqual(placeAgent({ label: "/w/feat", program: "/r", terminal: "/home" }, wts), { worktree: wts[1], source: "label" });
   assert.deepEqual(placeAgent({ program: "/r/src", terminal: "/w/feat" }, wts), { worktree: wts[0], source: "program" });
-  assert.deepEqual(placeAgent({ label: "/elsewhere", terminal: "/w/feat/x" }, wts), { worktree: wts[1], source: "terminal" });
+  assert.deepEqual(placeAgent({ terminal: "/w/feat/x" }, wts), { worktree: wts[1], source: "terminal" });
   assert.equal(placeAgent({ terminal: "/home" }, wts), null);
+});
+
+test("placeAgent: an agent working in another repository is not placed here by its terminal's folder (#13)", () => {
+  const wts = [{ path: "/git/sysadmin" }];
+  // The session started in sysadmin; the agent works in herdr-mods.
+  assert.equal(placeAgent({ program: "/git/herdr-mods", terminal: "/git/sysadmin" }, wts), null);
+  assert.equal(placeAgent({ label: "/elsewhere", terminal: "/git/sysadmin/x" }, wts), null);
 });
 
 test("lockedBy: only a working agent locks", () => {

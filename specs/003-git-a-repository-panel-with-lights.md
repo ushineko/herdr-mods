@@ -58,7 +58,9 @@ the panel should answer at a glance.
   R11a depends on it). An agent's terminal stays in the folder its session
   started in while the agent works elsewhere (in a worktree, by path or by
   `cd` inside its own commands), so the terminal's folder alone is not enough.
-  Signals, first match wins:
+  Signals, the first one the agent has decides (one pointing outside the
+  repository places the agent elsewhere, never falling through to the next;
+  #13):
   1. **Its label** `herdr-mods.worktree=<path>` (set by `herdr-nav --worktree`,
      spec 005 R7a; `hc label`), read with `hc get` (which certainly has them;
      `hc ls` shows none), `terminals()` labels as the fallback.
