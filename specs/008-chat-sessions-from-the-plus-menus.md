@@ -158,6 +158,11 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
   its tab; × on a Claude Code or Codex terminal with a chat in its tab hides it, also
   for chats from before the labels; a hidden terminal's tab carries its chat tab's
   name, so it is recognisable if it comes back.
+  The tab bar's × on a tab holding a chat and its agent's terminal (after Show
+  terminal) moves that terminal to a tab of its own, named like the closing tab, and
+  only then closes the tab (`agentsToKeep`, terminals-bar-proc `keep.js`); if the move
+  fails the tab stays open with a warning. The pane-close key still closes a pane: no
+  mod can stand in for it.
 - R7 Pure selection logic (which entries to show for a platform, an agent list and
   a python3 check) lives in `lib/` with unit tests.
 

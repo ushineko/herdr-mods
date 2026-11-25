@@ -3,6 +3,7 @@
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, ScrollHandle } from "gpui-base";
 import { spaces, panes, terminals, run, theme, openOverlay, layout, window as win } from "herdr";
+import { closeTab } from "./keep.js";
 
 const C = {
   tray: "#1d1f22",
@@ -207,7 +208,8 @@ export default class TerminalsBar extends View {
             .hover((s) => s.bg(C.hover).text_color(C.text))
             .tooltip("Close tab")
             .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
-            .on_click((_e, cx) => { cx.stop_propagation(); run("tab.close", { id: c.id }); })
+            // A chat's agent shown in the tab moves out first (spec 008 R12).
+            .on_click((_e, cx) => { cx.stop_propagation(); closeTab(c.id, space.id, c.name, cx); })
             .child(svg("mods/terminals-bar-proc/x.svg").size(12)),
         );
     };
@@ -219,6 +221,8 @@ export default class TerminalsBar extends View {
       // macOS: the window buttons sit in the spaces bar above (the top row),
       // which leaves them room; none here.
       // (The space picker pill is gone: the spaces bar above shows every space.)
+      // New tab, at the left end (operator, 2026-11-25), ahead of the tabs.
+      .child(div().flex_none().pl(8).child(iconButton("tm-new", "plus", () => run("tab.new", { space: space.id }))))
       // A remote space says so before its tabs: these terminals run elsewhere.
       .when(Boolean(space.machine), (el) =>
         el.child(
@@ -244,8 +248,8 @@ export default class TerminalsBar extends View {
           .flex_1()
           .min_w(0)
           .h(BAR_H)
-          // Past the pane's rounded corner, so the shown tab meets its straight top edge.
-          .pl(12)
+          // The + sits past the pane's rounded corner, so the first tab meets its straight top edge.
+          .pl(2)
           .gap(4)
           .overflow_x_scroll()
           .track_scroll(this.scroll)
@@ -253,7 +257,6 @@ export default class TerminalsBar extends View {
           .children(shownTabs.map(tab)),
       )
       .child(iconButton("tm-keys", "command", () => run("app.palette")))
-      .child(iconButton("tm-new", "plus", () => run("tab.new", { space: space.id })))
       .when(Boolean(w.buttons), (el) =>
         el.child(
           h_flex()

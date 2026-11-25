@@ -1,5 +1,6 @@
 {
   "place": "none",
+  "lib": ["chat-entries.js"],
   "title": "Terminals tabs",
   "cloned_from": {
     "name": "terminals-bar",

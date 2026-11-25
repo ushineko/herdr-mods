@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chatEntries, strayChats, orphanedHidden, toSettle, toRename, localId } from "../lib/chat-entries.js";
+import { chatEntries, strayChats, orphanedHidden, toSettle, toRename, localId, agentsToKeep } from "../lib/chat-entries.js";
 
 const claude = { key: "claude", name: "Claude Code", installed: true, run: ["claude"] };
 const codex = { key: "codex", name: "Codex", installed: true, run: ["codex", "--no-daemon"] };
@@ -106,4 +106,18 @@ test("a hidden terminal's numbered tab takes its chat tab's name; a numbered cha
   const tabs = [{ id: "tbA", name: "hayami" }, { id: "tbH", name: "8" }, { id: "tbB", name: "7" }, { id: "tbG", name: "9" },
     { id: "tbC", name: "fynstall" }, { id: "tbK", name: "fynstall" }];
   assert.deepEqual(toRename(terms, tabs), [{ id: "tbH", name: "hayami" }]);
+});
+
+test("closing a tab keeps the agent its chat shows; a shell, or a tab without a chat, closes as usual", () => {
+  const panes = [
+    { pane: "m/pc", tab: "T", mod: "ushi-naruse" },
+    { pane: "m/p1", tab: "T", terminal: "m/t1", program: { key: "claude" } },
+    { pane: "m/p2", tab: "T", terminal: "m/t2", program: { key: "shell" } },
+    { pane: "m/p3", tab: "U", terminal: "m/t3", program: { key: "claude" } },
+    { pane: "m/p4", tab: "T", terminal: "m/t4", program: { key: "codex" } },
+  ];
+  const terms = [{ address: "m/t1", labels: { "ushi.chat": "pc" } }, { address: "m/t4", labels: { "ushi.chat": "pOther" } }];
+  assert.deepEqual(agentsToKeep("T", panes, terms), ["m/t1"], "t4 belongs to another chat");
+  assert.deepEqual(agentsToKeep("U", panes, terms), [], "no chat in U");
+  assert.deepEqual(agentsToKeep("T", panes, [{ address: "m/t4", labels: {} }]), ["m/t1", "m/t4"], "unlabelled agents beside a chat");
 });
