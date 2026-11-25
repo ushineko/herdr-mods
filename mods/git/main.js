@@ -548,7 +548,10 @@ export default class Git extends View {
           };
         }));
         const plan = planCleanup(items);
-        openOverlay({ mod: "git", kind: "dialog", width: 620, props: { cleanup: { root, on, plan } } });
+        // A definite height: inside a content-sized dialog the scrolling list got none
+        // (only the title, the note and the buttons showed). ~96 px per card listed.
+        const cards = plan.filter((p) => p.eligible).length + (plan.length === 1 ? plan.filter((p) => !p.eligible).length : 1);
+        openOverlay({ mod: "git", kind: "dialog", width: 640, height: Math.min(720, 250 + cards * 96), props: { cleanup: { root, on, plan } } });
       } catch (e) {
         logError("clean-up check", e);
         notify({ title: "Clean up: checking failed", body: String(e?.message ?? e), level: "error" });
@@ -620,15 +623,15 @@ export default class Git extends View {
       .when(Boolean(p.last), (el) => el.child(lastLine(p)))
       .when(going && p.shells.length > 0, (el) => el.children(p.shells.map((sh) =>
         div().text_size(11.5).text_color(t.muted).child(`shell ${sh.address} moves to ${p.parent}`))));
-    return v_flex().id("git-cleanup").track_focus(this.handle).w_full().max_h(620).p(18).gap(10).bg(t.popover).text_color(t.foreground)
+    return v_flex().id("git-cleanup").track_focus(this.handle).size_full().p(18).gap(10).bg(t.popover).text_color(t.foreground)
       .on_key_down((e, cx) => {
         if (e.key === "escape" && !this.running) { close(); cx.stop_propagation(); }
         else if (e.key === "enter") { if (this.done) close(); else remove(e, cx); cx.stop_propagation(); }
       })
-      .child(div().text_size(15).font_semibold().child(go.length ? `Remove ${go.length} worktree${go.length === 1 ? "" : "s"}?` : "Nothing to clean up"))
-      .child(div().text_size(12).text_color(t.muted).child(`Repository ${props().cleanup.root} · on ${props().cleanup.on ?? "this computer"} · ${plan.length} worktree${plan.length === 1 ? "" : "s"} checked`))
-      .child(div().text_size(11.5).text_color(t.dim).child("Only worktrees with every change committed and pushed (as of the last fetch), not locked, and not in use. Their branches are kept."))
-      .child(v_flex().id("git-cleanup-list").min_h(0).max_h(440).overflow_y_scrollbar().gap(4)
+      .child(div().flex_none().text_size(15).font_semibold().child(go.length ? `Remove ${go.length} worktree${go.length === 1 ? "" : "s"}?` : "Nothing to clean up"))
+      .child(div().flex_none().text_size(12).text_color(t.muted).child(`Repository ${props().cleanup.root} · on ${props().cleanup.on ?? "this computer"} · ${plan.length} worktree${plan.length === 1 ? "" : "s"} checked`))
+      .child(div().flex_none().text_size(11.5).text_color(t.dim).child("Only worktrees with every change committed and pushed (as of the last fetch), not locked, and not in use. Their branches are kept."))
+      .child(v_flex().id("git-cleanup-list").flex_1().min_h(0).overflow_y_scrollbar().gap(4)
         .when(go.length > 0, (el) => el.child(div().flex_none().pt(4).text_size(10.5).font_semibold().text_color(t.dim).child(`WILL BE REMOVED (${go.length}) — folder deleted, branch kept`))
           .children(go.map((p) => card(p, true))))
         // Kept ones: in full for a single worktree; for "Clean up…" a summary by reason
@@ -646,10 +649,10 @@ export default class Git extends View {
             .when(!single, (x) => x.child(div().flex_none().text_size(11.5).text_color(t.muted).child(summary)))
             .when(open, (x) => x.children(skip.map((p) => card(p, false))));
         }))
-      .when(Boolean(this.results?.length), (el) => el.child(v_flex().gap(2).pt(6).border_t(1).border_color(t.border)
+      .when(Boolean(this.results?.length), (el) => el.child(v_flex().flex_none().gap(2).pt(6).border_t(1).border_color(t.border)
         .child(div().pt(4).text_size(10.5).font_semibold().text_color(t.dim).child("RESULT"))
         .children(this.results.map((r) => div().text_size(12).text_color(r.ok ? t.ansi2 : t.ansi1).child(`${r.ok ? "✓" : "✗"} ${r.text}`)))))
-      .child(h_flex().pt(6).gap(8).justify_end()
+      .child(h_flex().flex_none().pt(6).gap(8).justify_end()
         .when(!this.done, (el) => el
           .child(button("git-cleanup-cancel", "Cancel", false, !this.running, () => close()))
           .child(button("git-cleanup-go", this.running ? "Removing…" : `Remove ${go.length}`, true, go.length > 0 && !this.running, remove)))
