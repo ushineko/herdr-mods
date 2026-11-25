@@ -141,6 +141,23 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
     `njv-cachyos-default/p…`, that machine's own window `p…`), and every reader compares
     that form. The app keeps "settled" per window, so each window's clean-up settles a
     chat's hidden terminal tab there too (`toSettle`), unless it's the shown tab.
+- R11 **One chat, every window** (operator, 2026-11-25: "a design gap"). Several windows
+  (njv-mbp-m1's, and njv-cachyos's own) show the same machine's tabs, so a chat's pane
+  and props are shared, but each window runs its own copy of the chat, and addresses
+  and machine names belong to the window looking (from the Mac `njv-cachyos-default/t39`,
+  on njv-cachyos `t39`; a machine doesn't know the name others give it). So nothing a
+  chat or its labels hold is an address:
+  - the agent carries `ushi.id=<id>` and the chat's props `{ id }`; each window's copy
+    finds the terminal by that label and uses its own address (`resolveTerm`);
+  - pane ids in labels are held and compared without their machine part (R10);
+  - per-window state is made per window: "settled" (R10), the clean-up's waiting.
+  What stays per window by design: the chat's drafts and side chat (localStorage), and
+  a × hide request (it reaches the chats in the window it was clicked in).
+- R12 **Never end a session by accident** (an agent was killed on njv-cachyos,
+  2026-11-25): Back to terminal closes the chat only once the terminal has a pane in
+  its tab; × on a Claude Code or Codex terminal with a chat in its tab hides it, also
+  for chats from before the labels; a hidden terminal's tab carries its chat tab's
+  name, so it is recognisable if it comes back.
 - R7 Pure selection logic (which entries to show for a platform, an agent list and
   a python3 check) lives in `lib/` with unit tests.
 
@@ -176,6 +193,10 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
 - [x] R10 follow, Mac: chat tab ↔ tab 1 switches nav and git between the agent's folder
       (sysadmin) and herdr-mods (2026-11-25).
 - [ ] R10 × hides, agents list: in a real window.
+- [x] R11: a chat opened from the Mac on a njv-cachyos agent, shown in njv-cachyos's
+      own window, finds its agent (`t3b` there) and shows its live prompt (2026-11-25).
+- [x] R12 names: hidden tab named "sysadmin" like its chat's; back under that name
+      when the chat's tab closed, agent alive (Mac).
 - [ ] All unit tests pass (`npm test` on the Mac, `./run-tests.sh` on njv-cachyos).
 - [ ] `herdr-app status` shows no errors on both machines.
 
