@@ -7,7 +7,7 @@ import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { exec, hc, watchFolder, window, theme, settings, terminals, notify, nextCommand, checking, run, shared, setShared, props, openOverlay, closeOverlay, home, readTextFile } from "herdr";
 import {
   READ, parseStatus, parseNumstat, parseWorktrees, worktreeOf, placeAgent, lockedBy, within, WORKTREE_LABEL,
-  indexWorktrees, visibleWorktrees, planCleanup, CLEANUP_SCAN_SH, parseCleanupScan, FOREIGN_SCAN_SH, parseForeignScan, DOCKER_CHOWN_SH, DOCKER_PREFLIGHT_SH,
+  indexWorktrees, visibleWorktrees, planCleanup, CLEANUP_SCAN_SH, parseCleanupScan, FOREIGN_SCAN_SH, parseForeignScan, DOCKER_CHOWN_SH, DOCKER_PREFLIGHT_SH, removeArgs,
   stageArgs, unstageArgs, stageAllArgs, unstageAllArgs, commitArgs, pullArgs, pushArgs, fetchArgs,
   LOG_FORMAT, parseLog, ago, gitKeyAction, WRITES, COMMIT_FORMAT, parseCommit, parseCommitFiles,
 } from "./lib/git.js";
@@ -43,6 +43,8 @@ const SIZES = "git.sizes";
 const SIZE_DEFAULTS = { wt: 300, recent: 320, wtH: 150, recentH: 140 };
 const SIZE_LIMITS = { wt: [140, 900], recent: [140, 900], wtH: [60, 900], recentH: [60, 900] };
 
+// A #rrggbb theme colour at the given alpha (two hex digits); others as they are.
+const tint = (c, alpha) => (/^#[0-9a-f]{6}$/i.test(c) ? c + alpha : c);
 const join = (dir, rel) => `${dir.replace(/[\\/]+$/, "")}/${rel}`;
 const base = (p) => String(p ?? "").replace(/[\\/]+$/, "").split(/[\\/]/).pop();
 
@@ -567,7 +569,7 @@ export default class Git extends View {
         // A definite height: inside a content-sized dialog the scrolling list got none
         // (only the title, the note and the buttons showed). ~112 px per card listed.
         const cards = plan.filter((p) => p.eligible).length + (plan.length === 1 ? plan.filter((p) => !p.eligible).length : 1);
-        openOverlay({ mod: "git", kind: "dialog", width: 640, height: Math.min(720, 260 + cards * 112), props: { cleanup: { root, on, plan, items } } });
+        openOverlay({ mod: "git", kind: "dialog", width: 640, height: Math.min(640, 260 + cards * 112 + (plan.length === 1 && plan[0].force?.allowed ? 150 : 0)), props: { cleanup: { root, on, plan, items } } });
       } catch (e) {
         logError("clean-up check", e);
         notify({ title: "Clean up: checking failed", body: String(e?.message ?? e), level: "error" });
@@ -625,31 +627,41 @@ export default class Git extends View {
   }
 
   // Each step's outcome is shown in the dialog (which stays open) and logged.
+  noteResult(cx, ok, text) {
+    (this.results ??= []).push({ ok, text });
+    logError(ok ? "clean-up" : "clean-up failed", text);
+    cx.notify();
+  }
+
+  // Moves the item's shells out, removes the worktree (forced if asked) and reports;
+  // true when it is gone. A remove can fail half done (unregistered, the folder left
+  // with what git could not delete), which is said with the command to finish.
+  async removeOne(cx, item, { force = false } = {}) {
+    const { root, on } = props().cleanup;
+    const note = (ok, text) => this.noteResult(cx, ok, text);
+    const shells = force ? item.force.shells : item.shells;
+    for (const sh of shells) {
+      const r = await within_ms(cx, hc(["send", sh.address, sh.cmd]), 10000, { code: 1, stderr: "no answer in 10 s" });
+      note(r.code === 0, `${r.code === 0 ? "moved" : "could not move"} shell ${sh.address}${r.code === 0 ? "" : `: ${(r.stderr || r.stdout || "").trim()}`}`);
+    }
+    if (shells.length) await cx.sleep(500);
+    const r = await exec("git", removeArgs(root, item.path, { force, locked: item.force?.locked }), { on }).catch((e) => ({ code: 1, stderr: String(e?.message ?? e) }));
+    if (r.code === 0) { note(true, `${force ? "force-removed" : "removed"} ${item.branch ?? item.path}`); return true; }
+    note(false, `${item.branch ?? item.path} (on ${on ?? "this computer"}): git worktree remove exited ${r.code}: ${(r.stderr || r.stdout || "").trim()}`);
+    const left = await exec("sh", ["-c", 'git -C "$1" worktree list --porcelain | grep -qxF "worktree $2" && echo registered; [ -e "$2" ] && echo exists; true', "left", root, item.path], { on }).catch(() => null);
+    const out = left?.stdout ?? "";
+    if (!out.includes("registered") && out.includes("exists")) {
+      note(false, `files owned by another user (root?) were left behind, so the folder remains; the worktree is unregistered and its branch kept. To finish: sudo rm -rf -- '${item.path.replace(/'/g, "'\\''")}'`);
+    }
+    return false;
+  }
+
   async runCleanup(cx) {
     const { root, on } = props().cleanup;
-    const plan = this.plan;
     const removed = [], failed = [];
     this.results = [];
-    const note = (ok, text) => { this.results.push({ ok, text }); logError(ok ? "clean-up" : "clean-up failed", text); cx.notify(); };
-    for (const item of plan.filter((p) => p.eligible && this.chosen.has(p.path))) {
-      for (const sh of item.shells) {
-        const r = await within_ms(cx, hc(["send", sh.address, sh.cmd]), 10000, { code: 1, stderr: "no answer in 10 s" });
-        note(r.code === 0, `${r.code === 0 ? "moved" : "could not move"} shell ${sh.address}${r.code === 0 ? "" : `: ${(r.stderr || r.stdout || "").trim()}`}`);
-      }
-      if (item.shells.length) await cx.sleep(500);
-      const r = await exec("git", ["-C", root, "worktree", "remove", item.path], { on }).catch((e) => ({ code: 1, stderr: String(e?.message ?? e) }));
-      const msg = (r.stderr || r.stdout || "").trim();
-      if (r.code === 0) { removed.push(item); note(true, `removed ${item.branch ?? item.path}`); }
-      else {
-        failed.push(item);
-        note(false, `${item.branch ?? item.path} (on ${on ?? "this computer"}): git worktree remove exited ${r.code}: ${msg}`);
-        // A remove can fail half done: unregistered, folder left with what it could not delete.
-        const left = await exec("sh", ["-c", 'git -C "$1" worktree list --porcelain | grep -qxF "worktree $2" && echo registered; [ -e "$2" ] && echo exists; true', "left", root, item.path], { on }).catch(() => null);
-        const out = left?.stdout ?? "";
-        if (!out.includes("registered") && out.includes("exists")) {
-          note(false, `files owned by another user (root?) were left behind, so the folder remains; the worktree is unregistered and its branch kept. To finish: sudo rm -rf -- '${item.path.replace(/'/g, "'\\''")}'`);
-        }
-      }
+    for (const item of this.plan.filter((p) => p.eligible && this.chosen.has(p.path))) {
+      if (await this.removeOne(cx, item)) removed.push(item); else failed.push(item);
     }
     await exec("git", ["-C", root, "worktree", "prune"], { on }).catch(() => null);
     setShared("git.cleaned", { at: Date.now() });
@@ -657,10 +669,59 @@ export default class Git extends View {
     if (failed.length) notify({ title: `${failed.length} could not be removed`, body: `${failed.map((p) => p.branch ?? p.path).join(", ")} — see the dialog or ~/.cache/herdr-mods/git-errors.log`, level: "error" });
   }
 
+  // "Really remove…" confirmed for one kept worktree: another user's files are checked
+  // first (the plan only checked removable ones, and --force cannot delete them).
+  async forceRemove(cx, item) {
+    const { on } = props().cleanup;
+    if (!(!on && window()?.platform === "windows")) {
+      const fr = await exec("sh", ["-c", FOREIGN_SCAN_SH, "owners", item.path], { on, timeout: 120000 }).catch(() => null);
+      const f = fr ? parseForeignScan(fr.stdout)[item.path] : null;
+      if (f) {
+        this.noteResult(cx, false, `${item.branch ?? item.path} not removed: files owned by ${f.owner} inside (e.g. ${f.path}); fix ownership first: sudo chown -R "$USER" -- '${item.path.replace(/'/g, "'\\''")}'`);
+        return;
+      }
+    }
+    if (await this.removeOne(cx, item, { force: true })) {
+      this.plan = this.plan.filter((p) => p.path !== item.path);
+      setShared("git.cleaned", { at: Date.now() });
+      notify({ title: "Worktree force-removed", body: item.branch ?? item.path, level: "warning", timeout: 5000 });
+    }
+  }
+
   renderCleanup() {
     const t = theme();
     const plan = this.plan;
-    const idle = !this.running && !this.done && !this.fixing;
+    const idle = !this.running && !this.done && !this.fixing && !this.forcing;
+    // "Really remove…": a kept worktree removed anyway, after a red panel saying what is lost.
+    const forceBlock = (p) => {
+      const f = p.force;
+      if (!f) return null;
+      if (!f.allowed) return div().text_size(11).text_color(t.dim).child(`Cannot be removed anyway: ${f.refused}`);
+      if (this.confirmForce !== p.path) {
+        return h_flex().child(h_flex().id(`git-cu-force-${p.path}`).px(8).py(3).rounded(5).border_1().border_color(t.ansi1).text_size(11.5).text_color(t.ansi1)
+          .when(idle, (el) => el.cursor_pointer().hover((x) => x.bg(tint(t.ansi1, "22"))).on_click((_e, cx) => { this.confirmForce = p.path; cx.notify(); }))
+          .when(!idle, (el) => el.opacity(0.4))
+          .child("⚠ Really remove…"));
+      }
+      const busy = this.forcing === p.path;
+      return v_flex().gap(4).p(10).rounded(6).border_2().border_color(t.ansi1).bg(tint(t.ansi1, "1a"))
+        .child(div().text_size(12.5).font_bold().text_color(t.ansi1).child(`⚠ Discard this worktree${f.lost.length ? " and lose work" : ""}?`))
+        .children(f.lost.map((l) => div().text_size(12).font_semibold().text_color(t.ansi1).child(`✗ LOST: ${l}`)))
+        .children(f.kept.map((k) => div().text_size(12).text_color(t.muted).child(`• ${k}`)))
+        .when(f.locked, (el) => el.child(div().text_size(12).text_color(t.muted).child("• it is locked; the lock is overridden")))
+        .children(f.shells.map((sh) => div().text_size(11.5).text_color(t.muted).child(`• shell ${sh.address} moves to ${p.parent}`)))
+        .child(div().text_size(11.5).text_color(t.dim).child(`Runs: git worktree remove ${f.locked ? "--force --force" : "--force"} — the folder is deleted and cannot be restored.`))
+        .child(h_flex().pt(4).gap(8).justify_end()
+          .child(div().id(`git-cu-force-no-${p.path}`).px(10).py(4).rounded(6).border_1().border_color(t.input).bg(t.raised).text_size(12)
+            .when(!busy, (el) => el.cursor_pointer().on_click((_e, cx) => { this.confirmForce = null; cx.notify(); })).when(busy, (el) => el.opacity(0.4)).child("Keep it"))
+          .child(div().id(`git-cu-force-yes-${p.path}`).px(10).py(4).rounded(6).bg(t.ansi1).text_size(12).font_semibold().text_color("#ffffff")
+            .when(!busy && !this.running && !this.fixing, (el) => el.cursor_pointer().hover((x) => x.opacity(0.88)).on_click((_e, cx) => {
+              this.forcing = p.path;
+              cx.notify();
+              cx.spawn(async (cx) => { try { await this.forceRemove(cx, p); } finally { this.forcing = null; this.confirmForce = null; cx.notify(); } });
+            }))
+            .child(busy ? "Removing…" : "Discard and remove")));
+    };
     const fix = (paths) => (_e, cx) => {
       if (!idle || !paths.length) return;
       this.fixing = { path: paths[0], n: 1, of: paths.length };
@@ -678,7 +739,7 @@ export default class Git extends View {
       .text_color(primary ? t.background : t.foreground).when(enabled, (el) => el.cursor_pointer().hover((s) => s.opacity(0.88)).on_click(act))
       .when(!enabled, (el) => el.opacity(0.4)).child(label);
     const remove = (_e, cx) => {
-      if (this.running || this.fixing || !picked.length) return;
+      if (this.running || this.fixing || this.forcing || !picked.length) return;
       this.running = true;
       cx.notify();
       cx.spawn(async (cx) => { try { await this.runCleanup(cx); } finally { this.running = false; this.done = true; cx.notify(); } });
@@ -726,11 +787,13 @@ export default class Git extends View {
           .when(idle, (el) => el.cursor_pointer().hover((x) => x.opacity(0.88)).on_click(fix([p.path]))).when(!idle, (el) => el.opacity(0.4))
           .child(this.fixing?.path === p.path ? "Fixing…" : "Fix ownership")))))
       .when(Boolean(p.last), (el) => el.child(lastLine(p)))
+      .when(!going && !this.done, (el) => el.child(forceBlock(p)))
       .when(going && p.shells.length > 0, (el) => el.children(p.shells.map((sh) =>
         div().text_size(11.5).text_color(t.muted).child(`shell ${sh.address} moves to ${p.parent}`)))));
     return v_flex().id("git-cleanup").track_focus(this.handle).size_full().p(18).gap(10).bg(t.popover).text_color(t.foreground)
       .on_key_down((e, cx) => {
-        if (e.key === "escape" && !this.running && !this.fixing) { close(); cx.stop_propagation(); }
+        if (e.key === "escape" && this.confirmForce && !this.forcing) { this.confirmForce = null; cx.notify(); cx.stop_propagation(); }
+        else if (e.key === "escape" && !this.running && !this.fixing && !this.forcing) { close(); cx.stop_propagation(); }
         else if (e.key === "enter") { if (this.done) close(); else remove(e, cx); cx.stop_propagation(); }
       })
       .child(div().flex_none().text_size(15).font_semibold().child(go.length ? `Remove ${picked.length} of ${go.length} worktree${go.length === 1 ? "" : "s"}?` : "Nothing to clean up"))
@@ -738,7 +801,11 @@ export default class Git extends View {
       .when(Boolean(this.fixing), (el) => el.child(div().flex_none().text_size(12).text_color(t.accent)
         .child(this.fixing.phase ? `Fix ownership: ${this.fixing.phase}…` : this.fixing.path ? `Fixing ownership ${this.fixing.n} of ${this.fixing.of} (docker chown): ${this.fixing.path}` : "Checking file owners again…")))
       .child(div().flex_none().text_size(11.5).text_color(t.dim).child("Only worktrees with every change committed and pushed (as of the last fetch), not locked, and not in use. Their branches are kept."))
-      .child(v_flex().id("git-cleanup-list").flex_1().min_h(0).overflow_y_scrollbar().gap(4)
+      // Once Remove starts its results take the list's place, so the buttons stay in view.
+      .when(this.running || this.done, (el) => el.child(v_flex().id("git-cleanup-results").flex_1().min_h(0).overflow_y_scrollbar().gap(2)
+        .child(div().flex_none().text_size(10.5).font_semibold().text_color(t.dim).child(this.running ? "REMOVING…" : "RESULT"))
+        .children((this.results ?? []).map((r) => div().flex_none().text_size(12).text_color(r.ok ? t.ansi2 : t.ansi1).child(`${r.ok ? "✓" : "✗"} ${r.text}`)))))
+      .when(!this.running && !this.done, (el) => el.child(v_flex().id("git-cleanup-list").flex_1().min_h(0).overflow_y_scrollbar().gap(4)
         .when(go.length > 0, (el) => el.child(h_flex().flex_none().pt(4).gap(10).items_center()
             .child(div().text_size(10.5).font_semibold().text_color(t.dim).child(`CAN BE REMOVED (${go.length}) — ticked ones go: folder deleted, branch kept`))
             .when(go.length > 1 && !this.running && !this.done, (row) => row
@@ -760,14 +827,13 @@ export default class Git extends View {
               .when(owned.length > 1, (row) => row.child(linkBtn("git-cu-fix-all", `Fix ownership of all ${owned.length}`, fix(owned.map((p) => p.path))))))
             .when(!single, (x) => x.child(div().flex_none().text_size(11.5).text_color(t.muted).child(summary)))
             .when(open, (x) => x.children(skip.map((p) => card(p, false))));
-        }))
-      .when(Boolean(this.results?.length), (el) => el.child(v_flex().flex_none().gap(2).pt(6).border_t(1).border_color(t.border)
-        .child(div().pt(4).text_size(10.5).font_semibold().text_color(t.dim).child("RESULT"))
-        .children(this.results.map((r) => div().text_size(12).text_color(r.ok ? t.ansi2 : t.ansi1).child(`${r.ok ? "✓" : "✗"} ${r.text}`)))))
+        })))
+      .when(!this.running && !this.done && Boolean(this.results?.length), (el) => el.child(v_flex().id("git-cleanup-notes").flex_none().max_h(110).overflow_y_scrollbar().gap(2).pt(6).border_t(1).border_color(t.border)
+        .children(this.results.map((r) => div().flex_none().text_size(12).text_color(r.ok ? t.ansi2 : t.ansi1).child(`${r.ok ? "✓" : "✗"} ${r.text}`)))))
       .child(h_flex().flex_none().pt(6).gap(8).justify_end()
         .when(!this.done, (el) => el
-          .child(button("git-cleanup-cancel", "Cancel", false, !this.running && !this.fixing, () => close()))
-          .child(button("git-cleanup-go", this.running ? "Removing…" : `Remove ${picked.length}`, true, picked.length > 0 && !this.running && !this.fixing, remove)))
+          .child(button("git-cleanup-cancel", "Close", false, !this.running && !this.fixing && !this.forcing, () => close()))
+          .child(button("git-cleanup-go", this.running ? "Removing…" : `Remove ${picked.length}`, true, picked.length > 0 && !this.running && !this.fixing && !this.forcing, remove)))
         .when(Boolean(this.done), (el) => el.child(button("git-cleanup-close", "Close", false, true, () => close()))));
   }
 

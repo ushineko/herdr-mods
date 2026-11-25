@@ -4,7 +4,7 @@ import {
   parseStatus, parseNumstat, parseWorktrees, within, worktreeOf, placeAgent, lockedBy,
   stageArgs, unstageArgs, unstageAllArgs, pushArgs, pullArgs, fetchArgs, commitArgs,
   parseLog, ago, gitKeyAction, WRITES, parseCommit, parseCommitFiles, indexWorktrees, visibleWorktrees,
-  planCleanup, cdCommand, isShell, CLEANUP_SCAN_SH, parseCleanupScan, FOREIGN_SCAN_SH, parseForeignScan, DOCKER_CHOWN_SH, DOCKER_PREFLIGHT_SH,
+  planCleanup, cdCommand, isShell, CLEANUP_SCAN_SH, parseCleanupScan, FOREIGN_SCAN_SH, parseForeignScan, DOCKER_CHOWN_SH, DOCKER_PREFLIGHT_SH, removeArgs,
 } from "../lib/git.js";
 
 const z = (...recs) => recs.join("\0") + "\0";
@@ -298,4 +298,48 @@ esac
     assert.deepEqual(run({ components: "Podman Engine;" })[1], "refused: this is Podman, not Docker; use the sudo command instead");
     assert.deepEqual(run({ image: false })[1], "refused: the alpine image is not on this machine; use the sudo command instead");
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("planCleanup force: what Really remove would lose or keep, and when it is refused", () => {
+  const force = (o) => planCleanup([wt(o)])[0].force;
+  assert.equal(planCleanup([wt()])[0].force, undefined);
+  assert.deepEqual(force({ changes: 3, ahead: 2 }), { allowed: true, locked: false, shells: [],
+    lost: ["3 uncommitted changes (untracked files included)"], kept: ["branch feat keeps its 2 unpushed commits"] });
+  assert.deepEqual(force({ upstream: null }).kept, ["branch feat keeps its commits (it was never pushed)"]);
+  const d = force({ detached: true, branch: null, upstream: null, onRemote: false, last: { hash: "abc1234", subject: "s", time: 1 } });
+  assert.deepEqual([d.lost, d.kept], [["commit abc1234 is on no branch or remote"], []]);
+  const l = force({ locked: true, terminals: [{ address: "t1", program: "zsh" }] });
+  assert.deepEqual([l.locked, l.kept, l.shells], [true, ["branch feat is kept"], [{ address: "t1", cmd: " cd '/r.wt'" }]]);
+  assert.deepEqual(force({ main: true }), { allowed: false, refused: "the main worktree is never removed" });
+  assert.match(force({ changes: 1, agents: ["claude-code"] }).refused, /agent is working in it \(claude-code\)/);
+  assert.match(force({ terminals: [{ address: "t9", program: "nvim" }] }).refused, /nvim \(t9\) running in it; close it first/);
+  assert.match(force({ foreign: { path: "/x", owner: "root" } }).refused, /fix ownership first/);
+});
+
+test("removeArgs: --force once, twice for a locked worktree", () => {
+  assert.deepEqual(removeArgs("/r", "/w"), ["-C", "/r", "worktree", "remove", "/w"]);
+  assert.deepEqual(removeArgs("/r", "/w", { force: true }), ["-C", "/r", "worktree", "remove", "--force", "/w"]);
+  assert.deepEqual(removeArgs("/r", "/w", { force: true, locked: true }), ["-C", "/r", "worktree", "remove", "--force", "--force", "/w"]);
+});
+
+test("removeArgs against git: --force discards changes; locked needs it twice", { skip: process.platform === "win32" }, async () => {
+  const { execFileSync, spawnSync } = await import("node:child_process");
+  const { mkdtempSync, writeFileSync, existsSync, realpathSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "herdr-force-")));
+  const g = (cwd, ...a) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...a], { cwd, stdio: "pipe" });
+  g(dir, "init", "-q", "repo");
+  const repo = join(dir, "repo");
+  g(repo, "commit", "-q", "--allow-empty", "-m", "init");
+  g(repo, "worktree", "add", "-q", "-b", "dirty", join(dir, "dirty"));
+  writeFileSync(join(dir, "dirty", "x.txt"), "x");
+  assert.notEqual(spawnSync("git", removeArgs(repo, join(dir, "dirty"))).status, 0);
+  assert.equal(spawnSync("git", removeArgs(repo, join(dir, "dirty"), { force: true })).status, 0);
+  assert.equal(existsSync(join(dir, "dirty")), false);
+  g(repo, "worktree", "add", "-q", "-b", "held", join(dir, "held"));
+  g(repo, "worktree", "lock", join(dir, "held"));
+  assert.notEqual(spawnSync("git", removeArgs(repo, join(dir, "held"), { force: true })).status, 0);
+  assert.equal(spawnSync("git", removeArgs(repo, join(dir, "held"), { force: true, locked: true })).status, 0);
+  assert.equal(g(repo, "branch", "--list", "dirty", "held").toString().split("\n").filter(Boolean).length, 2);
 });

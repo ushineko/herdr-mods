@@ -73,6 +73,17 @@ changes and which agents are where (003 R5a).
   the worktree's machine (no sudo; never pulls an image), checks again, and makes the
   fixed ones removable and ticked. A copyable `sudo chown` is the fallback.
 
+- R3e **Really remove…** (operator, 2026-11-25): a kept worktree can be removed
+  anyway (a stale one, whatever its state). A red outlined button opens a red panel
+  listing what is LOST (uncommitted changes and untracked files; a detached commit
+  on no branch or remote), what is kept (the branch and its commits), an overridden
+  lock and shells moved; "Discard and remove" runs `git worktree remove --force`
+  (twice for a locked one). Still refused: the main worktree, an agent working in
+  it, another program running in it, another user's files (checked again just
+  before).
+- R3f While removing, the results replace the list in the scrolling area so the
+  buttons stay in view; the dialog is at most 640 px tall.
+
 ## Acceptance Criteria
 
 - [x] `node --test`: the planner (`lib/git.js` `planCleanup`) — main and locked
