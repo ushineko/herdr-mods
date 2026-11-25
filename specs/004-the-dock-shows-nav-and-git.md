@@ -50,6 +50,12 @@ theirs.
   replaced by spec 005's skills (005 R14 retires it);
   dotfiles layout snapshots refreshed with each host's `backup.sh`.
 
+- R8 **One split, not two tabs** (operator, 2026-11-24, after trying it): the
+  dock's fixed subtab is **nav + git** shown together — a `row` (side by side)
+  in the bottom dock, a `column` (stacked) in the right dock, with a draggable
+  divider. Shells and agents added with "+" remain further subtabs. Docks from
+  before (separate nav and git subtabs, or yazi/lazygit) are migrated when shown.
+
 ## Acceptance Criteria
 
 - [ ] Both docks on the Mac show nav and git, following the focused terminal

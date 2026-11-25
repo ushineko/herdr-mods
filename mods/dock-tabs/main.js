@@ -2,9 +2,10 @@
 // this strip and a stack of blocks). Two docks, "dock-right" (ctrl-shift-y) and
 // "dock-bottom" (alt-shift-y), show the same subtabs; opening one hides the other.
 //
-// Since spec 004 (herdr-mods) every dock starts with two fixed subtabs, the native
-// panels **nav** and **git** (mod blocks; they follow the focused terminal on any
-// machine themselves). They cannot be closed, renamed or moved. After them come the
+// Since spec 004 (herdr-mods) every dock starts with one fixed subtab, **nav + git**:
+// the native panels split side by side in the bottom dock and stacked in the right
+// one (they follow the focused terminal on any machine themselves). It cannot be
+// closed, renamed or moved. After it come the
 // shells and agents added with "+", which belong to a machine: the strip shows the
 // shown space's machine's. yazi and lazygit are no longer started here; a dock
 // still holding their blocks is rewritten (migrated) when it is shown.
@@ -29,9 +30,19 @@ const ICON = (n) => `mods/dock-tabs/${n}.svg`;
 const DOCKS = ["dock-right", "dock-bottom"];
 const STACK = (dock) => `${dock}-stack`;
 const TITLE = "nt.title";
-// The fixed subtabs, first in every dock, in this order.
-const FIXED = [{ key: "nav", label: "nav", icon: "folder" }, { key: "git", label: "git", icon: "git-branch" }];
+// The fixed subtab, first in every dock: nav and git split, side by side in the bottom
+// dock (a row) and stacked in the right one (a column).
+const FIXED = [{ key: "panels", label: "nav + git", icon: "folder" }];
 const fixedId = (dock, key) => `${dock}-${key}`;
+const panelsNode = (dock) => ({
+  id: fixedId(dock, "panels"),
+  type: dock === "dock-bottom" ? "row" : "column",
+  divider: { width: 1, color: "border", hover: "accent" },
+  children: [
+    { id: `${dock}-nav`, type: "block", size: { weight: 1 }, content: { mod: "nav" } },
+    { id: `${dock}-git`, type: "block", size: { weight: 1 }, content: { mod: "git" } },
+  ],
+});
 // Blocks from before spec 004 (any window suffix): dropped on migration.
 const RETIRED = /^dock-(yazi|lazygit)(-|$)/;
 
@@ -69,7 +80,7 @@ function tabs(dock, machine) {
   const st = find(layout(), STACK(dock));
   const all = terminals();
   const list = (st?.children ?? []).map((c) => {
-    const fixed = FIXED.find((f) => f.key === modOf(c));
+    const fixed = FIXED.find((f) => c.id === fixedId(dock, f.key));
     if (fixed) return { id: c.id, fixed };
     return { id: c.id, name: nameOf(c), machine: machineOf(nameOf(c)), term: termOf(all, nameOf(c)) };
   });
@@ -85,14 +96,14 @@ function activeOf(dock) {
 }
 
 // Rewrite both docks' stacks: nav and git, then the terminal subtabs `names` in
-// order; `active` per dock (a terminal name, or a fixed key "nav"/"git").
+// order; `active` per dock (a terminal name, or the fixed key "panels").
 function setTabs(names, active) {
   const t = tree();
   for (const dock of DOCKS) {
     const st = find(t, STACK(dock));
     if (!st) continue;
     st.children = [
-      ...FIXED.map((f) => ({ id: fixedId(dock, f.key), type: "block", content: { mod: f.key } })),
+      panelsNode(dock),
       ...names.map((n) => ({ id: childId(dock, n), type: "block", content: { terminal: n } })),
     ];
     const want = active?.[dock];
@@ -102,11 +113,13 @@ function setTabs(names, active) {
   run("layout.set", { layout: t });
 }
 
-// True when a dock's stack is not yet nav, git, then terminals (no retired blocks).
+// True when a dock's stack does not start with the nav + git split of the right
+// direction, or still holds retired blocks or the earlier separate nav/git blocks.
 function needsMigration(dock) {
   const kids = find(layout(), STACK(dock))?.children ?? [];
-  const fixedOk = FIXED.every((f, i) => modOf(kids[i]) === f.key);
-  return !fixedOk || kids.some((c) => RETIRED.test(baseOf(nameOf(c) ?? "")));
+  const first = kids[0];
+  const splitOk = first?.id === fixedId(dock, "panels") && first.type === panelsNode(dock).type;
+  return !splitOk || kids.some((c, i) => i > 0 && (modOf(c) || RETIRED.test(baseOf(nameOf(c) ?? ""))));
 }
 
 function label(tab) {
