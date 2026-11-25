@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chatEntries, strayChats } from "../lib/chat-entries.js";
+import { chatEntries, strayChats, orphanedHidden } from "../lib/chat-entries.js";
 
 const claude = { key: "claude", name: "Claude Code", installed: true, run: ["claude"] };
 const codex = { key: "codex", name: "Codex", installed: true, run: ["codex", "--no-daemon"] };
@@ -52,4 +52,33 @@ test("a pane that comes back clears the wait; no panes listed decides nothing", 
   assert.deepEqual(strayChats(terms, ["px"], missing, 6000, 3000, seen), [], "missing again: a new wait");
   assert.deepEqual(strayChats(terms, [], missing, 60000, 3000, seen), [], "no panes: no decision");
   assert.deepEqual(strayChats([term("t1", "p1", "exited")], ["px"], new Map(), 0, 3000, new Set(["p1"])), [], "only live agents");
+});
+
+const hidden = (address, chatTab, tab) => ({ address, state: "live", labels: { "chat.tab": chatTab, "herdr.tab": tab } });
+
+test("a hidden agent terminal whose chat tab lost its chat is shown again, after the grace time", () => {
+  const missing = new Map(), seen = new Set();
+  const terms = [hidden("t1", "tbA", "tbH1"), hidden("m/t2", "tbB", "tbH2")];
+  assert.deepEqual(orphanedHidden(terms, ["tbA", "m/tbB"], missing, 0, 3000, seen), [], "both chats open");
+  assert.deepEqual(orphanedHidden(terms, ["m/tbB"], missing, 1000, 3000, seen), [], "within grace");
+  assert.deepEqual(orphanedHidden(terms, ["m/tbB"], missing, 4500, 3000, seen), [{ address: "t1", tab: "tbH1" }]);
+  assert.deepEqual(orphanedHidden(terms, ["tbX"], new Map(), 0, 3000, seen).length, 0, "remote: first seen missing");
+});
+
+test("a terminal shown beside its chat, or a chat tab never seen in this run, is left alone", () => {
+  const seen = new Set();
+  assert.deepEqual(orphanedHidden([hidden("t1", "tbA", "tbA")], ["tbZ"], new Map(), 0, 0, new Set(["tbA"])), [], "back in the chat's tab");
+  const missing = new Map();
+  for (const now of [0, 5000]) assert.deepEqual(orphanedHidden([hidden("t1", "tbA", "tbH")], ["tbZ"], missing, now, 3000, seen), []);
+});
+
+test("closing the last chat still shows its hidden terminal; nothing listed decides nothing", () => {
+  const seen = new Set(["tbA"]);
+  const terms = [hidden("t1", "tbA", "tbH")];
+  const missing = new Map();
+  orphanedHidden(terms, [], missing, 0, 3000, seen);
+  assert.deepEqual(orphanedHidden(terms, [], missing, 4000, 3000, seen), [{ address: "t1", tab: "tbH" }]);
+  const m2 = new Map();
+  orphanedHidden(terms, [], m2, 0, 3000, seen, false);
+  assert.deepEqual(orphanedHidden(terms, [], m2, 9000, 3000, seen, false), []);
 });

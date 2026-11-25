@@ -137,6 +137,9 @@ export default class Chat extends View {
     this.dialog = Boolean(p.overlay);
     this.term = this.dialog ? null : p.terminal ?? null;
     this.started = Boolean(p.started);
+    // ushi-naruse: opened over a running agent with { hide: true } (herdr-mods' Open as
+    // chat), it hides that agent's terminal once, as "Hide terminal" does.
+    this.hideAtStart = Boolean(p.hide);
     // What the New chat form launched with; Claude doesn't log its effort.
     if (p.model || p.effort) this.chosen = { model: p.model, effort: p.effort, logged: null };
     if (shared("chat.bind")) setShared("chat.bind", null); // left by an earlier version
@@ -1139,6 +1142,10 @@ export default class Chat extends View {
     const mine = this.myPane();
     if (mine) this.pane = mine.pane;
     this.keepAway();
+    if (this.hideAtStart && mine && term?.state === "live") {
+      this.hideAtStart = false;
+      if (!this.termHidden(mine)) this.hideTerminal(mine, cx);
+    }
     const kind = agentKind(term);
     this.loadCmds(term, kind, cx);
     // A loop that went quiet has stopped (a reload of the mod ends its tasks

@@ -92,10 +92,19 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
   a pane restored under a new id never ends its agent.
 - R8 **Open as chat** (operator, 2026-11-25): a cow button in a pane header whose shown
   terminal runs Claude Code or Codex (where the chat can run: not Windows, python3 on
-  that machine) opens a new tab in that space with a chat bound to that terminal. The
-  terminal stays where it is; closing the chat leaves the agent running. (The terminal
-  right-click menu in a tab pane is the app's own and takes no extra items, so the
-  entry is in the header.)
+  that machine). (The terminal right-click menu in a tab pane is the app's own and
+  takes no extra items, so the entry is in the header.)
+  - The chat opens right of the agent's pane, in the agent's own tab, and hides the
+    terminal at once (operator: the terminal is rarely needed): the chat's own
+    "Hide terminal" (the terminal moves to a settled tab; "Show terminal" brings it
+    back beside the chat), started by a `hide: true` prop in the fork.
+  - A pane holding other nested tabs keeps its terminal shown (hiding takes the pane
+    away, and those tabs with it); the chat opens beside it.
+  - Closing the chat leaves the agent running. If its terminal was hidden, that
+    settled tab becomes a normal tab again (`tab.unsettle`, `chat.tab` label cleared),
+    with the same waiting rules as R6.
+  - The tab bar (`terminals-bar-proc`) leaves settled tabs out, as the shipped one
+    does, unless one is shown.
 - R7 Pure selection logic (which entries to show for a platform, an agent list and
   a python3 check) lives in `lib/` with unit tests.
 
@@ -120,7 +129,9 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
 - [x] R6a, Mac: after `app.quit` and reopening, the chat tab and its agent are back and
       connected (2026-11-25).
 - [ ] R8: the cow button shows on a Claude Code pane (Mac, `herdr-app shot`: yes) and
-      opens a chat tab on that session; closing the chat leaves the agent running.
+      opens a chat in that tab with the terminal hidden (Mac, by the same `pane.split`:
+      yes; the hidden tab is not in the tab bar); Show terminal brings it back;
+      closing the chat shows the terminal's tab again (Mac: yes).
 - [ ] All unit tests pass (`npm test` on the Mac, `./run-tests.sh` on njv-cachyos).
 - [ ] `herdr-app status` shows no errors on both machines.
 

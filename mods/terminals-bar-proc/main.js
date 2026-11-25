@@ -144,11 +144,14 @@ export default class TerminalsBar extends View {
     const all = panes();
     const w = win() ?? {};
     const edges = paneEdges(layout()) ?? {};
+    // Settled tabs (a chat's hidden agent terminal, spec 008) are left out, as the
+    // shipped tab bar does, unless one is shown.
+    const shownTabs = space.tabs.filter((c) => !c.settled || c.active);
     const focusedPane = all.some((p) => p.focused && p.tab === space.tabs.find((c) => c.active)?.id);
     const edge = (focusedPane ? edges.focus : edges.border) ?? t.border;
     // Reveal the shown tab when it changes; a wheel scroll owns the strip until then.
-    const active = space.tabs.findIndex((c) => c.active);
-    const key = `${space.id}:${active}:${space.tabs.length}`;
+    const active = shownTabs.findIndex((c) => c.active);
+    const key = `${space.id}:${active}:${shownTabs.length}`;
     if (active >= 0 && key !== this.revealed) {
       this.revealed = key;
       this.view = active;
@@ -246,8 +249,8 @@ export default class TerminalsBar extends View {
           .gap(4)
           .overflow_x_scroll()
           .track_scroll(this.scroll)
-          .on_scroll_wheel((e) => this.onWheel(e, space.tabs.length))
-          .children(space.tabs.map(tab)),
+          .on_scroll_wheel((e) => this.onWheel(e, shownTabs.length))
+          .children(shownTabs.map(tab)),
       )
       .child(iconButton("tm-keys", "command", () => run("app.palette")))
       .child(iconButton("tm-new", "plus", () => run("tab.new", { space: space.id })))

@@ -142,8 +142,10 @@ export default class NestedTabs extends View {
       .flex_none()
       .gap(1)
       .items_center()
-      .when(chat, (el) => el.child(this.button(`nt-chat-${pane}`, "cow", "Open as chat (a new tab; the terminal stays)",
-        () => Chat.openExisting(pane, shown, agent === "codex" ? "Codex chat" : "Claude Code chat"))))
+      // The terminal is hidden behind the chat, unless the pane holds other nested tabs
+      // (hiding takes its pane away, and theirs with it): then the chat opens beside it.
+      .when(chat, (el) => el.child(this.button(`nt-chat-${pane}`, "cow", "Open as chat (the terminal hides; the chat's Show terminal brings it back)",
+        () => Chat.openExisting(pane, shown, S.members(pane, base).length < 2))))
       .when(Boolean(base), (el) =>
         el.child(this.button(`nt-add-${pane}`, "plus", "New nested tab (right-click: start an agent)",
           () => S.add(pane, base), () => this.menu("new", pane, base))))

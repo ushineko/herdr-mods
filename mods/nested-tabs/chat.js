@@ -6,7 +6,7 @@
 // it ends when the chat (or its tab) is closed (sweep).
 
 import { knownAgents, exec, hc, panes, spaces, terminals, run, window, notify } from "herdr";
-import { chatEntries, strayChats, CHAT_LABEL } from "./lib/chat-entries.js";
+import { chatEntries, strayChats, orphanedHidden, CHAT_LABEL, HIDDEN_LABEL } from "./lib/chat-entries.js";
 
 const where = (base) => {
   const i = base.indexOf("/");
@@ -83,23 +83,34 @@ export function agentOf(term) {
 }
 
 /**
- * Opens a running agent's terminal as a chat (spec 008 R8): a new tab in `pane`'s space
- * whose only pane is a chat bound to it. The terminal stays where it is, and closing
- * the chat leaves the agent running (it carries no CHAT_LABEL).
+ * Opens a running agent's terminal as a chat (spec 008 R8): a chat pane right of
+ * `pane`, in the agent's own tab. With `hide`, the chat then hides the terminal
+ * (its "Hide terminal": the terminal moves to a settled tab, "Show terminal" brings
+ * it back beside the chat). Closing the chat leaves the agent running (no CHAT_LABEL).
  */
-export function openExisting(pane, addr, name) {
-  const me = panes().find((p) => p.pane === pane);
-  const space = spaces().find((s) => s.tabs?.some((t) => t.id === me?.tab))?.id;
-  run("tab.new", { ...(space ? { space } : {}), name, mod: "ushi-naruse", props: { terminal: addr } });
+export function openExisting(pane, addr, hide) {
+  run("pane.split", { direction: "right", pane, mod: "ushi-naruse", props: { terminal: addr, ...(hide ? { hide: true } : {}) } });
 }
 
 // address → when its chat pane was first seen missing, and every pane seen in
 // this run (strayChats keeps both).
 const missing = new Map();
 const seen = new Set();
+const hiddenMissing = new Map();
+const hiddenSeen = new Set();
 
-/** Ends agents whose chat pane was closed. Every header copy may run it: a second kill is harmless. */
+/**
+ * Ends agents whose chat pane was closed, and shows again an agent terminal the
+ * chat had hidden when that chat is closed (its settled tab becomes a normal tab).
+ * Every header copy may run it: a second kill or unsettle is harmless.
+ */
 export async function sweep() {
-  const gone = strayChats(terminals(), panes().map((p) => p.pane), missing, Date.now(), 3000, seen);
+  const all = panes(), terms = terminals(), now = Date.now();
+  const gone = strayChats(terms, all.map((p) => p.pane), missing, now, 3000, seen);
   for (const addr of gone) await hc(["kill", addr]).catch(() => {});
+  const chatTabs = all.filter((p) => p.mod === "ushi-naruse").map((p) => p.tab);
+  for (const { address, tab } of orphanedHidden(terms, chatTabs, hiddenMissing, now, 3000, hiddenSeen, all.length > 0)) {
+    run("tab.unsettle", { id: tab });
+    await hc(["label", address, `${HIDDEN_LABEL}=`]).catch(() => {});
+  }
 }
