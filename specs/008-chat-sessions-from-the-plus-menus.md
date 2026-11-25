@@ -66,7 +66,7 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
   conversation's requests are logged). While a Claude agent is idle or done and the
   message box is empty, the chat reads the screen's last `❯` line (not its `Try "…"`
   hints for a new session) and shows it as a dim row at the top of the message box;
-  a click or Tab in the empty box takes it. Plain text can't tell it from text typed
+  a click or Tab in the empty box takes it, the cursor at its end. Plain text can't tell it from text typed
   into the terminal itself, so before sending, the chat empties the agent's input line
   (Ctrl+U) whenever it showed such a row: nothing is sent in front of the message.
 - R1g **Text size** (operator, 2026-11-25: the chat's text was much smaller than the
