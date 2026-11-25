@@ -77,6 +77,15 @@ the panel should answer at a glance.
 - R11 Each command from R9 runs with an argument vector on the repository's
   machine; the busy light shows while it runs; the result is a toast (first
   line of git's output, or its error), and the panel refreshes after.
+- R11a **Locked while an agent works** (operator, 2026-11-24). While any agent
+  whose terminal is inside the shown worktree has status `working` (R5's
+  matching), the writing keys (`space`, `a`, `c`, `p`, `P`, `f`) do nothing but
+  post a toast naming the agent ("Locked: claude is working in this worktree").
+  The header shows a lock glyph in the working colour with the same tooltip.
+  `blocked`, `done` and `idle` agents do not lock. Agents in *other* worktrees
+  of the repository do not lock this one: separate worktrees are how agents
+  work side by side. Reading (refresh, diffs, opening files) is never locked.
+  A command already running when an agent starts finishes.
 - R12 No other writing commands: no discard, stash, rebase, reset, checkout,
   branch create/delete. Those are asked of the agent.
 
@@ -97,6 +106,9 @@ the panel should answer at a glance.
 - [ ] `herdr-app check` passes for `git`.
 - [ ] Real window: a repository with two worktrees and a Claude session working
       in one shows a pulsing light on that worktree and none on the other.
+- [ ] Real window: with an agent `working` in the shown worktree, `space`, `a`,
+      `c`, `p`, `P`, `f` are refused with the lock toast; once it is idle they work;
+      an agent working in another worktree does not lock this one.
 - [ ] Real window: `space` on an unstaged file moves it to Staged; `a` stages
       all; `c` commits with a message (in a scratch repository); `f` fetches
       (toast); `p` on a diverged scratch branch fails cleanly with git's
