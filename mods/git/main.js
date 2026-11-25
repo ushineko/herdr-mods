@@ -27,10 +27,9 @@ const WT_CAP = 12;  // worktree rows shown unless "show all" (R3)
 const ERRLOG = () => `${home()}/.cache/herdr-mods/git-errors.log`;
 async function logError(where, e) {
   try {
-    const old = (await readTextFile(ERRLOG()).catch(() => null)) ?? "";
-    const line = `${new Date().toISOString()} ${where}: ${String(e?.stack ?? e?.message ?? e).replace(/\n/g, " | ")}`;
-    const kept = [...old.split("\n").filter(Boolean), line].slice(-100).join("\n") + "\n";
-    await exec("sh", ["-c", 'mkdir -p "$(dirname "$1")" && printf %s "$2" > "$1"', "log", ERRLOG(), kept]).catch(() => null);
+    const line = `${new Date().toISOString()} ${where}: ${String(e?.stack ?? e?.message ?? e).replace(/\n/g, " | ")}\n`;
+    // Appended (no read-modify-write, so entries close together are all kept), then trimmed.
+    await exec("sh", ["-c", 'mkdir -p "$(dirname "$1")" && printf %s "$2" >> "$1" && tail -n 100 "$1" > "$1.tmp" && mv -f "$1.tmp" "$1"', "log", ERRLOG(), line]).catch(() => null);
   } catch { /* nowhere to put it */ }
 }
 
@@ -695,8 +694,10 @@ export default class Git extends View {
     this.menuAt = q.at;
     const w = this.worktrees.find((x) => x.path === q.path);
     if (!w) return;
-    // Not inside render: these set state and redraw. Started from their own task.
-    cx.spawn(async (cx) => {
+    // Not inside render: these set state and redraw. Started from a timer, whose
+    // callback gets the view's own context. (Not from a spawned task: work it spawns in
+    // turn was stranded once that task ended, and its host calls never settled.)
+    cx.timer.after(1, (cx) => {
       if (q.action === "show") this.showWorktree(w, cx);
       else if (q.action === "cleanup") this.planWorktreeCleanup([w.path], cx);
       cx.notify();
