@@ -24,7 +24,14 @@ changes and which agents are where (003 R5a).
 ## Requirements
 
 - R1 **Entry points**: a **Clean up…** button in the Worktrees section header
-  (all worktrees but the main one) and right-click on a worktree row (that one).
+  (all worktrees but the main one), and **Clean up this worktree…** in the menu a
+  right-click on a worktree row opens (operator, 2026-11-24: a right-click never
+  acts at once). The menu also has Show this worktree, Open in nav, Copy path.
+- R3a **The dialog leads with what will be acted on** (operator): each worktree to
+  remove is a card with branch, path, why it is safe (clean, pushed to its
+  upstream / commit on a remote branch), its latest commit and the shells moved
+  out; kept ones are summarised by reason (expandable) when several were checked,
+  and shown as a card when one was.
 - R2 **Eligible** only when all hold (operator, 2026-11-24):
   - not the main worktree, not `locked`;
   - **fully committed**: no staged, unstaged, untracked or conflicted files

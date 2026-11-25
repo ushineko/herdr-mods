@@ -44,6 +44,8 @@ function agentsOn(on) {
 export default class Git extends View {
   init(_props, cx) {
     if (props()?.cleanup) { this.initCleanup(cx); return; }
+    if (props()?.wtmenu) { this.initMenu(cx); return; }
+    this.copyId = Math.random().toString(36).slice(2); // for its worktree menu's requests
     this.follow = true;
     this.loc = null; this.root = null; this.worktrees = []; this.shown = null;
     this.status = null; this.numstat = { staged: {}, unstaged: {} }; this.log = []; this.counts = {};
@@ -607,8 +609,67 @@ export default class Git extends View {
         .child(button("git-cleanup-go", this.running ? "Removing…" : `Remove ${go.length}`, true, go.length > 0 && !this.running, remove)));
   }
 
+  // ---- the worktree menu (a popup copy of this mod) ---------------------------------
+  // props: { wtmenu: { path, on, main, from } }. Show and Clean up go back to the copy
+  // it came from (shared "git.menu", tagged with that copy's id).
+
+  initMenu(cx) {
+    this.at = 0;
+    this.handle = cx.focus_handle();
+    this.handle.focus();
+  }
+
+  menuItems() {
+    const m = props().wtmenu;
+    const back = (action) => () => setShared("git.menu", { from: m.from, action, path: m.path, at: Date.now() });
+    return [
+      { label: "Show this worktree", act: back("show") },
+      { label: "Open in nav", act: () => setShared("nav.request", { action: "nav", path: m.path, on: m.on ?? null, at: Date.now() }) },
+      ...(m.main ? [] : [{ label: "Clean up this worktree…", act: back("cleanup") }]),
+      { sep: true },
+      { label: "Copy path", act: (cx) => { cx.write_to_clipboard(m.path); notify({ title: "Path copied", body: m.path, level: "success", timeout: 2000 }); } },
+    ];
+  }
+
+  renderMenu() {
+    const t = theme();
+    const items = this.menuItems();
+    const real = items.map((it, k) => (it.sep ? -1 : k)).filter((k) => k >= 0);
+    if (!real.includes(this.at)) this.at = real[0] ?? 0;
+    const choose = (it, cx) => { if (!it || it.sep) return; it.act(cx); closeOverlay(props().overlay); };
+    return v_flex().id("git-wtmenu").track_focus(this.handle).w_full().min_h(0).p(5).bg(t.popover).text_color(t.foreground).text_size(12.8)
+      .on_key_down((e, cx) => {
+        const pos = real.indexOf(this.at);
+        if (e.key === "down") this.at = real[(pos + 1) % real.length];
+        else if (e.key === "up") this.at = real[(pos - 1 + real.length) % real.length];
+        else if (e.key === "enter") choose(items[this.at], cx);
+        else if (e.key === "escape") closeOverlay(props().overlay);
+        else return;
+        cx.notify();
+      })
+      .children(items.map((it, k) => it.sep
+        ? div().mx(7).my(4).h(1).bg(t.border)
+        : h_flex().id(`git-mi-${k}`).h(30).px(9).rounded(6).items_center().cursor_pointer()
+            .when(k === this.at, (el) => el.bg(t.selected)).hover((x) => x.bg(t.hover))
+            .on_click((_e, cx) => choose(it, cx))
+            .child(div().flex_1().truncate().child(it.label))));
+  }
+
+  // A worktree menu's choice for this copy.
+  takeMenu(cx) {
+    const q = shared("git.menu");
+    if (!q || q.from !== this.copyId || q.at <= (this.menuAt ?? 0)) return;
+    this.menuAt = q.at;
+    const w = this.worktrees.find((x) => x.path === q.path);
+    if (!w) return;
+    if (q.action === "show") this.showWorktree(w, cx);
+    else if (q.action === "cleanup") this.planWorktreeCleanup([w.path], cx);
+  }
+
   render(cx) {
     if (props()?.cleanup) return this.renderCleanup();
+    if (props()?.wtmenu) return this.renderMenu();
+    this.takeMenu(cx);
     const cleaned = shared("git.cleaned");
     if (cleaned && cleaned.at > (this.cleanedAt ?? 0)) { this.cleanedAt = cleaned.at; if (this.root !== undefined) this.refresh(cx); }
     this.takeRequest(cx);
@@ -676,8 +737,12 @@ export default class Git extends View {
         // A right-click is the clean-up; a click right after it is the same press, not
         // "show this worktree" (which would turn following off).
         .on_click((_e, cx) => { if (Date.now() - (this.rightAt ?? 0) > 500) this.showWorktree(w, cx); })
-        .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); this.rightAt = Date.now(); this.planWorktreeCleanup([w.path], cx); })
-        .tooltip(w.main ? "The main worktree" : "Click: show it · right-click: clean it up")
+        .on_mouse_down("right", (_e, cx) => {
+          cx.stop_propagation();
+          this.rightAt = Date.now();
+          openOverlay({ mod: "git", kind: "popup", width: 240, props: { wtmenu: { path: w.path, on: this.loc?.on ?? null, main: w.main, from: this.copyId } } });
+        })
+        .tooltip("Click: show it · right-click: more")
         .child(div().w(10).text_color(t.accent).child(here ? "●" : ""))
         .child(div().max_w(150).truncate().font_medium().child(w.branch ?? `detached ${String(w.head ?? "").slice(0, 7)}`))
         .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(rel))
