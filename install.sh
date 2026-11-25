@@ -8,11 +8,17 @@
 # A mod's mod.json may list shared files from ./lib ("lib": ["x.js"]); they
 # are copied into the installed mod as lib/x.js.
 #
-# Usage: install.sh [--home DIR]... [--link DIR]... [MOD...]
-#   --home DIR  app home to copy into (repeatable; default ~/.config/herdr-app)
-#   --link DIR  app home that gets symlinks to the first --home's copies
-#               (njv-cachyos' work home shares the default home's mods)
-#   MOD         only these mods (default: all of ./mods)
+# The agent commands (./bin) and Claude Code skills (./skills) are symlinked, not
+# copied (they need no hot reload): into ~/.local/bin and ~/.claude/skills.
+#
+# Usage: install.sh [--home DIR]... [--link DIR]... [--bin DIR] [--skills DIR] [--no-agent] [MOD...]
+#   --home DIR    app home to copy into (repeatable; default ~/.config/herdr-app)
+#   --link DIR    app home that gets symlinks to the first --home's copies
+#                 (njv-cachyos' work home shares the default home's mods)
+#   --bin DIR     where bin/* is linked (default ~/.local/bin)
+#   --skills DIR  where skills/* is linked (default ~/.claude/skills)
+#   --no-agent    skip bin and skills
+#   MOD           only these mods (default: all of ./mods)
 set -euo pipefail
 
 prog=${0##*/}
@@ -20,6 +26,9 @@ repo="$(cd "$(dirname "$0")" && pwd)"
 homes=()
 links=()
 mods=()
+bin_dir="$HOME/.local/bin"
+skills_dir="$HOME/.claude/skills"
+agent=true
 
 die() { printf '%s: %s\n' "$prog" "$*" >&2; exit 1; }
 
@@ -27,6 +36,9 @@ while (($#)); do
   case $1 in
     --home) [[ $# -ge 2 ]] || die "--home needs a folder"; homes+=("$2"); shift 2 ;;
     --link) [[ $# -ge 2 ]] || die "--link needs a folder"; links+=("$2"); shift 2 ;;
+    --bin) [[ $# -ge 2 ]] || die "--bin needs a folder"; bin_dir=$2; shift 2 ;;
+    --skills) [[ $# -ge 2 ]] || die "--skills needs a folder"; skills_dir=$2; shift 2 ;;
+    --no-agent) agent=false; shift ;;
     -h|--help) sed -n '2,/^set -euo/p' "$0" | sed -n 's/^# \{0,1\}//p'; exit 0 ;;
     -*) die "unknown option: $1" ;;
     *) mods+=("$1"); shift ;;
@@ -85,3 +97,25 @@ for home in ${links[@]+"${links[@]}"}; do
   done
 done
 
+# Links $1/<name> -> each source. Something else already at a name is left alone.
+link_into() {
+  local dir=$1 src dst
+  shift
+  mkdir -p -- "${dir:?}"
+  for src in "$@"; do
+    dst="$dir/$(basename -- "$src")"
+    if [[ -e $dst && ! -L $dst ]]; then
+      printf '%s: not replacing %s (not a symlink)\n' "$prog" "$dst" >&2
+      continue
+    fi
+    if [[ $(readlink -- "$dst" 2>/dev/null) != "$src" ]]; then
+      ln -sfn -- "$src" "$dst"
+      printf 'linked %s -> %s\n' "$dst" "$src"
+    fi
+  done
+}
+
+if $agent; then
+  link_into "$bin_dir" "$repo"/bin/*
+  link_into "$skills_dir" "$repo"/skills/*
+fi

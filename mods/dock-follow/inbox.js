@@ -9,14 +9,21 @@ import { openExternal } from "./lib/external-open.js";
 import { editFile } from "./lib/edit-open.js";
 
 const POLL = 2000;
+const GRACE = 2; // seconds a window not in use leaves a request for the one in use
 const MACHINES_TTL = 60000;
 
-// Claims every request in the session's inbox: renamed aside (so another window cannot
-// take it too), printed, removed. Requests are separated by U+001E.
+// Claims every request in the session's inbox at least $2 seconds old: renamed aside (so
+// another window cannot take it too), printed, removed. Requests are separated by U+001E.
+// The window the person is using claims at once; others wait (GRACE), so a request from
+// an agent on njv-cachyos opens on the Mac while the person works there, and still opens
+// somewhere when no window is in use.
 const CLAIM_SH = `d="$HOME/.cache/herdr-mods/inbox/$1"
 [ -d "$d" ] || exit 0
+now=$(date +%s)
 for f in "$d"/*.json; do
   [ -f "$f" ] || continue
+  m=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f")
+  [ $((now - m)) -ge "$2" ] || continue
   c="$f.claimed.$$"
   mv "$f" "$c" 2>/dev/null || continue
   cat "$c"; printf '\\036'; rm -f "$c"
@@ -26,6 +33,7 @@ const CLAIM_PS = `$d = Join-Path $env:USERPROFILE ('.cache\\herdr-mods\\inbox\\'
 if (-not (Test-Path -LiteralPath $d)) { exit 0 }
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 foreach ($f in Get-ChildItem -LiteralPath $d -Filter *.json -File) {
+  if (((Get-Date) - $f.LastWriteTime).TotalSeconds -lt [int]$args[1]) { continue }
   $c = $f.FullName + '.claimed.' + $PID
   try { [IO.File]::Move($f.FullName, $c) } catch { continue }
   [Console]::Out.Write([IO.File]::ReadAllText($c) + [char]0x1e)
@@ -49,7 +57,11 @@ export class Inbox {
       }
     });
     // Other machines this window has added: polled while the window is visible.
-    cx.timer.every(POLL, (cx) => { if (window()?.visible !== false) this.pollRemote(cx); });
+    cx.timer.every(POLL, (cx) => {
+      if (window()?.visible !== false) this.pollRemote(cx);
+      // A request left by the GRACE rule is taken here once it is old enough.
+      if (!window()?.active) this.claim(null, this.session, cx);
+    });
   }
 
   async remoteMachines() {
@@ -73,9 +85,10 @@ export class Inbox {
 
   async claim(on, session, cx) {
     const windows = !on && window()?.platform === "windows";
+    const wait = String(window()?.active ? 0 : GRACE);
     const r = await (windows
-      ? exec("powershell", ["-NoProfile", "-NonInteractive", "-Command", `& { ${CLAIM_PS} } '${session.replace(/'/g, "''")}'`])
-      : exec("sh", ["-c", CLAIM_SH, "claim", session], { on })).catch(() => null);
+      ? exec("powershell", ["-NoProfile", "-NonInteractive", "-Command", `& { ${CLAIM_PS} } '${session.replace(/'/g, "''")}' ${wait}`])
+      : exec("sh", ["-c", CLAIM_SH, "claim", session, wait], { on })).catch(() => null);
     if (!r || r.code !== 0) return;
     for (const text of splitClaimed(r.stdout)) this.handle(text, on, cx);
   }

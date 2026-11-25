@@ -16,6 +16,15 @@ JavaScript panels drawn natively by Herdr's GPUI shell.
 | `ui-lab` | Capability demo: Claude ↔ panel round trip, hayami usage meters, floating window |
 | `cria-file-preview` | File viewer in a tab (vendored from gsydler/herdr-cria, Apache-2.0; see `vendor/cria/VENDOR.md`): Markdown with images and links, PDF, images, CSV/TSV, JSON, code, plus local diff view and "Open in <app>" |
 
+## Agent commands and skills
+
+`bin/herdr-open`, `bin/herdr-nav` (on `bin/herdr-request`) let a Claude session in a
+Herdr terminal show a file (viewer, diff, editor, external app) or point the nav and
+git panels (spec 005). The skills in `skills/` tell agents when to use them. The source
+lives here; `install.sh` symlinks `bin/*` into `~/.local/bin` and `skills/*` into
+`~/.claude/skills`. Per-machine external apps: `~/.config/herdr-mods/external.json`
+(see `config/external.example.json`).
+
 ## Tests
 
 ```sh

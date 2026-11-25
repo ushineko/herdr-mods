@@ -1,0 +1,15 @@
+{
+  "rules": [
+    { "match": { "type": "markdown" }, "app": "Zettlr",
+      "macos": ["open", "-a", "Zettlr", "{path}"],
+      "linux": ["setsid", "-f", "zettlr", "{path}"] },
+    { "match": { "ext": ["pdf"] }, "app": "PDF viewer",
+      "macos": ["open", "{path}"],
+      "linux": ["setsid", "-f", "xdg-open", "{path}"],
+      "windows": ["cmd", "/c", "start", "", "{path}"] },
+    { "match": { "any": true }, "app": "default app",
+      "macos": ["open", "{path}"],
+      "linux": ["setsid", "-f", "xdg-open", "{path}"],
+      "windows": ["cmd", "/c", "start", "", "{path}"] }
+  ]
+}
