@@ -55,13 +55,28 @@ theirs.
 - [ ] Both docks on the Mac show nav and git, following the focused terminal
       in a local and a remote space.
 - [ ] Both njv-cachyos windows (default, work) show the same after install +
-      work-window restart.
+      work-window restart. (Their layouts migrated without a restart: both
+      stacks are nav, git; not yet seen on that screen.)
 - [ ] `+` → New shell still adds a terminal tab to a dock.
-- [ ] No `dock-yazi*`/`dock-lazygit*` terminals in `hc ls` on either machine.
-- [ ] `grep -rn "dock-yazi\|dock-lazygit\|ya emit" mods/` is empty.
-- [ ] `herdr-app check` passes for every changed mod; `herdr-app status` shows
+- [x] No `dock-yazi*`/`dock-lazygit*` terminals in `hc ls` on either machine.
+- [x] `grep -rn "dock-yazi\|dock-lazygit\|ya emit" mods/` is empty.
+- [x] `herdr-app check` passes for every changed mod; `herdr-app status` shows
       no errors on either machine.
-- [ ] Docs, skill and dotfiles snapshots updated and committed.
+- [x] Docs, skill and dotfiles snapshots updated and committed.
+
+## Notes (2026-11-24)
+
+- No layout file was edited by hand: `dock-tabs` migrates a stack when its dock
+  is shown, and all three windows (Mac; njv-cachyos default and work) did so on
+  install. The work window, whose mods are symlinks to the default home's,
+  picked up the change without a restart.
+- Ended: the Mac's `dock-*-mbp` terminals (here and on njv-cachyos), njv-cachyos's
+  `dock-yazi`/`dock-lazygit` (both cores) and its remote pair on the Mac (`t5`,
+  `t6`; njv-cachyos has the Mac and win11-kvm added as machines). Target files
+  (`data/dock/`, `~/.cache/herdr-dock/`) removed on both machines. The Mac's
+  `dock.json` (name suffix) retired with them.
+- dotfiles: `c2403e9` (backup/restore scripts missed from `7f5cbed`), `050f583`
+  (yazi-here retired), `fef8d2b`/`73b9c6c` (layout snapshots). sysadmin: `2f38a33`.
 
 ## Rollback
 
