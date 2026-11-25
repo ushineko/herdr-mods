@@ -108,7 +108,7 @@ test("prune: drops what is over a day old", () => {
   assert.deepEqual(readdirSync(dir), ["fresh.png"]);
 });
 
-test("prune: keeps only the newest KEEP files", { skip: process.platform === "win32" }, () => {
+test("prune: keeps only the newest KEEP files", () => {
   const dir = mkdtempSync(join(tmpdir(), "cria-prune-"));
   for (let i = 0; i < KEEP + 3; i++) {
     const f = join(dir, `f${i}.png`);
@@ -122,7 +122,7 @@ test("prune: keeps only the newest KEEP files", { skip: process.platform === "wi
   for (const gone of ["f0.png", "f1.png", "f2.png"]) assert.ok(!left.includes(gone), gone);
 });
 
-test("stage: a changed file replaces its older copy, and leaves PDF pages alone", { skip: process.platform === "win32" }, () => {
+test("stage: a changed file replaces its older copy, and leaves PDF pages alone", () => {
   const dir = mkdtempSync(join(tmpdir(), "cria-stage-")), src = join(dir, "a.png"), cache = join(dir, "cache");
   writeFileSync(src, "one");
   utimesSync(src, new Date(1e12), new Date(1e12));
