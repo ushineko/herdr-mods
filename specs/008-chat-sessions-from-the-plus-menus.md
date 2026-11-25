@@ -198,7 +198,8 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
       the chat's tab and survives the chat closing).
 - [x] R10 follow, Mac: chat tab ↔ tab 1 switches nav and git between the agent's folder
       (sysadmin) and herdr-mods (2026-11-25).
-- [ ] R10 × hides, agents list: in a real window.
+- [x] R10 agents list: the chat shows with the cow and opens the chat (njv-cachyos, operator, 2026-11-25).
+- [ ] R10 × hides: in a real window.
 - [x] R11: a chat opened from the Mac on a njv-cachyos agent, shown in njv-cachyos's
       own window, finds its agent (`t3b` there) and shows its live prompt (2026-11-25).
 - [x] R12 names: hidden tab named "sysadmin" like its chat's; back under that name
