@@ -610,7 +610,9 @@ export default class Git extends View {
         .child(div().flex_none().child(`${ago(p.last.time)} ago`))
       : null;
     // One worktree: branch and path; why it goes (or stays); its latest commit; shells moved.
-    const card = (p, going) => v_flex().gap(3).p(8).rounded(7).border_1().border_color(t.border).bg(t.background)
+    // flex_none: in the scrolling list below, items would otherwise shrink to their
+    // borders (only the section headers stayed readable).
+    const card = (p, going) => v_flex().flex_none().gap(3).p(8).rounded(7).border_1().border_color(t.border).bg(t.background)
       .child(h_flex().gap(8).min_w(0).text_size(12.5)
         .child(div().flex_none().font_semibold().child(p.branch ?? "(detached)"))
         .child(div().min_w(0).truncate().text_size(11.5).text_color(t.dim).child(p.path)))
@@ -624,9 +626,10 @@ export default class Git extends View {
         else if (e.key === "enter") { if (this.done) close(); else remove(e, cx); cx.stop_propagation(); }
       })
       .child(div().text_size(15).font_semibold().child(go.length ? `Remove ${go.length} worktree${go.length === 1 ? "" : "s"}?` : "Nothing to clean up"))
+      .child(div().text_size(12).text_color(t.muted).child(`Repository ${props().cleanup.root} · on ${props().cleanup.on ?? "this computer"} · ${plan.length} worktree${plan.length === 1 ? "" : "s"} checked`))
       .child(div().text_size(11.5).text_color(t.dim).child("Only worktrees with every change committed and pushed (as of the last fetch), not locked, and not in use. Their branches are kept."))
       .child(v_flex().id("git-cleanup-list").min_h(0).max_h(440).overflow_y_scrollbar().gap(4)
-        .when(go.length > 0, (el) => el.child(div().pt(4).text_size(10.5).font_semibold().text_color(t.dim).child(`WILL BE REMOVED (${go.length}) — folder deleted, branch kept`))
+        .when(go.length > 0, (el) => el.child(div().flex_none().pt(4).text_size(10.5).font_semibold().text_color(t.dim).child(`WILL BE REMOVED (${go.length}) — folder deleted, branch kept`))
           .children(go.map((p) => card(p, true))))
         // Kept ones: in full for a single worktree; for "Clean up…" a summary by reason
         // (what will be acted on comes first), expandable.
@@ -636,11 +639,11 @@ export default class Git extends View {
           const byReason = {};
           for (const p of skip) { const k = p.reason.replace(/^\d+ /, "").replace(/^in use: .*/, "in use").replace(/^agent in use: .*/, "agent in use"); byReason[k] = (byReason[k] ?? 0) + 1; }
           const summary = Object.entries(byReason).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} ${k}`).join(" · ");
-          return el.child(h_flex().pt(10).gap(8).items_center()
+          return el.child(h_flex().flex_none().pt(10).gap(8).items_center()
               .child(div().text_size(10.5).font_semibold().text_color(t.dim).child(`KEPT (${skip.length})`))
               .when(!single, (row) => row.child(div().id("git-cleanup-kept").text_size(11).text_color(t.accent).cursor_pointer()
                 .on_click((_e, cx) => { this.showKept = !this.showKept; cx.notify(); }).child(open ? "hide" : "show"))))
-            .when(!single, (x) => x.child(div().text_size(11.5).text_color(t.muted).child(summary)))
+            .when(!single, (x) => x.child(div().flex_none().text_size(11.5).text_color(t.muted).child(summary)))
             .when(open, (x) => x.children(skip.map((p) => card(p, false))));
         }))
       .when(Boolean(this.results?.length), (el) => el.child(v_flex().gap(2).pt(6).border_t(1).border_color(t.border)
