@@ -74,6 +74,7 @@ read in a tab, beside the terminal that is working on it.
 
 - `line` (jump to a line in a code view): our first viewer had it (S1); cria
   does not. Needed when `git`/agents open at a line.
+- A **machine pill** in the header for a remote file (our first viewer had one).
 - Pictures inside a **remote** Markdown file: cria shows a chip instead.
   Fetching them (base64 over `exec`, chunked as `herdr-md` does) is a later
   local change.
@@ -105,8 +106,8 @@ read in a tab, beside the terminal that is working on it.
       link opens that file with Back (operator click).
 - [ ] Real window: "Open in Zettlr" on a Markdown file opens Zettlr (Mac); on a
       njv-cachyos file it opens on that machine (operator click).
-- [ ] Real window: a remote Markdown file on `njv-cachyos-default` opens.
-- [ ] Real window: editing an open local file from the terminal updates it.
+- [x] Real window: a remote Markdown file on `njv-cachyos-default` opens (hayami README, 136 KB).
+- [x] Real window: editing an open local file from the terminal updates it (within 2 s).
 - [ ] Opening the same file twice through `openInViewer` selects the first tab
       (checked with `nav`, 002).
 - [ ] The cache folder never holds more than 200 files; an edited image leaves
