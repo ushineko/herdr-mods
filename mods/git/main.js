@@ -490,11 +490,14 @@ export default class Git extends View {
           items.push(...await Promise.all(targets.slice(i, i + 8).map(async (w) => {
             const st = await this.git([...READ, "-C", w.path, "status", "--porcelain=v2", "--branch", "-z", "--untracked-files=normal"]).catch(() => null);
             const s = st?.code === 0 ? parseStatus(st.stdout) : null;
-            let onRemote = false;
+            let onRemote = false, remoteRef = null;
             if (s && !s.branch.head) {
               const r = await this.git([...READ, "-C", w.path, "branch", "-r", "--contains", "HEAD"]).catch(() => null);
-              onRemote = Boolean(r?.code === 0 && r.stdout.trim());
+              remoteRef = r?.code === 0 ? (r.stdout.split("\n").map((l) => l.trim()).find(Boolean) ?? null) : null;
+              onRemote = Boolean(remoteRef);
             }
+            const lg = await this.git([...READ, "-C", w.path, "log", "-1", `--format=${LOG_FORMAT}`]).catch(() => null);
+            const last = lg?.code === 0 ? parseLog(lg.stdout)[0] ?? null : null;
             // Terminals in it (not agents, which count below): what each runs now.
             const inside = mine.filter((t) => !agentAddrs.has(t.address) && (within(t.cwd, w.path) || within(this.programs.get(t.address)?.program, w.path)));
             const terms = await Promise.all(inside.map(async (t) => {
@@ -506,7 +509,7 @@ export default class Git extends View {
             return {
               path: w.path, main: w.main, locked: w.locked, branch: w.branch, detached: !w.branch,
               changes: s ? s.staged.length + s.unstaged.length + s.untracked.length + s.conflicts.length : 1,
-              upstream: s?.branch.upstream ?? null, ahead: s?.branch.ahead ?? 0, onRemote,
+              upstream: s?.branch.upstream ?? null, ahead: s?.branch.ahead ?? 0, behind: s?.branch.behind ?? 0, onRemote, remoteRef, last,
               agents: (placed[w.path] ?? []).map((a) => a.name), terminals: terms,
             };
           })));
@@ -548,7 +551,6 @@ export default class Git extends View {
     const t = theme();
     const { plan } = props().cleanup;
     const go = plan.filter((p) => p.eligible), skip = plan.filter((p) => !p.eligible);
-    const shells = go.flatMap((p) => p.shells.map((s) => ({ ...s, to: p.parent })));
     const close = () => closeOverlay(props().overlay);
     const button = (id, label, primary, enabled, act) => h_flex().id(id).h(32).px(14).items_center().rounded(8).text_size(12.5)
       .border_1().border_color(primary ? t.ansi1 : t.input).bg(primary ? t.ansi1 : t.raised)
@@ -560,9 +562,21 @@ export default class Git extends View {
       cx.notify();
       cx.spawn(async (cx) => { try { await this.runCleanup(cx); } finally { close(); } });
     };
-    const rowText = (p) => h_flex().gap(8).text_size(12.5).min_w(0)
-      .child(div().flex_none().font_medium().child(p.branch ?? "(detached)"))
-      .child(div().min_w(0).truncate().text_size(11.5).text_color(t.dim).child(p.path));
+    const lastLine = (p) => p.last
+      ? h_flex().gap(6).min_w(0).text_size(11.5).text_color(t.dim)
+        .child(div().flex_none().font_family(settings().font_family).text_color(t.ansi4).child(p.last.hash.slice(0, 8)))
+        .child(div().min_w(0).truncate().child(p.last.subject))
+        .child(div().flex_none().child(`${ago(p.last.time)} ago`))
+      : null;
+    // One worktree: branch and path; why it goes (or stays); its latest commit; shells moved.
+    const card = (p, going) => v_flex().gap(3).p(8).rounded(7).border_1().border_color(t.border).bg(t.background)
+      .child(h_flex().gap(8).min_w(0).text_size(12.5)
+        .child(div().flex_none().font_semibold().child(p.branch ?? "(detached)"))
+        .child(div().min_w(0).truncate().text_size(11.5).text_color(t.dim).child(p.path)))
+      .child(div().text_size(12).text_color(going ? t.ansi2 : t.blocked).child(going ? `✓ ${p.why}` : `kept: ${p.reason}`))
+      .when(Boolean(p.last), (el) => el.child(lastLine(p)))
+      .when(going && p.shells.length > 0, (el) => el.children(p.shells.map((sh) =>
+        div().text_size(11.5).text_color(t.muted).child(`shell ${sh.address} moves to ${p.parent}`))));
     return v_flex().id("git-cleanup").track_focus(this.handle).w_full().max_h(620).p(18).gap(10).bg(t.popover).text_color(t.foreground)
       .on_key_down((e, cx) => {
         if (e.key === "escape" && !this.running) { close(); cx.stop_propagation(); }
@@ -571,12 +585,23 @@ export default class Git extends View {
       .child(div().text_size(15).font_semibold().child(go.length ? `Remove ${go.length} worktree${go.length === 1 ? "" : "s"}?` : "Nothing to clean up"))
       .child(div().text_size(11.5).text_color(t.dim).child("Only worktrees with every change committed and pushed (as of the last fetch), not locked, and not in use. Their branches are kept."))
       .child(v_flex().id("git-cleanup-list").min_h(0).max_h(440).overflow_y_scrollbar().gap(4)
-        .when(go.length > 0, (el) => el.child(div().pt(4).text_size(10.5).font_semibold().text_color(t.dim).child("WILL BE REMOVED"))
-          .children(go.map((p) => rowText(p))))
-        .when(shells.length > 0, (el) => el.child(div().pt(8).text_size(10.5).font_semibold().text_color(t.dim).child("SHELLS MOVED OUT FIRST"))
-          .children(shells.map((s) => div().text_size(12).text_color(t.muted).child(`${s.address} → ${s.to}`))))
-        .when(skip.length > 0, (el) => el.child(div().pt(8).text_size(10.5).font_semibold().text_color(t.dim).child(`KEPT (${skip.length})`))
-          .children(skip.map((p) => h_flex().gap(8).min_w(0).child(rowText(p).flex_1()).child(div().flex_none().text_size(11.5).text_color(t.blocked).child(p.reason))))))
+        .when(go.length > 0, (el) => el.child(div().pt(4).text_size(10.5).font_semibold().text_color(t.dim).child(`WILL BE REMOVED (${go.length}) — folder deleted, branch kept`))
+          .children(go.map((p) => card(p, true))))
+        // Kept ones: in full for a single worktree; for "Clean up…" a summary by reason
+        // (what will be acted on comes first), expandable.
+        .when(skip.length > 0, (el) => {
+          const single = plan.length === 1;
+          const open = single || this.showKept;
+          const byReason = {};
+          for (const p of skip) { const k = p.reason.replace(/^\d+ /, "").replace(/^in use: .*/, "in use").replace(/^agent in use: .*/, "agent in use"); byReason[k] = (byReason[k] ?? 0) + 1; }
+          const summary = Object.entries(byReason).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} ${k}`).join(" · ");
+          return el.child(h_flex().pt(10).gap(8).items_center()
+              .child(div().text_size(10.5).font_semibold().text_color(t.dim).child(`KEPT (${skip.length})`))
+              .when(!single, (row) => row.child(div().id("git-cleanup-kept").text_size(11).text_color(t.accent).cursor_pointer()
+                .on_click((_e, cx) => { this.showKept = !this.showKept; cx.notify(); }).child(open ? "hide" : "show"))))
+            .when(!single, (x) => x.child(div().text_size(11.5).text_color(t.muted).child(summary)))
+            .when(open, (x) => x.children(skip.map((p) => card(p, false))));
+        }))
       .child(h_flex().pt(6).gap(8).justify_end()
         .child(button("git-cleanup-cancel", "Cancel", false, !this.running, () => close()))
         .child(button("git-cleanup-go", this.running ? "Removing…" : `Remove ${go.length}`, true, go.length > 0 && !this.running, remove)));

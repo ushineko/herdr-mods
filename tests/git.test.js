@@ -175,13 +175,16 @@ const wt = (o) => ({ path: "/r.wt/feat", main: false, locked: false, branch: "fe
 test("planCleanup: a clean, pushed, unused worktree is eligible", () => {
   const [p] = planCleanup([wt({ terminals: [{ address: "t1", program: "zsh" }, { address: "m/t2", program: "-bash" }] })]);
   assert.equal(p.eligible, true);
+  assert.equal(p.why, "clean · pushed to origin/feat");
   assert.equal(p.parent, "/r.wt");
   assert.deepEqual(p.shells, [{ address: "t1", cmd: " cd '/r.wt'" }, { address: "m/t2", cmd: " cd '/r.wt'" }]);
 });
 
 test("planCleanup: behind its upstream is fine; detached on a remote branch is fine", () => {
-  assert.equal(planCleanup([wt({ ahead: 0, behind: 3 })])[0].eligible, true);
-  assert.equal(planCleanup([wt({ detached: true, branch: null, upstream: null, onRemote: true })])[0].eligible, true);
+  assert.equal(planCleanup([wt({ ahead: 0, behind: 3 })])[0].why, "clean · pushed to origin/feat (3 behind)");
+  const d = planCleanup([wt({ detached: true, branch: null, upstream: null, onRemote: true, remoteRef: "origin/main" })])[0];
+  assert.deepEqual([d.eligible, d.why], [true, "clean · commit is on origin/main"]);
+  assert.deepEqual(planCleanup([wt({ last: { hash: "abc", subject: "s", time: 1 } })])[0].last, { hash: "abc", subject: "s", time: 1 });
 });
 
 test("planCleanup: each reason to keep a worktree", () => {
