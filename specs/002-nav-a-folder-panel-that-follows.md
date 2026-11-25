@@ -88,23 +88,23 @@ and marks git status; it is the starting point for the reading code
 
 ## Acceptance Criteria
 
-- [ ] Real window: in a wide, short block the horizontal layout shows; in a
+- [x] Real window: in a wide, short block the horizontal layout shows; in a
       narrow, tall one the vertical; resizing switches between them.
 
-- [ ] `node --test tests/*.test.js`: breadcrumb from (home, cwd) on Linux and macOS
+- [x] `node --test tests/*.test.js`: breadcrumb from (home, cwd) on Linux and macOS
       paths; entry sorting and hidden filtering; porcelain parsing into marks
       and per-folder change counts; key map → action names.
-- [ ] `herdr-app check` passes for `nav`.
-- [ ] Real window (Mac): focusing two terminals in different folders moves nav
+- [x] `herdr-app check` passes for `nav`.
+- [x] Real window (Mac): focusing two terminals in different folders moves nav
       between them; `cd` in a terminal moves it; clicking into a folder turns
       the light off and stops following; clicking the light re-locks.
 - [ ] Real window: a remote space (njv-cachyos) shows that machine's folder and
       git marks.
-- [ ] Real window: keyboard walk — focus nav, `j j l` enters a folder, `h`
+- [x] Real window: keyboard walk — focus nav, `j j l` enters a folder, `h`
       leaves, `/` filters, Enter on a file opens a viewer tab.
 - [ ] Real window: a file created from a terminal appears within 2 s with an
       `?` mark.
-- [ ] `e` on a Markdown file opens Zettlr.
+- [x] `e` on a Markdown file opens Zettlr.
 - [ ] Driven by shared state (before 005 exists, set by hand from `ui-lab`):
       `nav`, `reveal`, `follow` behave as R13.
 

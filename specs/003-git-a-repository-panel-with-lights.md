@@ -121,29 +121,29 @@ the panel should answer at a glance.
 
 ## Acceptance Criteria
 
-- [ ] Real window: in a wide, short block the horizontal layout shows; in a
+- [x] Real window: in a wide, short block the horizontal layout shows; in a
       narrow, tall one the vertical; resizing switches between them.
 
-- [ ] `node --test tests/*.test.js`: `git worktree list --porcelain` parsing (main,
+- [x] `node --test tests/*.test.js`: `git worktree list --porcelain` parsing (main,
       linked, detached, locked, prunable); porcelain v1 `-z` into the three
       groups (including renames and a file both staged and unstaged);
       `--numstat` merging; agent-to-worktree matching by folder prefix (not a
       sibling with a shared prefix: `/w/a` vs `/w/ab`); signal order (label,
       then program folder, then terminal folder); upstream distance
       parsing; key map.
-- [ ] `herdr-app check` passes for `git`.
-- [ ] Real window: a repository with two worktrees and a Claude session working
+- [x] `herdr-app check` passes for `git`.
+- [x] Real window: a repository with two worktrees and a Claude session working
       in one shows a pulsing light on that worktree and none on the other —
       including when the session was started in the main worktree and moved to
       the other with `herdr-nav --worktree`.
 - [ ] Real window: with an agent `working` in the shown worktree, `space`, `a`,
       `c`, `p`, `P`, `f` are refused with the lock toast; once it is idle they work;
       an agent working in another worktree does not lock this one.
-- [ ] Real window: `space` on an unstaged file moves it to Staged; `a` stages
+- [x] Real window: `space` on an unstaged file moves it to Staged; `a` stages
       all; `c` commits with a message (in a scratch repository); `f` fetches
       (toast); `p` on a diverged scratch branch fails cleanly with git's
       message.
-- [ ] Real window: Enter on a change opens a diff tab in `viewer`.
+- [x] Real window: Enter on a change opens a diff tab in `viewer`.
 - [ ] Real window: a remote repository on njv-cachyos shows its changes and
       worktrees.
 
