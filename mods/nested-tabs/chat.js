@@ -6,7 +6,7 @@
 // it ends when the chat (or its tab) is closed (sweep).
 
 import { knownAgents, exec, hc, panes, spaces, terminals, run, window, notify, setShared } from "herdr";
-import { chatEntries, strayChats, orphanedHidden, CHAT_LABEL, HIDDEN_LABEL, OWNER_LABEL } from "./lib/chat-entries.js";
+import { chatEntries, strayChats, orphanedHidden, toSettle, localId, CHAT_LABEL, HIDDEN_LABEL, OWNER_LABEL } from "./lib/chat-entries.js";
 
 const where = (base) => {
   const i = base.indexOf("/");
@@ -59,15 +59,15 @@ async function openChat(addr, make, more = []) {
   make();
   for (let i = 0; i < 50; i++) {
     const chat = panes().find((p) => p.mod === "ushi-naruse" && !before.has(p.pane));
-    if (chat) return hc(["label", addr, ...[OWNER_LABEL, ...more].map((k) => `${k}=${chat.pane}`)]);
+    if (chat) return hc(["label", addr, ...[OWNER_LABEL, ...more].map((k) => `${k}=${localId(chat.pane)}`)]);
     await pause();
   }
 }
 
 /** The chat pane showing terminal `term`, if one is open. */
 export function chatOf(term) {
-  const pane = term?.labels?.[OWNER_LABEL];
-  return pane ? panes().find((p) => p.pane === pane && p.mod === "ushi-naruse") ?? null : null;
+  const pane = localId(term?.labels?.[OWNER_LABEL]);
+  return pane ? panes().find((p) => localId(p.pane) === pane && p.mod === "ushi-naruse") ?? null : null;
 }
 
 /** Asks the chat showing `addr` to hide its terminal (the chat's own "Hide terminal"). */
@@ -130,4 +130,7 @@ export async function sweep() {
     run("tab.unsettle", { id: tab });
     await hc(["label", address, `${HIDDEN_LABEL}=`]).catch(() => {});
   }
+  // "Settled" is per window: a terminal hidden from another window shows here as an
+  // ordinary tab until this window settles it too.
+  for (const id of toSettle(terms, chatTabs, spaces().flatMap((s) => s.tabs ?? []))) run("tab.settle", { id });
 }

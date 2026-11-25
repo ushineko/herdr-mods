@@ -136,6 +136,11 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
     and opening it showed that tab before the chat took it back. An agent started for
     a chat, with no pane, is listed too.
   - Back to terminal clears the label.
+  - **Two windows on one machine** (found on njv-cachyos, 2026-11-25): the label holds
+    the pane id without its machine part (the Mac's window names a njv-cachyos pane
+    `njv-cachyos-default/p…`, that machine's own window `p…`), and every reader compares
+    that form. The app keeps "settled" per window, so each window's clean-up settles a
+    chat's hidden terminal tab there too (`toSettle`), unless it's the shown tab.
 - R7 Pure selection logic (which entries to show for a platform, an agent list and
   a python3 check) lives in `lib/` with unit tests.
 

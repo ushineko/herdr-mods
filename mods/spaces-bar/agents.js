@@ -34,8 +34,11 @@ export function allAgents() {
   // An agent a chat shows (spec 008; label ushi.chat=<chat pane>) is listed in the
   // chat's tab and opens the chat: its terminal may sit hidden in a settled tab, or
   // have no pane at all.
+  // The label holds the pane id without its machine part (one form for every window).
+  const local = (id) => String(id ?? "").slice(String(id ?? "").lastIndexOf("/") + 1);
+  const byLocal = new Map(panes().filter((p) => p.mod === "ushi-naruse").map((p) => [local(p.pane), p]));
   for (const t of terminals()) {
-    const chat = byPane.get(t.labels?.["ushi.chat"]);
+    const chat = t.labels?.["ushi.chat"] ? byLocal.get(local(t.labels["ushi.chat"])) : null;
     if (!chat || t.state !== "live") continue;
     const info = tabInfo.get(chat.tab) ?? {};
     const was = out.get(t.address);

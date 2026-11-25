@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chatEntries, strayChats, orphanedHidden } from "../lib/chat-entries.js";
+import { chatEntries, strayChats, orphanedHidden, toSettle, localId } from "../lib/chat-entries.js";
 
 const claude = { key: "claude", name: "Claude Code", installed: true, run: ["claude"] };
 const codex = { key: "codex", name: "Codex", installed: true, run: ["codex", "--no-daemon"] };
@@ -81,4 +81,22 @@ test("closing the last chat still shows its hidden terminal; nothing listed deci
   const m2 = new Map();
   orphanedHidden(terms, [], m2, 0, 3000, seen, false);
   assert.deepEqual(orphanedHidden(terms, [], m2, 9000, 3000, seen, false), []);
+});
+
+test("pane ids match with or without their machine part (two windows on one machine)", () => {
+  assert.equal(localId("njv-cachyos-default/p7"), "p7");
+  assert.equal(localId("p7"), "p7");
+  const missing = new Map(), seen = new Set();
+  const terms = [term("t1", "njv-cachyos-default/p7")];
+  strayChats(terms, ["p7"], missing, 0, 3000, seen);
+  assert.deepEqual(strayChats(terms, ["p7"], missing, 9000, 3000, seen), [], "its own window sees the chat");
+  strayChats(terms, ["px"], missing, 10000, 3000, seen);
+  assert.deepEqual(strayChats(terms, ["px"], missing, 14000, 3000, seen), ["t1"]);
+});
+
+test("a hidden terminal's tab is settled in a window that shows it, while its chat is open", () => {
+  const terms = [hidden("t1", "tbA", "tbH"), hidden("m/t2", "tbB", "tbG"), hidden("t3", "tbGone", "tbK")];
+  const tabs = [{ id: "tbH", settled: false }, { id: "m/tbG", settled: true }, { id: "tbK", settled: false }];
+  assert.deepEqual(toSettle(terms, ["tbA", "m/tbB"], tabs), ["tbH"]);
+  assert.deepEqual(toSettle(terms, ["tbA"], [{ id: "tbH", settled: false, active: true }]), [], "shown: left alone");
 });
