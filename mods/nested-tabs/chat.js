@@ -6,7 +6,7 @@
 // it ends when the chat (or its tab) is closed (sweep).
 
 import { knownAgents, exec, hc, panes, spaces, terminals, run, window, notify, setShared } from "herdr";
-import { chatEntries, strayChats, orphanedHidden, toSettle, localId, CHAT_LABEL, HIDDEN_LABEL, OWNER_LABEL } from "./lib/chat-entries.js";
+import { chatEntries, strayChats, orphanedHidden, toSettle, toRename, localId, newChatId, ID_LABEL, CHAT_LABEL, HIDDEN_LABEL, OWNER_LABEL } from "./lib/chat-entries.js";
 
 const where = (base) => {
   const i = base.indexOf("/");
@@ -48,7 +48,8 @@ export async function open(pane, base, command, name) {
   let addr;
   try { addr = JSON.parse(r.stdout).address; } catch { return fail(r); }
   await hc(["send", addr, command]);
-  await openChat(addr, () => run("tab.new", { ...(space ? { space } : {}), name, mod: "ushi-naruse", props: { terminal: addr } }), [CHAT_LABEL]);
+  const id = await idFor(addr);
+  await openChat(addr, () => run("tab.new", { ...(space ? { space } : {}), name, mod: "ushi-naruse", props: { terminal: addr, id } }), [CHAT_LABEL]);
   return addr;
 }
 
@@ -64,10 +65,19 @@ async function openChat(addr, make, more = []) {
   }
 }
 
-/** The chat pane showing terminal `term`, if one is open. */
+/**
+ * The chat pane showing terminal `term`, if one is open: the one its label names, else
+ * (a chat opened before the label existed) a chat in the same tab as its pane, for a
+ * Claude Code or Codex terminal only (a shell beside a chat closes as usual).
+ */
 export function chatOf(term) {
   const pane = localId(term?.labels?.[OWNER_LABEL]);
-  return pane ? panes().find((p) => localId(p.pane) === pane && p.mod === "ushi-naruse") ?? null : null;
+  const all = panes();
+  const named = pane ? all.find((p) => localId(p.pane) === pane && p.mod === "ushi-naruse") : null;
+  if (named) return named;
+  if (!agentOf(term)) return null;
+  const tab = all.find((p) => p.terminal === term?.address)?.tab;
+  return (tab && all.find((p) => p.tab === tab && p.mod === "ushi-naruse")) || null;
 }
 
 /** Asks the chat showing `addr` to hide its terminal (the chat's own "Hide terminal"). */
@@ -105,8 +115,18 @@ export function agentOf(term) {
  * (its "Hide terminal": the terminal moves to a settled tab, "Show terminal" brings
  * it back beside the chat). Closing the chat leaves the agent running (no CHAT_LABEL).
  */
-export function openExisting(pane, addr, hide) {
-  return openChat(addr, () => run("pane.split", { direction: "right", pane, mod: "ushi-naruse", props: { terminal: addr, ...(hide ? { hide: true } : {}) } }));
+export async function openExisting(pane, addr, hide) {
+  const id = await idFor(addr);
+  return openChat(addr, () => run("pane.split", { direction: "right", pane, mod: "ushi-naruse", props: { terminal: addr, id, ...(hide ? { hide: true } : {}) } }));
+}
+
+/** The agent's ID_LABEL, set now if it has none (a chat in any window finds it by this). */
+export async function idFor(addr) {
+  const have = terminals().find((t) => t.address === addr)?.labels?.[ID_LABEL];
+  if (have) return have;
+  const id = newChatId();
+  await hc(["label", addr, `${ID_LABEL}=${id}`]);
+  return id;
 }
 
 // address → when its chat pane was first seen missing, and every pane seen in
@@ -132,5 +152,9 @@ export async function sweep() {
   }
   // "Settled" is per window: a terminal hidden from another window shows here as an
   // ordinary tab until this window settles it too.
-  for (const id of toSettle(terms, chatTabs, spaces().flatMap((s) => s.tabs ?? []))) run("tab.settle", { id });
+  const tabs = spaces().flatMap((s) => s.tabs ?? []);
+  for (const id of toSettle(terms, chatTabs, tabs)) run("tab.settle", { id });
+  // The hidden terminal's tab is named like its chat's (a new tab only has a number),
+  // so it keeps the project's name if it comes back.
+  for (const { id, name } of toRename(terms, tabs)) run("tab.rename", { id, name });
 }

@@ -136,6 +136,12 @@ export default class Chat extends View {
     const p = props() ?? {};
     this.dialog = Boolean(p.overlay);
     this.term = this.dialog ? null : p.terminal ?? null;
+    // ushi-naruse: an address is the opening window's ("njv-cachyos-default/t39" from the
+    // Mac, "t39" on that machine's own window), so a chat shown in another window lost
+    // its agent. herdr-mods labels the agent ushi.id=<id> and passes { id }: each window
+    // finds the terminal by that label and uses its own address for it.
+    this.termId = this.dialog ? null : p.id ?? null;
+    this.resolveTerm();
     this.started = Boolean(p.started);
     // ushi-naruse: opened over a running agent with { hide: true } (herdr-mods' Open as
     // chat), it hides that agent's terminal once, as "Hide terminal" does.
@@ -230,6 +236,13 @@ export default class Chat extends View {
     if (this.dialog) this.loadCatalog(this.cfg.kind, this.cfg.machine, cx);
     this.checkTimer = cx.timer.every(2000, (cx) => this.check(cx));
     this.check(cx);
+  }
+
+  // ushi-naruse: this window's address for the agent (see termId in init).
+  resolveTerm() {
+    if (!this.termId) return;
+    const t = terminals().find((x) => x.labels?.["ushi.id"] === this.termId);
+    if (t && t.address !== this.term) { this.term = t.address; this.file = null; }
   }
 
   terminal() {
@@ -1173,6 +1186,7 @@ export default class Chat extends View {
 
   check(cx) {
     this.checked = Date.now();
+    this.resolveTerm();
     const term = this.terminal();
     const mine = this.myPane();
     if (mine) this.pane = mine.pane;
@@ -1591,7 +1605,10 @@ export default class Chat extends View {
           const space = spaces().find((s) => s.tabs?.some((x) => x.id === own.tab))?.id;
           if (!space) throw new Error("the chat's space is gone");
           await adopt(this.term, space, own.tab);
-          for (let i = 0; i < 30 && !here(); i++) await exec("sh", ["-c", "sleep 0.1"]);
+          for (let i = 0; i < 100 && !here(); i++) await exec("sh", ["-c", "sleep 0.1"]);
+          // Never close the chat before the terminal has a pane here: the chat may be the
+          // tab's last pane, and closing that tab would end the session (#12, njv-cachyos).
+          if (!here()) throw new Error(`its terminal (${this.term}) has no pane in this tab yet; the chat stays open so the session is kept. Try again, or Show terminal`);
         }
         if (own.zoomed) await herdr("pane.zoom", { pane: own.pane }).catch(() => {});
         run("pane.close", { pane: own.pane });

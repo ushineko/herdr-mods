@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chatEntries, strayChats, orphanedHidden, toSettle, localId } from "../lib/chat-entries.js";
+import { chatEntries, strayChats, orphanedHidden, toSettle, toRename, localId } from "../lib/chat-entries.js";
 
 const claude = { key: "claude", name: "Claude Code", installed: true, run: ["claude"] };
 const codex = { key: "codex", name: "Codex", installed: true, run: ["codex", "--no-daemon"] };
@@ -99,4 +99,11 @@ test("a hidden terminal's tab is settled in a window that shows it, while its ch
   const tabs = [{ id: "tbH", settled: false }, { id: "m/tbG", settled: true }, { id: "tbK", settled: false }];
   assert.deepEqual(toSettle(terms, ["tbA", "m/tbB"], tabs), ["tbH"]);
   assert.deepEqual(toSettle(terms, ["tbA"], [{ id: "tbH", settled: false, active: true }]), [], "shown: left alone");
+});
+
+test("a hidden terminal's numbered tab takes its chat tab's name; a numbered chat tab is not copied", () => {
+  const terms = [hidden("t1", "tbA", "tbH"), hidden("t2", "tbB", "tbG"), hidden("t3", "tbC", "tbK")];
+  const tabs = [{ id: "tbA", name: "hayami" }, { id: "tbH", name: "8" }, { id: "tbB", name: "7" }, { id: "tbG", name: "9" },
+    { id: "tbC", name: "fynstall" }, { id: "tbK", name: "fynstall" }];
+  assert.deepEqual(toRename(terms, tabs), [{ id: "tbH", name: "hayami" }]);
 });

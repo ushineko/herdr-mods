@@ -25,7 +25,7 @@ import {
   layout, terminals, focused, run, hc, exec, home, theme, shared, setShared, notify, window,
   openOverlay, closeOverlay, knownAgents, checking, props, nextCommand, spaces, machines,
 } from "herdr";
-import { chatEntries } from "./lib/chat-entries.js";
+import { chatEntries, newChatId, ID_LABEL } from "./lib/chat-entries.js";
 
 const ICON = (n) => `mods/dock-tabs/${n}.svg`;
 const DOCKS = ["dock-right", "dock-bottom"];
@@ -68,6 +68,7 @@ const childId = (dock, name) => {
 // terminal address and the subtab's name (the agent terminal's name).
 const nameOf = (child) => child?.content?.terminal ?? child?.content?.props?.dockName ?? null;
 const chatOf = (child) => (child?.content?.mod === "ushi-naruse" ? child.content.props?.terminal ?? null : null);
+const chatIdOf = (child) => (child?.content?.mod === "ushi-naruse" ? child.content.props?.id ?? null : null);
 const modOf = (child) => child?.content?.mod ?? null;
 const currentMachine = () => spaces().find((s) => s.active)?.machine ?? null;
 
@@ -86,7 +87,7 @@ function tabs(dock, machine) {
   const list = (st?.children ?? []).map((c) => {
     const fixed = FIXED.find((f) => c.id === fixedId(dock, f.key));
     if (fixed) return { id: c.id, fixed };
-    return { id: c.id, name: nameOf(c), chat: chatOf(c), machine: machineOf(nameOf(c)), term: termOf(all, nameOf(c)) };
+    return { id: c.id, name: nameOf(c), chat: chatOf(c), chatId: chatIdOf(c), machine: machineOf(nameOf(c)), term: termOf(all, nameOf(c)) };
   });
   return machine === undefined ? list : list.filter((t) => t.fixed || t.machine === machine);
 }
@@ -102,7 +103,7 @@ function activeOf(dock) {
 // The chat subtabs in the layout now: { name: agent address }.
 function chatsNow() {
   const out = {};
-  for (const dock of DOCKS) for (const t of tabs(dock)) if (t.chat && t.name) out[t.name] = t.chat;
+  for (const dock of DOCKS) for (const t of tabs(dock)) if (t.chat && t.name) out[t.name] = { address: t.chat, id: t.chatId };
   return out;
 }
 
@@ -121,7 +122,7 @@ function setTabs(names, active, chats = {}) {
         id: childId(dock, n),
         type: "block",
         // A chat set to null in `chats` turns back into its terminal (Back to terminal).
-        content: chat[n] ? { mod: "ushi-naruse", props: { terminal: chat[n], dockName: n } } : { terminal: n },
+        content: chat[n] ? { mod: "ushi-naruse", props: { terminal: chat[n].address ?? chat[n], ...(chat[n].id ? { id: chat[n].id } : {}), dockName: n } } : { terminal: n },
       })),
     ];
     const want = active?.[dock];
@@ -193,7 +194,12 @@ async function addTab(dock, command, { chat = false } = {}) {
   const name = machine ? `${machine}/${base}` : base;
   let chats = {};
   if (chat) {
-    try { chats = { [name]: JSON.parse(r.stdout).address }; } catch { return fail("New chat: unexpected reply", r); }
+    let address;
+    try { address = JSON.parse(r.stdout).address; } catch { return fail("New chat: unexpected reply", r); }
+    // Every window's chat finds the agent by this label (addresses differ by window).
+    const id = newChatId();
+    await hc(["label", address, `${ID_LABEL}=${id}`]);
+    chats = { [name]: { address, id } };
   }
   const names = ownNames(dock);
   const at = names.indexOf(nameOf(find(layout(), activeOf(dock))));
