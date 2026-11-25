@@ -7,6 +7,7 @@ import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { exec, hc, watchFolder, window, theme, settings, terminals, notify, nextCommand, checking, run, shared } from "herdr";
 import {
   READ, parseStatus, parseNumstat, parseWorktrees, worktreeOf, placeAgent, lockedBy, within, WORKTREE_LABEL,
+  indexWorktrees, visibleWorktrees,
   stageArgs, unstageArgs, stageAllArgs, unstageAllArgs, commitArgs, pullArgs, pushArgs, fetchArgs,
   LOG_FORMAT, parseLog, ago, gitKeyAction, WRITES, COMMIT_FORMAT, parseCommit, parseCommitFiles,
 } from "./lib/git.js";
@@ -19,6 +20,9 @@ const AGENT_POLL = 3000;
 const ROW = 24;
 const LONG = 120000; // pull, push, fetch
 const RECENT = 50;  // commits in the Recent pane (R8)
+const WT_CAP = 12;  // worktree rows shown unless "show all" (R3)
+// One sh round trip for the changed-file count of several worktrees: "<path>\t<n>" lines.
+const COUNTS_SH = 'for w; do n=$(git -C "$w" --no-optional-locks -c core.fsmonitor=false status --porcelain=v1 --untracked-files=normal 2>/dev/null | wc -l) && printf "%s\\t%s\\n" "$w" "$n"; done';
 // Pane sizes in px (R15): horizontal column widths, vertical section heights. Dragged
 // by the dividers between them; remembered in localStorage.
 const SIZES = "git.sizes";
@@ -121,7 +125,10 @@ export default class Git extends View {
         if (!this.root) { this.error = null; this.worktrees = []; this.status = null; return; }
         const wt = await this.git([...READ, "-C", this.root, "worktree", "list", "--porcelain"]);
         this.worktrees = wt.code === 0 ? parseWorktrees(wt.stdout) : [{ path: this.root, main: true }];
-        const here = worktreeOf(loc.cwd, this.worktrees);
+        // Indexed once: repositories with many worktrees (80 in platform-backend) are
+        // looked up on every render.
+        this.index = indexWorktrees(this.worktrees);
+        const here = this.index.lookup(loc.cwd);
         if (this.follow || !this.worktrees.some((w) => w.path === this.shown)) this.shown = here?.path ?? this.worktrees[0]?.path;
         await this.readShown();
         await this.readCounts();
@@ -150,13 +157,31 @@ export default class Git extends View {
     this.log = lg.code === 0 ? parseLog(lg.stdout) : [];
   }
 
+  // Changed-file counts for the worktree rows on screen only: one sh round trip
+  // (one git per row on Windows, which has no sh).
   async readCounts() {
+    const rows = this.stripRows().filter((w) => !w.prunable).map((w) => w.path);
+    if (!rows.length) { this.counts = {}; return; }
     const counts = {};
-    await Promise.all(this.worktrees.filter((w) => !w.prunable).map(async (w) => {
-      const r = await this.git([...READ, "-C", w.path, "status", "--porcelain=v1", "-z", "--untracked-files=normal"]).catch(() => null);
-      counts[w.path] = r?.code === 0 ? r.stdout.split("\0").filter(Boolean).length : null;
-    }));
+    if (!this.loc?.on && window()?.platform === "windows") {
+      await Promise.all(rows.map(async (p) => {
+        const r = await this.git([...READ, "-C", p, "status", "--porcelain=v1", "-z", "--untracked-files=normal"]).catch(() => null);
+        counts[p] = r?.code === 0 ? r.stdout.split("\0").filter(Boolean).length : null;
+      }));
+    } else {
+      const r = await exec("sh", ["-c", COUNTS_SH, "counts", ...rows], { on: this.loc?.on ?? null }).catch(() => null);
+      for (const line of (r?.stdout ?? "").split("\n")) {
+        const tab = line.lastIndexOf("\t");
+        if (tab > 0) counts[line.slice(0, tab)] = Number(line.slice(tab + 1).trim());
+      }
+    }
     this.counts = counts;
+  }
+
+  // The worktree rows the strip shows (R3): capped unless "show all".
+  stripRows(placed = this.lastPlaced ?? {}) {
+    const here = this.index?.lookup(this.last?.cwd)?.path ?? null;
+    return visibleWorktrees(this.worktrees, { shown: this.shown, here, agents: placed, counts: this.counts, cap: WT_CAP, all: this.allWorktrees }).rows;
   }
 
   // Signals 1 and 2 (R5a): each agent's label and its program's own folder, both from
@@ -189,7 +214,7 @@ export default class Git extends View {
     if (!this.worktrees.length || !this.loc) return out;
     for (const t of agentsOn(this.loc.on)) {
       const known = this.programs.get(t.address);
-      const at = placeAgent({ label: known?.label ?? t.labels?.[WORKTREE_LABEL], program: known?.program, terminal: t.cwd }, this.worktrees);
+      const at = placeAgent({ label: known?.label ?? t.labels?.[WORKTREE_LABEL], program: known?.program, terminal: t.cwd }, this.index ?? this.worktrees);
       if (!at) continue;
       (out[at.worktree.path] ??= []).push({ address: t.address, name: t.program?.name ?? t.name ?? t.address, status: t.status, source: at.source });
     }
@@ -344,7 +369,7 @@ export default class Git extends View {
     switch (action) {
       case "down": case "up": {
         const d = action === "down" ? 1 : -1;
-        if (this.zone === "worktrees") this.wtCursor = Math.max(0, Math.min(this.worktrees.length - 1, this.wtCursor + d));
+        if (this.zone === "worktrees") this.wtCursor = Math.max(0, Math.min(this.stripRows().length - 1, this.wtCursor + d));
         else this.cursor = Math.max(0, Math.min(items.length - 1, this.cursor + d));
         cx.notify();
         return true;
@@ -356,7 +381,7 @@ export default class Git extends View {
         cx.notify();
         return true;
       case "diff":
-        if (this.zone === "worktrees") { this.showWorktree(this.worktrees[this.wtCursor], cx); return true; }
+        if (this.zone === "worktrees") { this.showWorktree(this.stripRows()[this.wtCursor], cx); return true; }
         if (sel) this.openDiff(sel, cx);
         return true;
       case "open": if (sel) openInViewer(cx, { path: join(this.shown, sel.file.path.replace(/\/$/, "")), on: this.loc.on, space: this.loc.space ?? undefined }); return true;
@@ -457,6 +482,8 @@ export default class Git extends View {
     const zoom = settings().zoom ?? 1;
     const wide = Boolean(this.size) && this.size.width / zoom > 1.8 * (this.size.height / zoom);
     const placed = this.placed();
+    this.lastPlaced = placed;
+    const hereWt = this.index?.lookup(this.last?.cwd)?.path ?? null;
     const lock = lockedBy(placed[this.shown] ?? []);
     const items = this.items();
     if (this.cursor >= items.length) this.cursor = Math.max(0, items.length - 1);
@@ -498,8 +525,7 @@ export default class Git extends View {
       .child(div().child(title.toUpperCase())).child(div().child(String(count))).when(Boolean(extra), (el) => el.child(extra));
 
     const wtRow = (w, i) => {
-      const at = this.last?.cwd;
-      const here = Boolean(at) && worktreeOf(at, this.worktrees)?.path === w.path;
+      const here = w.path === hereWt;
       const shown = w.path === this.shown;
       const cur = this.zone === "worktrees" && i === this.wtCursor;
       const ag = placed[w.path] ?? [];
@@ -553,7 +579,13 @@ export default class Git extends View {
       const groups = [["Conflicts", s.conflicts], ["Staged", s.staged], ["Unstaged", s.unstaged], ["Untracked", s.untracked]].filter(([, f]) => f.length);
       let idx = 0;
       const changeBlocks = groups.flatMap(([g, files]) => [groupHeader(g, files), ...(this.collapsed[g] ? [] : files.map((file) => fileRow({ group: g, file }, idx++)))]);
-      const worktreeBlock = this.worktrees.length ? [section("Worktrees", this.worktrees.length, null), ...this.worktrees.map(wtRow)] : [];
+      const strip = visibleWorktrees(this.worktrees, { shown: this.shown, here: hereWt, agents: placed, counts: this.counts, cap: WT_CAP, all: this.allWorktrees });
+      const more = this.worktrees.length > WT_CAP
+        ? [div().id("git-wt-more").mx(14).my(2).text_size(11.5).text_color(t.accent).cursor_pointer()
+          .on_click((_e, cx) => { this.allWorktrees = !this.allWorktrees; this.refresh(cx); cx.notify(); })
+          .child(this.allWorktrees ? "show fewer" : `show all ${this.worktrees.length} (${strip.hidden} more)`)]
+        : [];
+      const worktreeBlock = this.worktrees.length ? [section("Worktrees", this.worktrees.length, null), ...strip.rows.map(wtRow), ...more] : [];
       const changesBlock = [
         ...(changeBlocks.length ? changeBlocks : [div().px(14).py(10).text_size(12).text_color(t.dim).child("Nothing to commit · working tree clean")]),
         ...(this.committing ? [div().px(10).pt(8).child(Input.new(this.message).h(30).px(8).rounded(6).border_1().border_color(t.accent).bg(t.background).text_size(12.5))] : []),

@@ -41,6 +41,13 @@ the panel should answer at a glance.
   to the main worktree's parent, and its number of changed files. The worktree
   being shown is highlighted; the one the focused terminal is in carries a
   small "here" mark.
+- R3a **Many worktrees** (found 2026-11-24: platform-backend has 80, and the panel's
+  render was interrupted). The strip shows at most 12 rows — the shown worktree,
+  the one the terminal is in, those with agents, those with changes, then the
+  rest — with "show all N" / "show fewer". Worktrees are indexed once per refresh
+  (normalised, deepest first) for every folder lookup in a render, and changed-file
+  counts are read for the rows on screen only, in one `sh` round trip (one `git`
+  per row on Windows).
 - R4 Clicking a worktree shows it (R1's follow turns off).
 - R5 **Agent lights**: for each worktree, the agents working in it: one light
   per agent, coloured by status — `working` accent with a slow

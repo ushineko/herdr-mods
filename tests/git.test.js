@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   parseStatus, parseNumstat, parseWorktrees, within, worktreeOf, placeAgent, lockedBy,
   stageArgs, unstageArgs, unstageAllArgs, pushArgs, pullArgs, fetchArgs, commitArgs,
-  parseLog, ago, gitKeyAction, WRITES, parseCommit, parseCommitFiles,
+  parseLog, ago, gitKeyAction, WRITES, parseCommit, parseCommitFiles, indexWorktrees, visibleWorktrees,
 } from "../lib/git.js";
 
 const z = (...recs) => recs.join("\0") + "\0";
@@ -140,4 +140,31 @@ test("parseCommitFiles: status, renames, counts, binary", () => {
     { path: "moved.md", code: "R", orig: "old.md", added: 0, removed: 0 },
     { path: "img.png", code: "M", added: null, removed: null },
   ]);
+});
+
+test("indexWorktrees: same answers as worktreeOf, deepest first, prefix-safe", () => {
+  const wts = [{ path: "/w" }, { path: "/w/a" }, { path: "/w/ab" }, { path: "C:/R/x" }];
+  const ix = indexWorktrees(wts);
+  for (const f of ["/w/a/src", "/w/ab/x", "/w/other", "/elsewhere", "/w", "c:\\r\\x\\y", ""]) {
+    assert.equal(ix.lookup(f), worktreeOf(f, wts), f);
+  }
+  assert.equal(worktreeOf("/w/a/src", ix).path, "/w/a");
+  assert.deepEqual(placeAgent({ terminal: "/w/ab/q" }, ix), { worktree: wts[2], source: "terminal" });
+});
+
+test("indexWorktrees: 80 worktrees x 80 lookups stays fast", () => {
+  const wts = Array.from({ length: 80 }, (_, i) => ({ path: `/home/u/git/repo-wt-${i}` }));
+  const ix = indexWorktrees(wts);
+  const t0 = Date.now();
+  for (let r = 0; r < 200; r++) for (const w of wts) ix.lookup(w.path + "/src/deep/file");
+  assert.ok(Date.now() - t0 < 500);
+});
+
+test("visibleWorktrees: caps the strip, keeps shown/here/agents/changed, in list order", () => {
+  const list = Array.from({ length: 30 }, (_, i) => ({ path: `/w${i}` }));
+  const { rows, hidden } = visibleWorktrees(list, { shown: "/w20", here: "/w25", agents: { "/w29": [1] }, counts: { "/w27": 3 }, cap: 5 });
+  assert.deepEqual(rows.map((w) => w.path), ["/w0", "/w20", "/w25", "/w27", "/w29"]);
+  assert.equal(hidden, 25);
+  assert.equal(visibleWorktrees(list, { cap: 5, all: true }).rows.length, 30);
+  assert.equal(visibleWorktrees(list.slice(0, 4), { cap: 5 }).hidden, 0);
 });
