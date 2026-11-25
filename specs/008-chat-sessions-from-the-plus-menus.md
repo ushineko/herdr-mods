@@ -210,9 +210,12 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
 - [x] R1f, Mac: a line in the agent's input shows as the row; the parser reads "go ahead
       with 3c" from the hayami screen on njv-cachyos; Ctrl+U empties the line.
 - [ ] R2a: right-click on the tab bar's + shows the entries; each opens its tab.
-- [ ] R9: Back to terminal from a New chat tab (Mac, by command: yes), an Open as chat
+- [x] R9: Back to terminal from a New chat tab (Mac, by command: yes), an Open as chat
       tab with its terminal hidden (Mac, by command: yes), and a dock chat subtab (menu) (Mac: the pane-less case's steps by hand work: the agent gets a pane in
       the chat's tab and survives the chat closing).
+      (dock subtab menu: operator, 2026-11-25.)
+- [x] R12 tab-bar ×: a tab with a chat and its shown terminal closes, the agent moves to
+      a tab of its own (operator, 2026-11-25).
 - [x] R10 follow, Mac: chat tab ↔ tab 1 switches nav and git between the agent's folder
       (sysadmin) and herdr-mods (2026-11-25).
 - [x] R10 agents list: the chat shows with the cow and opens the chat (njv-cachyos, operator, 2026-11-25).
