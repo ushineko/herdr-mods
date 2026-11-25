@@ -2,7 +2,7 @@
 
 **Issue**: #12
 
-## Status: INCOMPLETE
+## Status: COMPLETE
 
 ## Executive Summary
 
@@ -203,8 +203,9 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
       the listed changes; `herdr-app check` passes for `ushi-naruse` and
       `ushi-naruse-file`.
       (2026-11-25: every difference from 05ef3ed after the renames is R1a–f, R8, R9, R10 or R11; chat-file unchanged.)
-- [ ] R14: right-click a message, a reply and a tool call; each entry does what it says
-      (the rows are gone: Mac, `herdr-app shot`, 2026-11-25).
+- [x] R14: right-click a message, a reply and a tool call; each entry does what it says
+      (the rows are gone: Mac, `herdr-app shot`; the operator right-clicked a reply and
+      sent it back through Quote in message box, 2026-11-25).
 - [x] R1g, Mac: the chat follows the terminals' 15 px; two A+ steps give 17 (shown
       highlighted), reset follows the terminals again (2026-11-25).
 - [x] R1d, Mac: the cow on the chat's tab and pane header (`herdr-app shot`).

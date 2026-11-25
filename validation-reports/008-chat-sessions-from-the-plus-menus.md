@@ -60,3 +60,10 @@ herdr-core terminals; Back to terminal returns a session to its terminal first.
 Every acceptance criterion in spec 008 is checked, each with where it was seen; R2a
 (right-click on the tab bar's +) was confirmed by the operator in a real window, since no
 command can open that menu with its props. Status: COMPLETE.
+
+## Addendum (after completion)
+
+R1g (chat text size, #18) and R14 (right-click menu, #19) were added after the first
+close-out and verified the same day: R1g on the Mac (15 px by default, 17 after two
+steps, reset); R14 by the operator (a reply quoted through the menu). Tests: 196 pass on
+the Mac, 197 on njv-cachyos, 0 failures; `herdr-app check` passes.
