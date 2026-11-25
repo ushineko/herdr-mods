@@ -220,7 +220,9 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
 - [x] R1h, Mac: a pasted message in this session's chat shows without its tags
       (`herdr-app shot`, 2026-11-25).
 - [x] R15, Mac: a question pushed out of view by its reply shows pinned at the top; in
-      view, no bar (2026-11-25).
+      view, no bar (2026-11-25). In a real chat the operator watched two long replies:
+      no jump when a reply is logged (3ffe30e), and the message stayed pinned while a
+      reply taller than the screen streamed (7d916bc).
 - [x] R1i, Mac: a reply of six plain "N — word" lines shows as six lines (2026-11-25).
 - [x] R1g, Mac: the chat follows the terminals' 15 px; two A+ steps give 17 (shown
       highlighted), reset follows the terminals again (2026-11-25).
