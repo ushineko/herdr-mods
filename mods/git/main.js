@@ -25,7 +25,8 @@ const LOCAL_POLL_BUSY = 3000;
 const LOCAL_POLL_IDLE = 15000;
 const ROW = 24;
 const LONG = 120000; // pull, push, fetch
-const RECENT = 50;  // commits in the Recent pane (R8)
+const RECENT = 50;  // commits in the Recent pane (R8), and each Load more (R8d)
+const RECENT_FULL = "git.recentFull";
 const WT_CAP = 12;  // worktree rows shown unless "show all" (R3)
 
 // Errors are kept in ~/.cache/herdr-mods/git-errors.log (last 100 lines): the app keeps
@@ -78,6 +79,9 @@ export default class Git extends View {
     let saved = {};
     try { saved = JSON.parse(localStorage.getItem(SIZES) ?? "{}") ?? {}; } catch { /* defaults */ }
     this.sizes = { ...SIZE_DEFAULTS, ...saved };
+    // Recent (R8b–R8d): how many commits it shows, and whether it fills the panel.
+    this.logLimit = RECENT;
+    try { this.recentFull = localStorage.getItem(RECENT_FULL) === "1"; } catch { this.recentFull = false; }
     this.drag = null;
     this.handle = cx.focus_handle();
     // Agent requests (005) newer than this are carried out: a copy that starts just after
@@ -105,12 +109,18 @@ export default class Git extends View {
     cx.timer.every(AGENT_POLL, (cx) => { if (window()?.visible !== false) this.readPrograms(cx); });
   }
 
+  toggleRecentFull(cx) {
+    this.recentFull = !this.recentFull;
+    try { localStorage.setItem(RECENT_FULL, this.recentFull ? "1" : "0"); } catch { /* not kept */ }
+    cx.notify();
+  }
+
   close() { this.watchGen = (this.watchGen ?? 0) + 1; this.watch?.cancel(); }
 
   goTo(loc, cx) {
     const moved = !this.loc || loc.cwd !== this.loc.cwd || loc.on !== this.loc.on;
     // The same folder keeps its location object: the folder watch runs while it is current.
-    if (moved) { this.loc = loc; this.root = undefined; this.watchHere(cx); }
+    if (moved) { this.loc = loc; this.root = undefined; this.logLimit = RECENT; this.watchHere(cx); }
     else this.loc.space = loc.space ?? this.loc.space;
     this.refresh(cx);
   }
@@ -202,12 +212,15 @@ export default class Git extends View {
       this.git([...READ, "-C", w, "status", "--porcelain=v2", "--branch", "-z", "--untracked-files=normal"]),
       this.git([...READ, "-C", w, "diff", "--numstat", "-z", "--no-ext-diff", "--no-textconv"]),
       this.git([...READ, "-C", w, "diff", "--cached", "--numstat", "-z", "--no-ext-diff", "--no-textconv"]),
-      this.git([...READ, "-C", w, "log", `-n${RECENT}`, `--format=${LOG_FORMAT}`]),
+      // One more than shown: whether there are more to load (R8d).
+      this.git([...READ, "-C", w, "log", `-n${this.logLimit + 1}`, `--format=${LOG_FORMAT}`]),
     ]);
     if (st.code !== 0) throw new Error(st.stderr.trim() || "git status failed");
     this.status = parseStatus(st.stdout);
     this.numstat = { unstaged: parseNumstat(ns.stdout), staged: parseNumstat(nc.stdout) };
-    this.log = lg.code === 0 ? parseLog(lg.stdout) : [];
+    const all = lg.code === 0 ? parseLog(lg.stdout) : [];
+    this.logMore = all.length > this.logLimit;
+    this.log = all.slice(0, this.logLimit);
   }
 
   // Changed-file counts for the worktree rows on screen only: one sh round trip
@@ -1112,13 +1125,27 @@ export default class Git extends View {
         ...(changeBlocks.length ? changeBlocks : [div().px(14).py(10).text_size(12).text_color(t.dim).child("Nothing to commit · working tree clean")]),
         ...(this.committing ? [div().px(10).pt(8).child(Input.new(this.message).h(30).px(8).rounded(6).border_1().border_color(t.accent).bg(t.background).text_size(12.5))] : []),
       ];
-      const recentBlock = this.log.length ? [section("Recent", this.log.length, null), ...this.log.map((c, i) => h_flex().id(`git-log-${i}`).h(22).px(10).mx(4).gap(8).items_center().rounded(6).text_size(11.5).text_color(t.dim)
+      // Recent (R8): expand to fill the panel or collapse (R8b), each commit's author
+      // (R8c), and the next batch at the end (R8d).
+      const fullToggle = div().id("git-recent-full").ml(4).px(6).h(18).flex().items_center().rounded(5).bg(t.raised).text_color(t.muted).cursor_pointer()
+        .hover((x) => x.bg(t.hover).text_color(t.foreground)).tooltip(this.recentFull ? "Show worktrees and changes again" : "Fill the panel with the commit list")
+        .on_click((_e, cx) => this.toggleRecentFull(cx)).child(this.recentFull ? "collapse" : "expand");
+      const loadMore = this.logMore
+        ? [div().id("git-log-more").mx(14).my(4).text_size(11.5).text_color(t.accent).cursor_pointer().hover((x) => x.underline())
+          .on_click((_e, cx) => { this.logLimit += RECENT; this.refresh(cx); }).child(`Load ${RECENT} more`)]
+        : [];
+      const recentBlock = this.log.length ? [section("Recent", this.log.length, fullToggle), ...this.log.map((c, i) => h_flex().id(`git-log-${i}`).h(22).px(10).mx(4).gap(8).items_center().rounded(6).text_size(11.5).text_color(t.dim)
         .cursor_pointer().hover((x) => x.bg(t.hover)).tooltip("Details, files and diffs")
         .on_click((_e, cx) => this.openCommit(c.hash, cx))
-        .child(div().w(64).flex_none().truncate().font_family(settings().font_family).text_color(t.ansi4).child(c.hash.slice(0, 8))).child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(c.subject)).child(div().flex_none().child(ago(c.time))))] : [];
+        .child(div().w(64).flex_none().truncate().font_family(settings().font_family).text_color(t.ansi4).child(c.hash.slice(0, 8))).child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(c.subject))
+        .when(Boolean(c.author), (el) => el.child(div().flex_none().max_w(120).truncate().child(c.author)))
+        .child(div().w(28).flex_none().child(ago(c.time)))), ...loadMore] : [];
       const pane = (id, kids) => v_flex().id(id).min_h(0).min_w(0).overflow_y_scrollbar().pb(8).children(kids);
       const sz = this.sizes;
-      body = wide
+      body = this.recentFull && recentBlock.length
+        // Expanded (R8b): the commit list alone.
+        ? v_flex().flex_1().min_h(0).child(pane("git-recent-full-list", recentBlock).flex_1())
+        : wide
         // Horizontal: worktrees | changes | recent, the outer two resizable.
         ? h_flex().flex_1().min_h(0).items_start()
           .when(worktreeBlock.length > 0, (el) => el.child(pane("git-col-wt", worktreeBlock).w(sz.wt).h_full().flex_none())

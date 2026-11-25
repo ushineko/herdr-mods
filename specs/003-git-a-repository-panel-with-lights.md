@@ -81,6 +81,13 @@ the panel should answer at a glance.
   staged diff); `o` opens the file itself.
 - R8 **Recent commits**: the last 50 on the branch (short hash, subject,
   relative age) in their own scrolling pane (operator, 2026-11-24; was 5).
+- R8b **Recent fills the panel** (operator, 2026-11-25): an expand/collapse button in the
+  Recent header; expanded, the commit list is the whole body (worktrees and changes
+  hidden), kept across reloads.
+- R8c **Authors**: each commit row shows its author's name (`%an`), between the subject
+  and the age.
+- R8d **Load more**: when the branch has more commits than shown, the list ends with
+  "Load 50 more", which reads 50 further; following another folder starts at 50 again.
 - R8a **Commit drill-down** (operator, 2026-11-24): clicking a commit replaces the
   body with its details — hash, author, date, full message — and its files
   (status, +/- counts), each with **diff** (what the commit changed, in the

@@ -112,8 +112,11 @@ test("write commands: argument vectors, paths after --, nothing forced", () => {
 });
 
 test("parseLog and ago", () => {
-  const log = parseLog("abc1234\x1ffix: thing\x1f1700000000\ndef5678\x1f\x1f1700003600\n");
-  assert.deepEqual(log, [{ hash: "abc1234", subject: "fix: thing", time: 1700000000 }, { hash: "def5678", subject: "", time: 1700003600 }]);
+  const log = parseLog("abc1234\x1ffix: thing\x1f1700000000\x1fNJ Verenini\ndef5678\x1f\x1f1700003600\n");
+  assert.deepEqual(log, [
+    { hash: "abc1234", subject: "fix: thing", time: 1700000000, author: "NJ Verenini" },
+    { hash: "def5678", subject: "", time: 1700003600, author: "" }, // the clean-up scan's format has no author
+  ]);
   const now = 1700100000;
   assert.equal(ago(now - 30, now), "now");
   assert.equal(ago(now - 300, now), "5m");
