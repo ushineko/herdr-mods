@@ -33,7 +33,7 @@ theirs.
   creates, names and restarts `dock-yazi`/`dock-lazygit` terminals (local and
   per machine) is removed.
 - R3 **dock-follow**: keeps starting the `usage` strip and setting the window
-  title; everything that drives yazi or lazygit (`ya emit-to`, the lazygit key
+  title, and gains the agent inbox reader (005 R2); everything that drives yazi or lazygit (`ya emit-to`, the lazygit key
   sequences, `data/dock/*.target`, the per-machine terminal bookkeeping) is
   removed. It keeps the name `dock-follow`, so the layouts' block id does not
   change, with a header comment saying what it now does.
@@ -47,7 +47,7 @@ theirs.
   the block (known gotcha).
 - R7 **Docs and snapshots**: `~/git/sysadmin/docs/herdr-desktop-app.md` (dock,
   mods table, keys, gotchas, macOS section) and the `yazi-here` skill
-  (`~/git/sysadmin/claude-commands/` or wherever it lives) updated or retired;
+  replaced by spec 005's skills (005 R14 retires it);
   dotfiles layout snapshots refreshed with each host's `backup.sh`.
 
 ## Acceptance Criteria

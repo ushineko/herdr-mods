@@ -33,7 +33,8 @@ read in a tab, beside the terminal that is working on it.
   tabs are tracked in shared state (`viewer.open`: key `on|path|diff?` → tab
   id), pruned of tabs that no longer exist.
 - R3 **A helper for callers.** `lib/open.js` exports `openInViewer({ path, on, line, diff })`,
-  used by `nav`, `git`, `ui-lab`, and later a terminal link handler.
+  used by `nav`, `git`, `ui-lab`, the agent inbox (005) and later a terminal
+  link handler.
 
 ### Showing
 
@@ -77,6 +78,14 @@ read in a tab, beside the terminal that is working on it.
   (002) at that folder once `nav` exists; until then they are plain text.
 - R12 Colours come from `theme()` only, so light and dark themes both work.
 
+### Open external
+
+- R14 **An external app per file type**, configured per machine in
+  `~/.config/herdr-mods/external.json` (format and defaults: 005 R9–R11;
+  default Markdown → Zettlr). The header shows "Open in <app>" for the file's
+  rule, and `e` does the same when the tab has the keyboard. It runs on the
+  file's machine (005 R10). Diff tabs open the file itself.
+
 ### Shared code
 
 - R13 **`lib/`**: pure modules with no `herdr`/`gpui-kit` imports. A mod lists
@@ -109,6 +118,8 @@ read in a tab, beside the terminal that is working on it.
 - [ ] Real window: a diff tab for a modified file shows coloured hunks.
 - [ ] Real window (Mac, remote file on njv-cachyos): a Markdown file on
       `njv-cachyos-default` opens and renders.
+- [ ] Real window: "Open in Zettlr" on a Markdown tab opens Zettlr (Mac);
+      with no `external.json`, a `.png` opens in the system viewer.
 - [ ] Spike answers S1–S3 written into this spec.
 
 ## Threat model delta

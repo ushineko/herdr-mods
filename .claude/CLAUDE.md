@@ -10,7 +10,8 @@ below.
 - **Type**: JavaScript mods for the Herdr desktop app (`herdr-app`), plus a bash installer
 - **Purpose**: The personal panels of the Herdr app on njv-cachyos and njv-mbp-m1:
   the nested tabs, the dock, the spaces bar, the terminal menu, and native
-  replacements for the dock's yazi and lazygit (`viewer`, `nav`, `git`).
+  replacements for the dock's yazi and lazygit (`viewer`, `nav`, `git`), and the
+  agent CLIs and skills that drive them (`herdr-open`, `herdr-nav`).
 - **Repository**: `github.com/ushineko/herdr-mods`, **private**. It may name the
   user's machines (njv-cachyos, njv-mbp-m1) and herdr machine names; it must not
   hold credentials of any kind.
@@ -74,6 +75,9 @@ GitHub Issues on this repository is the tracker, as in hayami.
 mods/<name>/     one folder per mod (main.js, mod.json, assets)
 lib/             pure helpers shared by mods (no "herdr"/"gpui-kit" imports)
 tests/           node --test unit tests for lib/
+bin/             herdr-open, herdr-nav (agent CLIs; spec 005)
+skills/          Claude Code skills for those CLIs
+config/          example per-machine config (external.json)
 specs/           specs
 install.sh       copies mods (and lib/) into an app home
 ```

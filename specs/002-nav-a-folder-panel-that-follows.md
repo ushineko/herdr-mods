@@ -65,6 +65,12 @@ and marks git status; it is the starting point for the reading code
   only).
 - R10 **Selection survives refreshes**: a re-list keeps the selected name if it
   still exists.
+- R12 **Open external**: `e` on a selected file opens it in its configured
+  external app (005 R9–R11), on its machine.
+- R13 **Driven by agents**: nav accepts `nav {path}`, `reveal {path}` and
+  `follow` from the agent inbox (005 R4, R7) through shared state
+  (`nav.request.<dock>`): `nav`/`reveal` turn following off and go there
+  (`reveal` selects the file and scrolls to it); `follow` re-locks.
 
 ### Look
 
@@ -87,6 +93,9 @@ and marks git status; it is the starting point for the reading code
       leaves, `/` filters, Enter on a file opens a viewer tab.
 - [ ] Real window: a file created from a terminal appears within 2 s with an
       `?` mark.
+- [ ] `e` on a Markdown file opens Zettlr.
+- [ ] Driven by shared state (before 005 exists, set by hand from `ui-lab`):
+      `nav`, `reveal`, `follow` behave as R13.
 
 ## Threat model delta
 
