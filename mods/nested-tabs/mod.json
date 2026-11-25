@@ -7,6 +7,9 @@
     { "title": "Nested tabs: next tab", "command": "nested-tabs.next", "words": "stack nested tab next" },
     { "title": "Nested tabs: previous tab", "command": "nested-tabs.prev", "words": "stack nested tab previous" },
     { "title": "Nested tabs: close tab", "command": "nested-tabs.close", "words": "stack nested tab close" },
+    { "title": "New chat in a tab (Claude Code, else Codex)", "command": "nested-tabs.chat", "words": "chat claude codex cow new" },
+    { "title": "Open this agent as chat", "command": "nested-tabs.open-chat", "words": "chat claude codex cow open" },
+    { "title": "Close this pane (a chat's terminal hides instead)", "command": "nested-tabs.close-pane", "words": "pane close hide chat" },
     { "title": "Toggle nav + git panel (right)", "command": "nested-tabs.panel", "words": "panel nav git files folder yazi lazygit" },
     { "title": "Toggle nav + git panel (below, portrait)", "command": "nested-tabs.panel-portrait", "words": "panel nav git files folder portrait" }
   ]

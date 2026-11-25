@@ -164,6 +164,11 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
   only then closes the tab (`agentsToKeep`, terminals-bar-proc `keep.js`); if the move
   fails the tab stays open with a warning. The pane-close key still closes a pane: no
   mod can stand in for it.
+- R13 **Commands** for the chat actions (palette, keys; also how they are tested end to
+  end without clicks): `nested-tabs.chat` (new chat), `nested-tabs.open-chat`,
+  `nested-tabs.close-pane` (the ×), `dock-tabs.chat`, `ushi-naruse.back` (Back to
+  terminal) and `ushi-naruse.terminal` (Show/Hide terminal), for the focused pane or
+  chat. A chat finds its own pane through its agent's `ushi.chat` label.
 - R7 Pure selection logic (which entries to show for a platform, an agent list and
   a python3 check) lives in `lib/` with unit tests.
 
@@ -185,8 +190,9 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
       (new chat tab, reply, Terminal peek: Mac, 2026-11-25.)
 - [x] R4, njv-cachyos: the same, and New Codex chat.
       (operator: "codex chat works on cachyos", 2026-11-25.)
-- [ ] R5: New Claude Code chat from a dock's + adds a chat subtab in both docks;
+- [x] R5: New Claude Code chat from a dock's + adds a chat subtab in both docks;
       × on it ends the agent.
+      (Mac, 2026-11-25, through the new dock-tabs.chat command: subtab in both docks, chat live; closing it ended the agent. It needed #15: dock subtabs failed on the deep layout.)
 - [x] R6: closing the chat's tab ends its agent (`hc get` shows it gone; Mac,
       2026-11-25, also for a chat pane).
 - [x] R6a, Mac: after `app.quit` and reopening, the chat tab and its agent are back and
@@ -198,13 +204,14 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
       (operator: "works", njv-cachyos, 2026-11-25.)
 - [x] R1f, Mac: a line in the agent's input shows as the row; the parser reads "go ahead
       with 3c" from the hayami screen on njv-cachyos; Ctrl+U empties the line.
-- [ ] R9: Back to terminal from a New chat tab, an Open as chat tab, and a dock chat
-      subtab (Mac: the pane-less case's steps by hand work: the agent gets a pane in
+- [ ] R9: Back to terminal from a New chat tab (Mac, by command: yes), an Open as chat
+      tab with its terminal hidden (Mac, by command: yes), and a dock chat subtab (menu) (Mac: the pane-less case's steps by hand work: the agent gets a pane in
       the chat's tab and survives the chat closing).
 - [x] R10 follow, Mac: chat tab ↔ tab 1 switches nav and git between the agent's folder
       (sysadmin) and herdr-mods (2026-11-25).
 - [x] R10 agents list: the chat shows with the cow and opens the chat (njv-cachyos, operator, 2026-11-25).
-- [ ] R10 × hides: in a real window.
+- [x] R10 × hides: in a real window.
+      (Mac, through nested-tabs.close-pane, the ×'s own code: the shown terminal hid behind its chat, alive.)
 - [x] R11: a chat opened from the Mac on a njv-cachyos agent, shown in njv-cachyos's
       own window, finds its agent (`t3b` there) and shows its live prompt (2026-11-25).
 - [x] R12 names: hidden tab named "sysadmin" like its chat's; back under that name

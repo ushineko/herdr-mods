@@ -230,12 +230,29 @@ export default class Chat extends View {
       for (;;) {
         const c = await nextCommand();
         if (c === "focus") this.input.focus();
+        // ushi-naruse: palette and key commands, for the focused chat only.
+        else if (c === "back" && this.focusedMine()) this.backToTerminal(cx);
+        else if (c === "terminal" && this.focusedMine()) this.toggleTerminal(cx);
         cx.notify();
       }
     });
     if (this.dialog) this.loadCatalog(this.cfg.kind, this.cfg.machine, cx);
     this.checkTimer = cx.timer.every(2000, (cx) => this.check(cx));
     this.check(cx);
+  }
+
+  // ushi-naruse: this chat's pane, as its agent's ushi.chat label names it (herdr-mods sets
+  // it; a mod pane's props don't carry its own id), else as the agent's tab shows it.
+  ownPane() {
+    const local = (id) => String(id ?? "").slice(String(id ?? "").lastIndexOf("/") + 1);
+    const named = this.terminal()?.labels?.["ushi.chat"];
+    return (named && panes().find((p) => p.mod === "ushi-naruse" && local(p.pane) === local(named)))
+      || panes().find((p) => p.pane === this.pane && p.mod === "ushi-naruse") || null;
+  }
+
+  // Whether the focused pane is this chat (every copy gets each command).
+  focusedMine() {
+    return Boolean(this.ownPane()?.focused);
   }
 
   // ushi-naruse: this window's address for the agent (see termId in init).
@@ -1594,7 +1611,7 @@ export default class Chat extends View {
   // first, so its clean-up neither ends the agent (hm.chat) nor shows it twice (chat.tab).
   backToTerminal(cx) {
     if (this.moving) return;
-    const own = panes().find((p) => p.pane === this.pane && p.mod === "ushi-naruse") ?? panes().find((p) => p.mod === "ushi-naruse" && p.focused);
+    const own = this.ownPane() ?? panes().find((p) => p.mod === "ushi-naruse" && p.focused);
     if (!own || this.terminal()?.state !== "live") { this.error = "Can't find this chat's pane or its agent"; return cx.notify(); }
     this.moving = true;
     const here = () => panes().some((p) => p.terminal === this.term && p.tab === own.tab);

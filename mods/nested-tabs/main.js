@@ -91,6 +91,17 @@ export default class NestedTabs extends View {
     if (c === "panel") await Panel.toggle(cx, "right", sizes);
     else if (c === "panel-portrait") await Panel.toggle(cx, "portrait", sizes);
     else if (c === "add") S.add(pane, base);
+    // Chats (spec 008): a new chat (the first agent the + menu offers), Open as chat,
+    // and the × (a chat's terminal hides behind it; anything else closes).
+    else if (c === "chat") { const [e] = await Chat.options(base); if (e) await Chat.open(pane, base, e.run.join(" "), e.label.replace(/^New /, "")); }
+    else if (c === "open-chat") {
+      const shown = S.shownOf(pane, base), term = terminals().find((t) => t.address === shown);
+      if (Chat.agentOf(term) && await Chat.check(shown)) await Chat.openExisting(pane, shown, S.members(pane, base).length < 2);
+    }
+    else if (c === "close-pane") {
+      const shown = S.shownOf(pane, base), term = terminals().find((t) => t.address === shown);
+      if (Chat.chatOf(term)) Chat.hideBehindChat(shown); else run("pane.close", { pane });
+    }
     else if (c === "next") S.cycle(pane, base, 1);
     else if (c === "prev") S.cycle(pane, base, -1);
     else if (c === "close") {
