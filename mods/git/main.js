@@ -549,9 +549,9 @@ export default class Git extends View {
         }));
         const plan = planCleanup(items);
         // A definite height: inside a content-sized dialog the scrolling list got none
-        // (only the title, the note and the buttons showed). ~96 px per card listed.
+        // (only the title, the note and the buttons showed). ~112 px per card listed.
         const cards = plan.filter((p) => p.eligible).length + (plan.length === 1 ? plan.filter((p) => !p.eligible).length : 1);
-        openOverlay({ mod: "git", kind: "dialog", width: 640, height: Math.min(720, 250 + cards * 96), props: { cleanup: { root, on, plan } } });
+        openOverlay({ mod: "git", kind: "dialog", width: 640, height: Math.min(720, 260 + cards * 112), props: { cleanup: { root, on, plan } } });
       } catch (e) {
         logError("clean-up check", e);
         notify({ title: "Clean up: checking failed", body: String(e?.message ?? e), level: "error" });
@@ -566,6 +566,8 @@ export default class Git extends View {
     this.handle = cx.focus_handle();
     this.handle.focus();
     this.running = false;
+    // Which removable worktrees to act on (all at first): a subset can be chosen.
+    this.chosen = new Set(props().cleanup.plan.filter((p) => p.eligible).map((p) => p.path));
   }
 
   // Each step's outcome is shown in the dialog (which stays open) and logged.
@@ -574,7 +576,7 @@ export default class Git extends View {
     const removed = [], failed = [];
     this.results = [];
     const note = (ok, text) => { this.results.push({ ok, text }); logError(ok ? "clean-up" : "clean-up failed", text); cx.notify(); };
-    for (const item of plan.filter((p) => p.eligible)) {
+    for (const item of plan.filter((p) => p.eligible && this.chosen.has(p.path))) {
       for (const sh of item.shells) {
         const r = await within_ms(cx, hc(["send", sh.address, sh.cmd]), 10000, { code: 1, stderr: "no answer in 10 s" });
         note(r.code === 0, `${r.code === 0 ? "moved" : "could not move"} shell ${sh.address}${r.code === 0 ? "" : `: ${(r.stderr || r.stdout || "").trim()}`}`);
@@ -595,13 +597,14 @@ export default class Git extends View {
     const t = theme();
     const { plan } = props().cleanup;
     const go = plan.filter((p) => p.eligible), skip = plan.filter((p) => !p.eligible);
+    const picked = go.filter((p) => this.chosen.has(p.path));
     const close = () => closeOverlay(props().overlay);
     const button = (id, label, primary, enabled, act) => h_flex().id(id).h(32).px(14).items_center().rounded(8).text_size(12.5)
       .border_1().border_color(primary ? t.ansi1 : t.input).bg(primary ? t.ansi1 : t.raised)
       .text_color(primary ? t.background : t.foreground).when(enabled, (el) => el.cursor_pointer().hover((s) => s.opacity(0.88)).on_click(act))
       .when(!enabled, (el) => el.opacity(0.4)).child(label);
     const remove = (_e, cx) => {
-      if (this.running || !go.length) return;
+      if (this.running || !picked.length) return;
       this.running = true;
       cx.notify();
       cx.spawn(async (cx) => { try { await this.runCleanup(cx); } finally { this.running = false; this.done = true; cx.notify(); } });
@@ -615,24 +618,39 @@ export default class Git extends View {
     // One worktree: branch and path; why it goes (or stays); its latest commit; shells moved.
     // flex_none: in the scrolling list below, items would otherwise shrink to their
     // borders (only the section headers stayed readable).
-    const card = (p, going) => v_flex().flex_none().gap(3).p(8).rounded(7).border_1().border_color(t.border).bg(t.background)
-      .child(h_flex().gap(8).min_w(0).text_size(12.5)
-        .child(div().flex_none().font_semibold().child(p.branch ?? "(detached)"))
-        .child(div().min_w(0).truncate().text_size(11.5).text_color(t.dim).child(p.path)))
+    const checkbox = (p) => {
+      const on = this.chosen.has(p.path);
+      return div().id(`git-cu-chk-${p.path}`).flex_none().size(16).mt(1).rounded(4).border_1().cursor_pointer()
+        .border_color(on ? t.accent : t.input).when(on, (el) => el.bg(t.accent))
+        .flex().items_center().justify_center().text_size(11).text_color(t.background)
+        .when(!this.running && !this.done, (el) => el.on_click((_e, cx) => { if (on) this.chosen.delete(p.path); else this.chosen.add(p.path); cx.notify(); }))
+        .child(on ? "✓" : "");
+    };
+    const card = (p, going) => h_flex().flex_none().items_start().gap(8).p(8).rounded(7).border_1().border_color(t.border).bg(t.background)
+      .when(going && !this.chosen.has(p.path), (el) => el.opacity(0.55))
+      .when(going, (el) => el.child(checkbox(p)))
+      .child(v_flex().flex_1().min_w(0).gap(3)
+      // The branch on its own line, whole (long names wrap); the path under it.
+      .child(div().text_size(12.5).font_semibold().child(p.branch ?? "(detached)"))
+      .child(div().min_w(0).truncate().text_size(11.5).text_color(t.dim).child(p.path))
       .child(div().text_size(12).text_color(going ? t.ansi2 : t.blocked).child(going ? `✓ ${p.why}` : `kept: ${p.reason}`))
       .when(Boolean(p.last), (el) => el.child(lastLine(p)))
       .when(going && p.shells.length > 0, (el) => el.children(p.shells.map((sh) =>
-        div().text_size(11.5).text_color(t.muted).child(`shell ${sh.address} moves to ${p.parent}`))));
+        div().text_size(11.5).text_color(t.muted).child(`shell ${sh.address} moves to ${p.parent}`)))));
     return v_flex().id("git-cleanup").track_focus(this.handle).size_full().p(18).gap(10).bg(t.popover).text_color(t.foreground)
       .on_key_down((e, cx) => {
         if (e.key === "escape" && !this.running) { close(); cx.stop_propagation(); }
         else if (e.key === "enter") { if (this.done) close(); else remove(e, cx); cx.stop_propagation(); }
       })
-      .child(div().flex_none().text_size(15).font_semibold().child(go.length ? `Remove ${go.length} worktree${go.length === 1 ? "" : "s"}?` : "Nothing to clean up"))
+      .child(div().flex_none().text_size(15).font_semibold().child(go.length ? `Remove ${picked.length} of ${go.length} worktree${go.length === 1 ? "" : "s"}?` : "Nothing to clean up"))
       .child(div().flex_none().text_size(12).text_color(t.muted).child(`Repository ${props().cleanup.root} · on ${props().cleanup.on ?? "this computer"} · ${plan.length} worktree${plan.length === 1 ? "" : "s"} checked`))
       .child(div().flex_none().text_size(11.5).text_color(t.dim).child("Only worktrees with every change committed and pushed (as of the last fetch), not locked, and not in use. Their branches are kept."))
       .child(v_flex().id("git-cleanup-list").flex_1().min_h(0).overflow_y_scrollbar().gap(4)
-        .when(go.length > 0, (el) => el.child(div().flex_none().pt(4).text_size(10.5).font_semibold().text_color(t.dim).child(`WILL BE REMOVED (${go.length}) — folder deleted, branch kept`))
+        .when(go.length > 0, (el) => el.child(h_flex().flex_none().pt(4).gap(10).items_center()
+            .child(div().text_size(10.5).font_semibold().text_color(t.dim).child(`CAN BE REMOVED (${go.length}) — ticked ones go: folder deleted, branch kept`))
+            .when(go.length > 1 && !this.running && !this.done, (row) => row
+              .child(div().id("git-cu-all").text_size(11).text_color(t.accent).cursor_pointer().on_click((_e, cx) => { for (const p of go) this.chosen.add(p.path); cx.notify(); }).child("all"))
+              .child(div().id("git-cu-none").text_size(11).text_color(t.accent).cursor_pointer().on_click((_e, cx) => { this.chosen.clear(); cx.notify(); }).child("none"))))
           .children(go.map((p) => card(p, true))))
         // Kept ones: in full for a single worktree; for "Clean up…" a summary by reason
         // (what will be acted on comes first), expandable.
@@ -655,7 +673,7 @@ export default class Git extends View {
       .child(h_flex().flex_none().pt(6).gap(8).justify_end()
         .when(!this.done, (el) => el
           .child(button("git-cleanup-cancel", "Cancel", false, !this.running, () => close()))
-          .child(button("git-cleanup-go", this.running ? "Removing…" : `Remove ${go.length}`, true, go.length > 0 && !this.running, remove)))
+          .child(button("git-cleanup-go", this.running ? "Removing…" : `Remove ${picked.length}`, true, picked.length > 0 && !this.running, remove)))
         .when(Boolean(this.done), (el) => el.child(button("git-cleanup-close", "Close", false, true, () => close()))));
   }
 
@@ -810,10 +828,11 @@ export default class Git extends View {
           this.rightAt = Date.now();
           openOverlay({ mod: "git", kind: "popup", width: 240, props: { wtmenu: { path: w.path, on: this.loc?.on ?? null, main: w.main, from: this.copyId } } });
         })
-        .tooltip("Click: show it · right-click: more")
-        .child(div().w(10).text_color(t.accent).child(here ? "●" : ""))
-        .child(div().max_w(150).truncate().font_medium().child(w.branch ?? `detached ${String(w.head ?? "").slice(0, 7)}`))
-        .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(rel))
+        .tooltip(`${w.branch ?? "detached"} · ${w.path}\nclick: show it · right-click: more`)
+        .child(div().flex_none().w(10).text_color(t.accent).child(here ? "●" : ""))
+        // The branch takes the row's room (long names); the folder gives way first.
+        .child(div().flex_shrink(1).min_w(60).truncate().font_medium().child(w.branch ?? `detached ${String(w.head ?? "").slice(0, 7)}`))
+        .child(div().flex_1().min_w(0).flex_shrink(4).truncate().text_size(11).text_color(t.dim).child(rel))
         .children(ag.map(agentLight))
         .child(div().w(28).text_right().text_size(11).text_color(n ? t.blocked : t.dim).child(n == null ? "" : n ? String(n) : "✓"));
     };

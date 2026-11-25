@@ -57,6 +57,13 @@ changes and which agents are where (003 R5a).
   machine (`exec` with `on`, `hc send` to the remote terminal).
 - R6 If the shown worktree is removed, the panel shows the main worktree.
 
+- R3b **A subset** (operator, 2026-11-25): each removable worktree has a checkbox
+  (all ticked at first; "all" / "none"); the title reads "Remove N of M" and only
+  ticked ones are acted on.
+- R3c **Long branch names**: in the dialog the branch has a line of its own (it
+  wraps); in the strip it takes the row's room, the folder giving way first, and
+  the full names show on hover.
+
 ## Acceptance Criteria
 
 - [x] `node --test`: the planner (`lib/git.js` `planCleanup`) — main and locked
