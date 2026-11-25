@@ -500,6 +500,7 @@ export default class Git extends View {
       // Set inside the task, whose finally always clears it.
       this.busy = `${what}: git status`;
       cx.notify();
+      const t0 = Date.now(), times = {};
       try {
         const mine = terminals().filter((t) => (String(t.address).includes("/") ? t.address.split("/")[0] : null) === on && t.state === "live");
         const agentAddrs = new Set(Object.values(placed).flat().map((a) => a.address));
@@ -523,6 +524,7 @@ export default class Git extends View {
           const r = await exec("sh", ["-c", CLEANUP_SCAN_SH, "scan", ...targets.map((w) => w.path)], { on, timeout: 120000 });
           scan = parseCleanupScan(r.stdout);
         }
+        times.scan = Date.now() - t0;
         let asked = 0;
         const inUse = targets.reduce((n, w) => n + mine.filter((t) => !agentAddrs.has(t.address) && (within(t.cwd, w.path) || within(this.programs.get(t.address)?.program, w.path))).length, 0);
         if (inUse) { this.busy = `${what}: terminals 0/${inUse}`; cx.notify(); }
@@ -550,6 +552,7 @@ export default class Git extends View {
         }));
         // Files git could not delete (another user's): only for worktrees otherwise
         // removable, in one round trip (a full tree walk when there are none).
+        times.terminals = Date.now() - t0 - times.scan;
         let plan = planCleanup(items);
         const candidates = plan.filter((p) => p.eligible).map((p) => p.path);
         if (candidates.length && !(!on && window()?.platform === "windows")) {
@@ -559,6 +562,8 @@ export default class Git extends View {
           const foreign = fr ? parseForeignScan(fr.stdout) : {};
           if (Object.values(foreign).some(Boolean)) plan = planCleanup(items.map((it) => ({ ...it, foreign: foreign[it.path] ?? null })));
         }
+        times.owners = Date.now() - t0 - times.scan - times.terminals;
+        logError("clean-up check", `${targets.length} worktree(s) on ${on ?? "this computer"} in ${Date.now() - t0} ms (git ${times.scan}, terminals ${times.terminals} for ${inUse}, file owners ${times.owners})`);
         // A definite height: inside a content-sized dialog the scrolling list got none
         // (only the title, the note and the buttons showed). ~112 px per card listed.
         const cards = plan.filter((p) => p.eligible).length + (plan.length === 1 ? plan.filter((p) => !p.eligible).length : 1);
