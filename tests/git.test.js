@@ -4,7 +4,7 @@ import {
   parseStatus, parseNumstat, parseWorktrees, within, worktreeOf, placeAgent, lockedBy,
   stageArgs, unstageArgs, unstageAllArgs, pushArgs, pullArgs, fetchArgs, commitArgs,
   parseLog, ago, gitKeyAction, WRITES, parseCommit, parseCommitFiles, indexWorktrees, visibleWorktrees,
-  planCleanup, cdCommand, isShell,
+  planCleanup, cdCommand, isShell, CLEANUP_SCAN_SH, parseCleanupScan,
 } from "../lib/git.js";
 
 const z = (...recs) => recs.join("\0") + "\0";
@@ -208,4 +208,29 @@ test("cdCommand: quoted for POSIX shells and PowerShell; isShell", () => {
   assert.equal(isShell("powershell.exe"), true);
   assert.equal(isShell("nvim"), false);
   assert.equal(isShell("claude"), false);
+});
+
+test("CLEANUP_SCAN_SH against real worktrees, parsed by parseCleanupScan", { skip: process.platform === "win32" }, async () => {
+  const { execFileSync, spawnSync } = await import("node:child_process");
+  const { mkdtempSync, writeFileSync, realpathSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "herdr-scan-")));
+  const g = (cwd, ...a) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...a], { cwd, stdio: "pipe" });
+  g(dir, "init", "-q", "--bare", "origin.git");
+  g(dir, "clone", "-q", "origin.git", "repo");
+  const repo = join(dir, "repo");
+  g(repo, "commit", "-q", "--allow-empty", "-m", "init");
+  g(repo, "push", "-q", "origin", "HEAD");
+  g(repo, "worktree", "add", "-q", "-b", "feat", join(dir, "wt feat"));
+  writeFileSync(join(dir, "wt feat", "x.txt"), "x");
+  g(repo, "worktree", "add", "-q", "--detach", join(dir, "wt-det"));
+  const out = spawnSync("sh", ["-c", CLEANUP_SCAN_SH, "scan", repo, join(dir, "wt feat"), join(dir, "wt-det")], { encoding: "utf8" }).stdout;
+  const scan = parseCleanupScan(out);
+  assert.equal(scan[repo].status.branch.head, execFileSync("git", ["-C", repo, "branch", "--show-current"], { encoding: "utf8" }).trim());
+  assert.equal(scan[repo].last.subject, "init");
+  assert.equal(scan[repo].remoteRef, null);
+  assert.equal(scan[join(dir, "wt feat")].status.untracked.length, 1);
+  assert.equal(scan[join(dir, "wt-det")].status.branch.head, null);
+  assert.match(scan[join(dir, "wt-det")].remoteRef, /origin\//);
 });

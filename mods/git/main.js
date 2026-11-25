@@ -7,7 +7,7 @@ import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { exec, hc, watchFolder, window, theme, settings, terminals, notify, nextCommand, checking, run, shared, setShared, props, openOverlay, closeOverlay } from "herdr";
 import {
   READ, parseStatus, parseNumstat, parseWorktrees, worktreeOf, placeAgent, lockedBy, within, WORKTREE_LABEL,
-  indexWorktrees, visibleWorktrees, planCleanup,
+  indexWorktrees, visibleWorktrees, planCleanup, CLEANUP_SCAN_SH, parseCleanupScan,
   stageArgs, unstageArgs, stageAllArgs, unstageAllArgs, commitArgs, pullArgs, pushArgs, fetchArgs,
   LOG_FORMAT, parseLog, ago, gitKeyAction, WRITES, COMMIT_FORMAT, parseCommit, parseCommitFiles,
 } from "./lib/git.js";
@@ -21,6 +21,9 @@ const ROW = 24;
 const LONG = 120000; // pull, push, fetch
 const RECENT = 50;  // commits in the Recent pane (R8)
 const WT_CAP = 12;  // worktree rows shown unless "show all" (R3)
+
+// Resolves to `fallback` if `promise` has not settled within `ms` (hc has no timeout).
+const within_ms = (cx, promise, ms, fallback) => Promise.race([promise.catch(() => fallback), cx.sleep(ms).then(() => fallback)]);
 // One sh round trip for the changed-file count of several worktrees: "<path>\t<n>" lines.
 const COUNTS_SH = 'for w; do n=$(git -C "$w" --no-optional-locks -c core.fsmonitor=false status --porcelain=v1 --untracked-files=normal 2>/dev/null | wc -l) && printf "%s\\t%s\\n" "$w" "$n"; done';
 // Pane sizes in px (R15): horizontal column widths, vertical section heights. Dragged
@@ -481,41 +484,57 @@ export default class Git extends View {
     const on = this.loc?.on ?? null, root = this.root;
     const placed = this.lastPlaced ?? {};
     const targets = this.worktrees.filter((w) => paths.includes(w.path));
-    this.busy = "Checking worktrees";
+    const what = `Checking ${targets.length} worktree${targets.length === 1 ? "" : "s"}`;
+    this.busy = `${what}: git status`;
     cx.notify();
     cx.spawn(async (cx) => {
       try {
         const mine = terminals().filter((t) => (String(t.address).includes("/") ? t.address.split("/")[0] : null) === on && t.state === "live");
         const agentAddrs = new Set(Object.values(placed).flat().map((a) => a.address));
-        const items = [];
-        for (let i = 0; i < targets.length; i += 8) {
-          items.push(...await Promise.all(targets.slice(i, i + 8).map(async (w) => {
+        // Status, latest commit and (detached) remote branch for every target: one sh
+        // round trip (platform-backend: 79 worktrees); one git per worktree on Windows.
+        let scan = {};
+        if (!on && window()?.platform === "windows") {
+          for (const w of targets) {
             const st = await this.git([...READ, "-C", w.path, "status", "--porcelain=v2", "--branch", "-z", "--untracked-files=normal"]).catch(() => null);
-            const s = st?.code === 0 ? parseStatus(st.stdout) : null;
-            let onRemote = false, remoteRef = null;
-            if (s && !s.branch.head) {
+            const lg = await this.git([...READ, "-C", w.path, "log", "-1", `--format=${LOG_FORMAT}`]).catch(() => null);
+            const status = st?.code === 0 ? parseStatus(st.stdout) : null;
+            let remoteRef = null;
+            if (status && !status.branch.head) {
               const r = await this.git([...READ, "-C", w.path, "branch", "-r", "--contains", "HEAD"]).catch(() => null);
               remoteRef = r?.code === 0 ? (r.stdout.split("\n").map((l) => l.trim()).find(Boolean) ?? null) : null;
-              onRemote = Boolean(remoteRef);
             }
-            const lg = await this.git([...READ, "-C", w.path, "log", "-1", `--format=${LOG_FORMAT}`]).catch(() => null);
-            const last = lg?.code === 0 ? parseLog(lg.stdout)[0] ?? null : null;
-            // Terminals in it (not agents, which count below): what each runs now.
-            const inside = mine.filter((t) => !agentAddrs.has(t.address) && (within(t.cwd, w.path) || within(this.programs.get(t.address)?.program, w.path)));
-            const terms = await Promise.all(inside.map(async (t) => {
-              const g = await hc(["get", t.address, "--json"]).catch(() => null);
-              let program = t.agent ?? "?";
-              try { program = JSON.parse(g?.stdout ?? "{}").foreground?.name ?? program; } catch { /* keep */ }
-              return { address: t.address, program };
-            }));
-            return {
-              path: w.path, main: w.main, locked: w.locked, branch: w.branch, detached: !w.branch,
-              changes: s ? s.staged.length + s.unstaged.length + s.untracked.length + s.conflicts.length : 1,
-              upstream: s?.branch.upstream ?? null, ahead: s?.branch.ahead ?? 0, behind: s?.branch.behind ?? 0, onRemote, remoteRef, last,
-              agents: (placed[w.path] ?? []).map((a) => a.name), terminals: terms,
-            };
-          })));
+            scan[w.path] = { status, last: lg?.code === 0 ? parseLog(lg.stdout)[0] ?? null : null, remoteRef };
+          }
+        } else {
+          const r = await exec("sh", ["-c", CLEANUP_SCAN_SH, "scan", ...targets.map((w) => w.path)], { on, timeout: 120000 });
+          scan = parseCleanupScan(r.stdout);
         }
+        let asked = 0;
+        const inUse = targets.reduce((n, w) => n + mine.filter((t) => !agentAddrs.has(t.address) && (within(t.cwd, w.path) || within(this.programs.get(t.address)?.program, w.path))).length, 0);
+        if (inUse) { this.busy = `${what}: terminals 0/${inUse}`; cx.notify(); }
+        const items = await Promise.all(targets.map(async (w) => {
+          const { status: s = null, last = null, remoteRef = null } = scan[w.path] ?? {};
+          // Terminals in it (not agents, which count below): what each runs now.
+          const inside = mine.filter((t) => !agentAddrs.has(t.address) && (within(t.cwd, w.path) || within(this.programs.get(t.address)?.program, w.path)));
+          const terms = await Promise.all(inside.map(async (t) => {
+            // A terminal that does not answer in 5 s counts as in use (it blocks removal).
+            const g = await within_ms(cx, hc(["get", t.address, "--json"]), 5000, null);
+            asked++;
+            this.busy = `${what}: terminals ${asked}/${inUse}`;
+            cx.notify();
+            let program = g ? (t.agent ?? "?") : "no answer";
+            try { if (g) program = JSON.parse(g.stdout ?? "{}").foreground?.name ?? program; } catch { /* keep */ }
+            return { address: t.address, program };
+          }));
+          return {
+            path: w.path, main: w.main, locked: w.locked, branch: w.branch, detached: !w.branch,
+            changes: s ? s.staged.length + s.unstaged.length + s.untracked.length + s.conflicts.length : 1,
+            upstream: s?.branch.upstream ?? null, ahead: s?.branch.ahead ?? 0, behind: s?.branch.behind ?? 0,
+            onRemote: Boolean(remoteRef), remoteRef, last,
+            agents: (placed[w.path] ?? []).map((a) => a.name), terminals: terms,
+          };
+        }));
         const plan = planCleanup(items);
         openOverlay({ mod: "git", kind: "dialog", width: 620, props: { cleanup: { root, on, plan } } });
       } catch (e) {
