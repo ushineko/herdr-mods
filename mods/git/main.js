@@ -7,7 +7,7 @@ import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { exec, hc, watchFolder, window, theme, settings, terminals, notify, nextCommand, checking, run, shared, setShared, props, openOverlay, closeOverlay, home, readTextFile } from "herdr";
 import {
   READ, parseStatus, parseNumstat, parseWorktrees, worktreeOf, placeAgent, lockedBy, within, WORKTREE_LABEL,
-  indexWorktrees, visibleWorktrees, planCleanup, CLEANUP_SCAN_SH, parseCleanupScan, FOREIGN_SCAN_SH, parseForeignScan,
+  indexWorktrees, visibleWorktrees, planCleanup, CLEANUP_SCAN_SH, parseCleanupScan, FOREIGN_SCAN_SH, parseForeignScan, DOCKER_CHOWN_SH,
   stageArgs, unstageArgs, stageAllArgs, unstageAllArgs, commitArgs, pullArgs, pushArgs, fetchArgs,
   LOG_FORMAT, parseLog, ago, gitKeyAction, WRITES, COMMIT_FORMAT, parseCommit, parseCommitFiles,
 } from "./lib/git.js";
@@ -561,7 +561,7 @@ export default class Git extends View {
         // A definite height: inside a content-sized dialog the scrolling list got none
         // (only the title, the note and the buttons showed). ~112 px per card listed.
         const cards = plan.filter((p) => p.eligible).length + (plan.length === 1 ? plan.filter((p) => !p.eligible).length : 1);
-        openOverlay({ mod: "git", kind: "dialog", width: 640, height: Math.min(720, 260 + cards * 112), props: { cleanup: { root, on, plan } } });
+        openOverlay({ mod: "git", kind: "dialog", width: 640, height: Math.min(720, 260 + cards * 112), props: { cleanup: { root, on, plan, items } } });
       } catch (e) {
         logError("clean-up check", e);
         notify({ title: "Clean up: checking failed", body: String(e?.message ?? e), level: "error" });
@@ -577,12 +577,41 @@ export default class Git extends View {
     this.handle.focus();
     this.running = false;
     // Which removable worktrees to act on (all at first): a subset can be chosen.
-    this.chosen = new Set(props().cleanup.plan.filter((p) => p.eligible).map((p) => p.path));
+    this.plan = props().cleanup.plan;
+    this.chosen = new Set(this.plan.filter((p) => p.eligible).map((p) => p.path));
+    this.fixing = null;
+  }
+
+  // Another user's files (root, from a container writing to a mapped volume) handed
+  // back through Docker, then checked again: a worktree now clean of them becomes
+  // removable (and ticked) without reopening the dialog.
+  async fixOwnership(cx, paths) {
+    const { on, items } = props().cleanup;
+    const note = (ok, text) => { (this.results ??= []).push({ ok, text }); logError(ok ? "fix ownership" : "fix ownership failed", text); cx.notify(); };
+    for (const [i, path] of paths.entries()) {
+      this.fixing = { path, n: i + 1, of: paths.length };
+      cx.notify();
+      const r = await exec("sh", ["-c", DOCKER_CHOWN_SH, "fix", path], { on, timeout: 600000 }).catch((e) => ({ code: 1, stderr: String(e?.message ?? e) }));
+      const msg = (r.stderr || r.stdout || "").trim().split("\n").pop();
+      if (r.code !== 0) note(false, `${path}: ${/No such image|pull access|not found/i.test(msg) ? "the alpine image is not on this machine (docker pull alpine)" : msg || `docker exited ${r.code}`}`);
+    }
+    this.fixing = { path: null, n: paths.length, of: paths.length };
+    cx.notify();
+    const fr = await exec("sh", ["-c", FOREIGN_SCAN_SH, "owners", ...paths], { on, timeout: 120000 }).catch(() => null);
+    const after = fr ? parseForeignScan(fr.stdout) : {};
+    const foreign = Object.fromEntries(this.plan.filter((p) => p.owner).map((p) => [p.path, paths.includes(p.path) ? (fr ? after[p.path] ?? null : { path: p.path, owner: p.owner }) : { path: p.path, owner: p.owner }]));
+    this.plan = planCleanup(items.map((it) => ({ ...it, foreign: foreign[it.path] ?? null })));
+    const fixed = paths.filter((p) => this.plan.find((q) => q.path === p)?.eligible);
+    for (const p of fixed) this.chosen.add(p);
+    if (fixed.length) note(true, `ownership fixed: ${fixed.length} worktree${fixed.length === 1 ? "" : "s"} can now be removed`);
+    this.fixing = null;
+    cx.notify();
   }
 
   // Each step's outcome is shown in the dialog (which stays open) and logged.
   async runCleanup(cx) {
-    const { root, on, plan } = props().cleanup;
+    const { root, on } = props().cleanup;
+    const plan = this.plan;
     const removed = [], failed = [];
     this.results = [];
     const note = (ok, text) => { this.results.push({ ok, text }); logError(ok ? "clean-up" : "clean-up failed", text); cx.notify(); };
@@ -614,7 +643,17 @@ export default class Git extends View {
 
   renderCleanup() {
     const t = theme();
-    const { plan } = props().cleanup;
+    const plan = this.plan;
+    const idle = !this.running && !this.done && !this.fixing;
+    const fix = (paths) => (_e, cx) => {
+      if (!idle || !paths.length) return;
+      this.fixing = { path: paths[0], n: 1, of: paths.length };
+      cx.notify();
+      cx.spawn(async (cx) => { try { await this.fixOwnership(cx, paths); } finally { this.fixing = null; cx.notify(); } });
+    };
+    const owned = plan.filter((p) => p.owner);
+    const linkBtn = (id, label, act) => div().id(id).flex_none().px(8).py(4).rounded(5).border_1().border_color(t.border).text_size(11.5)
+      .when(idle, (el) => el.cursor_pointer().hover((x) => x.bg(t.hover)).on_click(act)).when(!idle, (el) => el.opacity(0.4)).child(label);
     const go = plan.filter((p) => p.eligible), skip = plan.filter((p) => !p.eligible);
     const picked = go.filter((p) => this.chosen.has(p.path));
     const close = () => closeOverlay(props().overlay);
@@ -623,7 +662,7 @@ export default class Git extends View {
       .text_color(primary ? t.background : t.foreground).when(enabled, (el) => el.cursor_pointer().hover((s) => s.opacity(0.88)).on_click(act))
       .when(!enabled, (el) => el.opacity(0.4)).child(label);
     const remove = (_e, cx) => {
-      if (this.running || !picked.length) return;
+      if (this.running || this.fixing || !picked.length) return;
       this.running = true;
       cx.notify();
       cx.spawn(async (cx) => { try { await this.runCleanup(cx); } finally { this.running = false; this.done = true; cx.notify(); } });
@@ -665,20 +704,23 @@ export default class Git extends View {
       // Another user's files: the command that clears it, copyable.
       .when(!going && Boolean(p.fix), (el) => el.child(h_flex().gap(8).items_center()
         .child(div().flex_1().min_w(0).px(8).py(4).rounded(5).bg(t.raised).font_family(settings().font_family).text_size(11.5).child(p.fix))
-        .child(div().id(`git-cu-fix-${p.path}`).flex_none().px(8).py(4).rounded(5).border_1().border_color(t.border).text_size(11.5).cursor_pointer()
-          .hover((x) => x.bg(t.hover))
-          .on_click((_e, cx) => { cx.write_to_clipboard(p.fix); notify({ title: "Command copied", body: p.fix, level: "success", timeout: 2000 }); })
-          .child("Copy"))))
+        .child(linkBtn(`git-cu-copy-${p.path}`, "Copy", (_e, cx) => { cx.write_to_clipboard(p.fix); notify({ title: "Command copied", body: p.fix, level: "success", timeout: 2000 }); }))
+        .when(Boolean(p.owner), (row) => row.child(h_flex().id(`git-cu-fix-${p.path}`).flex_none().px(8).py(4).rounded(5).text_size(11.5).bg(t.accent).text_color(t.background)
+          .tooltip(`Runs, on ${props().cleanup.on ?? "this computer"}:\ndocker run --rm --pull never --network none --mount type=bind,source=${p.path},target=/w alpine chown -R <you> /w`)
+          .when(idle, (el) => el.cursor_pointer().hover((x) => x.opacity(0.88)).on_click(fix([p.path]))).when(!idle, (el) => el.opacity(0.4))
+          .child(this.fixing?.path === p.path ? "Fixing…" : "Fix ownership")))))
       .when(Boolean(p.last), (el) => el.child(lastLine(p)))
       .when(going && p.shells.length > 0, (el) => el.children(p.shells.map((sh) =>
         div().text_size(11.5).text_color(t.muted).child(`shell ${sh.address} moves to ${p.parent}`)))));
     return v_flex().id("git-cleanup").track_focus(this.handle).size_full().p(18).gap(10).bg(t.popover).text_color(t.foreground)
       .on_key_down((e, cx) => {
-        if (e.key === "escape" && !this.running) { close(); cx.stop_propagation(); }
+        if (e.key === "escape" && !this.running && !this.fixing) { close(); cx.stop_propagation(); }
         else if (e.key === "enter") { if (this.done) close(); else remove(e, cx); cx.stop_propagation(); }
       })
       .child(div().flex_none().text_size(15).font_semibold().child(go.length ? `Remove ${picked.length} of ${go.length} worktree${go.length === 1 ? "" : "s"}?` : "Nothing to clean up"))
       .child(div().flex_none().text_size(12).text_color(t.muted).child(`Repository ${props().cleanup.root} · on ${props().cleanup.on ?? "this computer"} · ${plan.length} worktree${plan.length === 1 ? "" : "s"} checked`))
+      .when(Boolean(this.fixing), (el) => el.child(div().flex_none().text_size(12).text_color(t.accent)
+        .child(this.fixing.path ? `Fixing ownership ${this.fixing.n} of ${this.fixing.of} (docker chown): ${this.fixing.path}` : "Checking file owners again…")))
       .child(div().flex_none().text_size(11.5).text_color(t.dim).child("Only worktrees with every change committed and pushed (as of the last fetch), not locked, and not in use. Their branches are kept."))
       .child(v_flex().id("git-cleanup-list").flex_1().min_h(0).overflow_y_scrollbar().gap(4)
         .when(go.length > 0, (el) => el.child(h_flex().flex_none().pt(4).gap(10).items_center()
@@ -693,12 +735,13 @@ export default class Git extends View {
           const single = plan.length === 1;
           const open = single || this.showKept;
           const byReason = {};
-          for (const p of skip) { const k = p.reason.replace(/^\d+ /, "").replace(/^in use: .*/, "in use").replace(/^agent in use: .*/, "agent in use"); byReason[k] = (byReason[k] ?? 0) + 1; }
+          for (const p of skip) { const k = p.reason.replace(/^\d+ /, "").replace(/^in use: .*/, "in use").replace(/^agent in use: .*/, "agent in use").replace(/^contains files owned by (\S+).*/, "with files owned by $1"); byReason[k] = (byReason[k] ?? 0) + 1; }
           const summary = Object.entries(byReason).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} ${k}`).join(" · ");
           return el.child(h_flex().flex_none().pt(10).gap(8).items_center()
               .child(div().text_size(10.5).font_semibold().text_color(t.dim).child(`KEPT (${skip.length})`))
               .when(!single, (row) => row.child(div().id("git-cleanup-kept").text_size(11).text_color(t.accent).cursor_pointer()
-                .on_click((_e, cx) => { this.showKept = !this.showKept; cx.notify(); }).child(open ? "hide" : "show"))))
+                .on_click((_e, cx) => { this.showKept = !this.showKept; cx.notify(); }).child(open ? "hide" : "show")))
+              .when(owned.length > 1, (row) => row.child(linkBtn("git-cu-fix-all", `Fix ownership of all ${owned.length}`, fix(owned.map((p) => p.path))))))
             .when(!single, (x) => x.child(div().flex_none().text_size(11.5).text_color(t.muted).child(summary)))
             .when(open, (x) => x.children(skip.map((p) => card(p, false))));
         }))
@@ -707,8 +750,8 @@ export default class Git extends View {
         .children(this.results.map((r) => div().text_size(12).text_color(r.ok ? t.ansi2 : t.ansi1).child(`${r.ok ? "✓" : "✗"} ${r.text}`)))))
       .child(h_flex().flex_none().pt(6).gap(8).justify_end()
         .when(!this.done, (el) => el
-          .child(button("git-cleanup-cancel", "Cancel", false, !this.running, () => close()))
-          .child(button("git-cleanup-go", this.running ? "Removing…" : `Remove ${picked.length}`, true, picked.length > 0 && !this.running, remove)))
+          .child(button("git-cleanup-cancel", "Cancel", false, !this.running && !this.fixing, () => close()))
+          .child(button("git-cleanup-go", this.running ? "Removing…" : `Remove ${picked.length}`, true, picked.length > 0 && !this.running && !this.fixing, remove)))
         .when(Boolean(this.done), (el) => el.child(button("git-cleanup-close", "Close", false, true, () => close()))));
   }
 

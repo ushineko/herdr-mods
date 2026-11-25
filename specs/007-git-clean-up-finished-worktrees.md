@@ -64,6 +64,15 @@ changes and which agents are where (003 R5a).
   wraps); in the strip it takes the row's room, the folder giving way first, and
   the full names show on hover.
 
+- R3d **Another user's files** (operator, 2026-11-25): git cannot delete files it
+  does not own (root-owned `__pycache__` written by Docker into a mapped volume), and
+  a remove that hits one fails half done. A scan before the dialog keeps such
+  worktrees, naming the owner and an example path. **Fix ownership** (per card, and
+  "Fix ownership of all N") runs `docker run --rm --pull never --network none
+  --mount type=bind,source=<worktree>,target=/w alpine chown -R <uid>:<gid> /w` on
+  the worktree's machine (no sudo; never pulls an image), checks again, and makes the
+  fixed ones removable and ticked. A copyable `sudo chown` is the fallback.
+
 ## Acceptance Criteria
 
 - [x] `node --test`: the planner (`lib/git.js` `planCleanup`) — main and locked

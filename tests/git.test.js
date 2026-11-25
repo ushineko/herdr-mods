@@ -4,7 +4,7 @@ import {
   parseStatus, parseNumstat, parseWorktrees, within, worktreeOf, placeAgent, lockedBy,
   stageArgs, unstageArgs, unstageAllArgs, pushArgs, pullArgs, fetchArgs, commitArgs,
   parseLog, ago, gitKeyAction, WRITES, parseCommit, parseCommitFiles, indexWorktrees, visibleWorktrees,
-  planCleanup, cdCommand, isShell, CLEANUP_SCAN_SH, parseCleanupScan, FOREIGN_SCAN_SH, parseForeignScan,
+  planCleanup, cdCommand, isShell, CLEANUP_SCAN_SH, parseCleanupScan, FOREIGN_SCAN_SH, parseForeignScan, DOCKER_CHOWN_SH,
 } from "../lib/git.js";
 
 const z = (...recs) => recs.join("\0") + "\0";
@@ -200,7 +200,7 @@ test("planCleanup: each reason to keep a worktree", () => {
   ]);
   const f = planCleanup([wt({ path: "/r.wt/it's", foreign: { path: "/r.wt/it's/tools/__pycache__", owner: "root" } })])[0];
   assert.deepEqual([f.eligible, f.reason, f.fix], [false,
-    "contains files owned by root (e.g. …/tools/__pycache__); git cannot delete them. Take them back, then clean up again:",
+    "contains files owned by root (e.g. …/tools/__pycache__); git cannot delete them. Fix ownership, or run:",
     `sudo chown -R "$USER" -- '/r.wt/it'\\''s'`]);
 });
 
@@ -250,4 +250,11 @@ test("FOREIGN_SCAN_SH: nothing foreign in a tree the user owns", { skip: process
   const out = spawnSync("sh", ["-c", FOREIGN_SCAN_SH, "scan", join(dir, "a b")], { encoding: "utf8" }).stdout;
   assert.deepEqual(parseForeignScan(out), { [join(dir, "a b")]: null });
   assert.deepEqual(parseForeignScan("/w\t/w/x/__pycache__\troot\n/v\t\t\n"), { "/w": { path: "/w/x/__pycache__", owner: "root" }, "/v": null });
+});
+
+test("DOCKER_CHOWN_SH refuses a path docker --mount cannot take", { skip: process.platform === "win32" }, async () => {
+  const { spawnSync } = await import("node:child_process");
+  const r = spawnSync("sh", ["-c", DOCKER_CHOWN_SH, "fix", "/tmp/a,b"], { encoding: "utf8" });
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /comma/);
 });
