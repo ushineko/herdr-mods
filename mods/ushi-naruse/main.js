@@ -463,14 +463,22 @@ export default class Chat extends View {
     for (let i = ents.length - 1; i >= 0 && ents[i].kind !== "user"; i--) {
       if (ents[i].kind !== "assistant") continue;
       const e = norm(ents[i].text);
-      if (e.includes(head) || e.includes(tail)) return true;
+      // ushi-naruse: the matching entry (truthy), so it can take over the live copy's id.
+      if (e.includes(head) || e.includes(tail)) return ents[i];
     }
-    return false;
+    return null;
   }
 
   // The streamed reply, unless the log already has it.
   streamShown() {
-    return this.stream && !this.logged(this.stream) ? this.stream : null;
+    if (!this.stream) return null;
+    const got = this.logged(this.stream);
+    // ushi-naruse: the logged reply that replaces the live copy keeps its element id
+    // ("streaming") until a new live reply shows: a new element starts with no height
+    // for a frame, and the conversation (and the pinned message, R15) jumped.
+    if (got) { this.handover = got.key; return null; }
+    this.handover = null;
+    return this.stream;
   }
 
   // How often each command was sent here: the menu puts those first.
@@ -2225,7 +2233,7 @@ export default class Chat extends View {
           .child(this.entry(e, t, n === shown.length - 1))
         : this.entry(e, t, n === shown.length - 1))))
       .child(v_flex().id("after-last-user").w_full().gap(16).on_size_change((size) => { this.afterH = size.height; })
-        .children(tail.map((e, n) => this.entry(e, t, head.length + n === shown.length - 1)))
+        .children(tail.map((e, n) => this.entry(e.key === this.handover ? { ...e, key: "streaming" } : e, t, head.length + n === shown.length - 1)))
         .when(Boolean(this.streamShown()), (el) => el.child(this.entry({ kind: "assistant", text: this.streamShown(), key: "streaming" }, t, true)))
         .when(Boolean(this.running), (el) => el.child(this.runningView(t)))
         .children(this.pending.map((p, i) => this.queued(p, i, t))))
