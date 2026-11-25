@@ -1,1 +1,1 @@
-{ "place": "none", "lib": ["filetype.js", "diff.js", "external.js", "external-open.js"] }
+{"place": "none", "lib": ["filetype.js", "diff.js", "external.js", "external-open.js", "editor.js", "edit-open.js"]}

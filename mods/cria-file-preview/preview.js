@@ -16,6 +16,7 @@ import { formatSize } from "./size.js";
 import { programs } from "./programs.js";
 import { systemOf } from "./platform.js";
 import { externalRule, openExternal } from "./external-open.js"; // herdr-mods
+import { editFile } from "./lib/edit-open.js"; // herdr-mods
 
 export class Preview {
   init(_props, cx) {
@@ -122,6 +123,9 @@ export class Preview {
           .when(this.bytes != null, (el) => el.child(div().flex_none().text_size(12).text_color(t.dim).child(formatSize(this.bytes))))
           .child(div().flex_1()))
         .when(Boolean(state && viewer?.toolbar), (el) => el.child(viewer.toolbar(state, env)))
+        // herdr-mods: the person's editor ($VISUAL/$EDITOR, else nvim) in a new tab, on the file's machine.
+        .when(Boolean(this.file) && !props()?.diff, (el) => el.child(control("cria-file-preview-edit", "Edit ↗",
+          this.on ? `Edit in a new tab on ${this.on}` : "Edit in a new tab", () => editFile({ path: this.file, on: this.on }))))
         .when(Boolean(this.external && this.file), (el) => el.child(control("cria-file-preview-external", `Open in ${this.external.app} ↗`,
           this.on ? `Opens on ${this.on}'s desktop` : `Open in ${this.external.app}`, () => openExternal(this.file, this.on))))
         .when(Boolean(this.file), (el) => el.child(iconButton("more", "more", "Open in editor, reveal, copy the path…", false, () => openMenu(this.file, this.on)))))

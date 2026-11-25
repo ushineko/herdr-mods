@@ -6,6 +6,7 @@ import { exec, hc, watchFolder, window, home, appHome, notify, panes, spaces, se
 import { parseRequest, terminalAddress, splitClaimed } from "./lib/requests.js";
 import { openInViewer } from "./lib/open.js";
 import { openExternal } from "./lib/external-open.js";
+import { editFile } from "./lib/edit-open.js";
 
 const POLL = 2000;
 const MACHINES_TTL = 60000;
@@ -106,6 +107,9 @@ export class Inbox {
         break;
       case "external":
         openExternal(q.path, on);
+        break;
+      case "edit":
+        editFile({ path: q.path, on, line: q.line, space: space?.id, focus: Boolean(space?.active) });
         break;
       case "nav":
       case "reveal":

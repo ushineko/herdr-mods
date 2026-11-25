@@ -85,6 +85,9 @@ test("herdr-open: PATH:LINE, folders go to nav, diffs carry the repository", { s
   assert.deepEqual([q.action, q.path], ["nav", join(dir, "sub")]);
   q = parseRequest(run("herdr-open", ["--external", file]).stdout, Date.now()).req;
   assert.equal(q.action, "external");
+  q = parseRequest(run("herdr-open", ["--edit", `${file}:3`]).stdout, Date.now()).req;
+  assert.deepEqual([q.action, q.path, q.line], ["edit", file, 3]);
+  assert.notEqual(run("herdr-open", ["--edit", join(dir, "sub")]).status, 0);
   assert.notEqual(run("herdr-open", [join(dir, "missing.md")]).status, 0);
   // --diff outside a repository is refused; inside one it names the repository.
   assert.notEqual(run("herdr-open", ["--diff", file]).status, 0);

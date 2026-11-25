@@ -4,7 +4,7 @@
 # opens a file in its external app, in the space of the terminal that asked.
 #
 # Usage: herdr-request [--dry-run] ACTION [PATH] [key=value ...]
-#   ACTION  open | external | diff | nav | reveal | worktree | follow
+#   ACTION  open | edit | external | diff | nav | reveal | worktree | follow
 #   PATH    absolute (follow takes none)
 #   keys    line=N  repo=/abs/path  staged=true
 # --dry-run (or HERDR_REQUEST_DRY_RUN=1) prints the request instead of writing it.
@@ -20,7 +20,7 @@ if [[ ${1:-} == --dry-run ]]; then dry=true; shift; fi
 [[ $# -ge 1 ]] || die "usage: $prog [--dry-run] ACTION [PATH] [key=value ...]"
 action=$1; shift
 case $action in
-  open|external|diff|nav|reveal|worktree) [[ $# -ge 1 ]] || die "$action needs a path"; path=$1; shift ;;
+  open|edit|external|diff|nav|reveal|worktree) [[ $# -ge 1 ]] || die "$action needs a path"; path=$1; shift ;;
   follow) path= ;;
   *) die "unknown action: $action" ;;
 esac

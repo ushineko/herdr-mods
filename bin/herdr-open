@@ -2,8 +2,9 @@
 # Show a file to the person in the Herdr window (spec 005 R6): in a viewer tab of the
 # space this terminal is in, or in its external app (Zettlr for Markdown by default).
 #
-# Usage: herdr-open [-v] [--external | --diff | --staged] PATH[:LINE]
+# Usage: herdr-open [-v] [--edit | --external | --diff | --staged] PATH[:LINE]
 #   (default)    the file in a viewer tab (an open one is selected, not duplicated)
+#   --edit       the file in the person's editor ($VISUAL/$EDITOR, else nvim) in a new tab, at LINE
 #   --external   the file's external app, on the machine the file is on
 #   --diff       the file's working-tree diff in a viewer tab
 #   --staged     the file's staged diff
@@ -17,17 +18,18 @@ here="$(cd "$(dirname "$0")" && pwd)"
 mode=open verbose=false
 while [[ $# -gt 0 ]]; do
   case $1 in
+    --edit) mode=edit; shift ;;
     --external) mode=external; shift ;;
     --diff) mode="diff"; shift ;;
     --staged) mode=staged; shift ;;
     -v) verbose=true; shift ;;
-    -h|--help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     --) shift; break ;;
     -*) die "unknown option: $1" ;;
     *) break ;;
   esac
 done
-[[ $# -eq 1 ]] || die "usage: $prog [--external | --diff | --staged] PATH[:LINE]"
+[[ $# -eq 1 ]] || die "usage: $prog [--edit | --external | --diff | --staged] PATH[:LINE]"
 
 arg=$1 line=
 # PATH:LINE, unless the whole argument is a file name that exists.
@@ -42,6 +44,7 @@ extra=()
 [[ -n $line ]] && extra+=("line=$line")
 case $mode in
   open) action=open; [[ -d $path ]] && action=nav ;;
+  edit) [[ -f $path ]] || die "--edit needs a file"; action=edit ;;
   external) action=external ;;
   diff|staged)
     [[ -f $path ]] || die "--$mode needs a file"

@@ -18,6 +18,8 @@
     "open.js",
     "filetype.js",
     "external.js",
-    "external-open.js"
+    "external-open.js",
+    "editor.js",
+    "edit-open.js"
   ]
 }
