@@ -102,10 +102,10 @@ read in a tab, beside the terminal that is working on it.
 - [x] Real window: the hayami README renders with ToC, Preview | Raw, ⋯.
 - [x] Real window: a diff tab for a modified file shows coloured hunks, line
       numbers, `+2 −1`, "Working tree".
-- [ ] Real window: an `#anchor` link scrolls to its heading; a relative `.md`
-      link opens that file with Back (operator click).
-- [ ] Real window: "Open in Zettlr" on a Markdown file opens Zettlr (Mac); on a
-      njv-cachyos file it opens on that machine (operator click).
+- [x] Real window: an `#anchor` link scrolls to its heading; a relative `.md`
+      link opens that file with Back (operator click, 2026-11-24).
+- [x] Real window: "Open in Zettlr" on a Markdown file opens Zettlr (Mac); on a
+      njv-cachyos file it opens on that machine (operator click, 2026-11-24).
 - [x] Real window: a remote Markdown file on `njv-cachyos-default` opens (hayami README, 136 KB).
 - [x] Real window: editing an open local file from the terminal updates it (within 2 s).
 - [ ] Opening the same file twice through `openInViewer` selects the first tab
