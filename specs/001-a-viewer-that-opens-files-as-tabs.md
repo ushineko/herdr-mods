@@ -70,6 +70,10 @@ read in a tab, beside the terminal that is working on it.
   else the system opener; Windows: the system opener). Runs on the file's
   machine.
 
+- R15 **Edit**: "Edit ↗" in the header (not on diff tabs) opens the file in the
+  person's editor in a new tab (`lib/edit-open.js`, spec 005 R6a), on the file's
+  machine for a remote file.
+
 ### Not done (follow-ups, not blocking)
 
 - `line` (jump to a line in a code view): our first viewer had it (S1); cria

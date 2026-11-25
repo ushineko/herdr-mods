@@ -39,7 +39,7 @@ request came from.
   taken from `HC_TERMINAL_SOCKET` (`…/herdr-core/<session>/…`; `default` when
   unset). It writes to a temporary name and renames, so a reader never sees a
   partial file. Fields: `v` (1), `id`, `at` (ISO time), `action`
-  (`open` | `external` | `diff` | `nav` | `reveal` | `worktree` | `follow`), `path` (absolute, resolved
+  (`open` | `edit` | `external` | `diff` | `nav` | `reveal` | `worktree` | `follow`), `path` (absolute, resolved
   by the CLI), `line` (optional), `terminal` (`HC_TERMINAL_ID`, optional).
 - R2 **One reader per window**, in `dock-follow` (always in the
   `terminals-dock` layout, on both machines and both njv-cachyos windows).
@@ -48,6 +48,12 @@ request came from.
   machine for the sessions that window has added as machines
   (`njv-cachyos-default` → `default`, `njv-cachyos-work` → `work`), through
   `exec(..., { on })`.
+- R2a **The window in use claims first** (found 2026-11-24: njv-cachyos runs its own
+  windows, which watch their inbox and would otherwise always win). An active
+  (focused) window claims at once; a window not in use claims only requests at
+  least 2 s old (`GRACE`, by file time), and polls its own inbox every 2 s for
+  them. So a request from an agent on njv-cachyos opens where the person works,
+  and still opens somewhere when no window is in use.
 - R3 **Claimed once.** A reader claims a request by renaming it into
   `…/claimed/` (atomic on one filesystem); a reader that loses the rename
   skips it. A claimed request is deleted after it is handled. Requests older
@@ -73,6 +79,11 @@ request came from.
   - `--external`: the configured external app (R9) for that file;
   - `--diff` / `--staged`: the file's working-tree / staged diff in `viewer`.
   A folder given to `herdr-open` is a `nav` request instead.
+- R6a `herdr-open --edit PATH[:LINE]` (operator, 2026-11-24, option 3 of the
+  editor question): the person's editor — `$VISUAL`/`$EDITOR` from the login shell
+  on the file's machine, else `nvim`, else `vi` — in a new terminal tab of the
+  requester's space, in the file's folder, at `LINE` for editors that take `+N`
+  (`lib/editor.js`, `lib/edit-open.js`). Wait flags (`--wait`, `-w`) are dropped.
 - R7 `herdr-nav <dir>` points `nav` at the folder (following turns off, 002
   R2); `herdr-nav --reveal <file>` points it at the file's folder and selects
   the file; `herdr-nav --follow` turns following back on.
@@ -136,29 +147,36 @@ request came from.
 ### Install
 
 - R15 `install.sh` gains `--bin DIR` (default `~/.local/bin`) and
-  `--skills DIR` (default `~/.claude/skills`): copies `bin/*` (mode 0755) and
-  `skills/*/` there, by content as for mods. `--no-agent` skips both.
+  `--skills DIR` (default `~/.claude/skills`): **symlinks** `bin/*` and
+  `skills/*` there (the machines' convention for repo scripts; only mods need
+  copies for hot reload), and never replaces something that is not a symlink.
+  `--no-agent` skips both. The skills' source is this repository.
+- R16 **Late panels**: nav and git carry out a request up to 10 s older than their
+  own start, so a panel first shown (or reloaded) just after a request still acts
+  on it (found in testing: a panel in a background tab starts when first shown).
 
 ## Acceptance Criteria
 
-- [ ] `node --test tests/*.test.js`: request JSON building/escaping (quotes,
+- [x] `node --test tests/*.test.js`: request JSON building/escaping (quotes,
       backslashes, newlines, non-ASCII in paths); session from a socket path;
       rule matching (type, ext, any, order, missing file → defaults);
       `{path}` substitution as one argument; stale-request age check.
-- [ ] `shellcheck bin/* install.sh` clean.
-- [ ] Mac, local agent: `herdr-open README.md` opens a viewer tab in this
-      space; again selects it; `herdr-open --external README.md` opens Zettlr;
-      `herdr-nav ~/git` moves nav and its follow light goes out;
-      `herdr-nav --reveal <file>` selects the file; `herdr-nav --follow`
-      re-locks.
-- [ ] Remote agent: a Claude session on njv-cachyos (viewed from the Mac app)
+- [x] `shellcheck bin/* install.sh` clean.
+- [x] Mac, local agent: `herdr-open README.md` opens a viewer tab in this
+      space; again selects it; `--diff` shows the diff; `--edit FILE:5` opens
+      nvim at line 5; `herdr-nav --worktree .` and `--reveal README.md` move nav
+      (follow light out, README selected).
+- [ ] `herdr-open --external README.md` opens Zettlr (the viewer's and nav's
+      buttons were checked by the operator; the CLI path not yet).
+- [x] Remote agent: a Claude session on njv-cachyos (viewed from the Mac app)
       runs `herdr-open <file>`; the viewer tab opens in that session's space
-      in the Mac window, reading the file from njv-cachyos.
+      in the Mac window, reading the file from njv-cachyos (simulated as t7,
+      2026-11-24; the tab opened in that space without switching the view).
 - [ ] Two windows on njv-cachyos (default, work): a request from a work
       terminal is handled by the work window only.
 - [ ] A request written while no window is running is not replayed when one
       starts more than 60 s later.
-- [ ] viewer's "Open in Zettlr" button and nav's `e` key work for a local and a
+- [x] viewer's "Open in Zettlr" button and nav's `e` key work for a local and a
       remote Markdown file.
 - [ ] yazi-here retired (R14); skills installed on both machines.
 
