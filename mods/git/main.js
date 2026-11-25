@@ -7,7 +7,7 @@ import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { exec, hc, watchFolder, window, theme, settings, terminals, notify, nextCommand, checking, run, shared, setShared, props, openOverlay, closeOverlay, home, readTextFile } from "herdr";
 import {
   READ, parseStatus, parseNumstat, parseWorktrees, worktreeOf, placeAgent, lockedBy, within, WORKTREE_LABEL,
-  indexWorktrees, visibleWorktrees, planCleanup, CLEANUP_SCAN_SH, parseCleanupScan,
+  indexWorktrees, visibleWorktrees, planCleanup, CLEANUP_SCAN_SH, parseCleanupScan, FOREIGN_SCAN_SH, parseForeignScan,
   stageArgs, unstageArgs, stageAllArgs, unstageAllArgs, commitArgs, pullArgs, pushArgs, fetchArgs,
   LOG_FORMAT, parseLog, ago, gitKeyAction, WRITES, COMMIT_FORMAT, parseCommit, parseCommitFiles,
 } from "./lib/git.js";
@@ -547,7 +547,17 @@ export default class Git extends View {
             agents: (placed[w.path] ?? []).map((a) => a.name), terminals: terms,
           };
         }));
-        const plan = planCleanup(items);
+        // Files git could not delete (another user's): only for worktrees otherwise
+        // removable, in one round trip (a full tree walk when there are none).
+        let plan = planCleanup(items);
+        const candidates = plan.filter((p) => p.eligible).map((p) => p.path);
+        if (candidates.length && !(!on && window()?.platform === "windows")) {
+          this.busy = `${what}: file owners`;
+          cx.notify();
+          const fr = await exec("sh", ["-c", FOREIGN_SCAN_SH, "owners", ...candidates], { on, timeout: 120000 }).catch(() => null);
+          const foreign = fr ? parseForeignScan(fr.stdout) : {};
+          if (Object.values(foreign).some(Boolean)) plan = planCleanup(items.map((it) => ({ ...it, foreign: foreign[it.path] ?? null })));
+        }
         // A definite height: inside a content-sized dialog the scrolling list got none
         // (only the title, the note and the buttons showed). ~112 px per card listed.
         const cards = plan.filter((p) => p.eligible).length + (plan.length === 1 ? plan.filter((p) => !p.eligible).length : 1);
@@ -585,12 +595,21 @@ export default class Git extends View {
       const r = await exec("git", ["-C", root, "worktree", "remove", item.path], { on }).catch((e) => ({ code: 1, stderr: String(e?.message ?? e) }));
       const msg = (r.stderr || r.stdout || "").trim();
       if (r.code === 0) { removed.push(item); note(true, `removed ${item.branch ?? item.path}`); }
-      else { failed.push(item); note(false, `${item.branch ?? item.path} (on ${on ?? "this computer"}): git worktree remove exited ${r.code}: ${msg}`); }
+      else {
+        failed.push(item);
+        note(false, `${item.branch ?? item.path} (on ${on ?? "this computer"}): git worktree remove exited ${r.code}: ${msg}`);
+        // A remove can fail half done: unregistered, folder left with what it could not delete.
+        const left = await exec("sh", ["-c", 'git -C "$1" worktree list --porcelain | grep -qxF "worktree $2" && echo registered; [ -e "$2" ] && echo exists; true', "left", root, item.path], { on }).catch(() => null);
+        const out = left?.stdout ?? "";
+        if (!out.includes("registered") && out.includes("exists")) {
+          note(false, `files owned by another user (root?) were left behind, so the folder remains; the worktree is unregistered and its branch kept. To finish: sudo rm -rf -- '${item.path.replace(/'/g, "'\\''")}'`);
+        }
+      }
     }
     await exec("git", ["-C", root, "worktree", "prune"], { on }).catch(() => null);
     setShared("git.cleaned", { at: Date.now() });
     if (removed.length) notify({ title: `Removed ${removed.length} worktree${removed.length === 1 ? "" : "s"}`, body: removed.map((p) => p.branch ?? p.path).join(", "), level: "success", timeout: 5000 });
-    if (failed.length) notify({ title: `${failed.length} could not be removed`, body: failed.join("\n"), level: "error" });
+    if (failed.length) notify({ title: `${failed.length} could not be removed`, body: `${failed.map((p) => p.branch ?? p.path).join(", ")} — see the dialog or ~/.cache/herdr-mods/git-errors.log`, level: "error" });
   }
 
   renderCleanup() {
@@ -643,6 +662,13 @@ export default class Git extends View {
           .when(!this.chosen.has(p.path), (x) => x.bg(t.raised).text_color(t.muted).child("skipped")))))
       .child(div().min_w(0).truncate().text_size(11.5).text_color(t.dim).child(p.path))
       .child(div().text_size(12).text_color(going ? t.ansi2 : t.blocked).child(going ? `safe: ${p.why}` : `kept: ${p.reason}`))
+      // Another user's files: the command that clears it, copyable.
+      .when(!going && Boolean(p.fix), (el) => el.child(h_flex().gap(8).items_center()
+        .child(div().flex_1().min_w(0).px(8).py(4).rounded(5).bg(t.raised).font_family(settings().font_family).text_size(11.5).child(p.fix))
+        .child(div().id(`git-cu-fix-${p.path}`).flex_none().px(8).py(4).rounded(5).border_1().border_color(t.border).text_size(11.5).cursor_pointer()
+          .hover((x) => x.bg(t.hover))
+          .on_click((_e, cx) => { cx.write_to_clipboard(p.fix); notify({ title: "Command copied", body: p.fix, level: "success", timeout: 2000 }); })
+          .child("Copy"))))
       .when(Boolean(p.last), (el) => el.child(lastLine(p)))
       .when(going && p.shells.length > 0, (el) => el.children(p.shells.map((sh) =>
         div().text_size(11.5).text_color(t.muted).child(`shell ${sh.address} moves to ${p.parent}`)))));

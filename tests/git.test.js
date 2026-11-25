@@ -4,7 +4,7 @@ import {
   parseStatus, parseNumstat, parseWorktrees, within, worktreeOf, placeAgent, lockedBy,
   stageArgs, unstageArgs, unstageAllArgs, pushArgs, pullArgs, fetchArgs, commitArgs,
   parseLog, ago, gitKeyAction, WRITES, parseCommit, parseCommitFiles, indexWorktrees, visibleWorktrees,
-  planCleanup, cdCommand, isShell, CLEANUP_SCAN_SH, parseCleanupScan,
+  planCleanup, cdCommand, isShell, CLEANUP_SCAN_SH, parseCleanupScan, FOREIGN_SCAN_SH, parseForeignScan,
 } from "../lib/git.js";
 
 const z = (...recs) => recs.join("\0") + "\0";
@@ -198,6 +198,10 @@ test("planCleanup: each reason to keep a worktree", () => {
     [false, "never pushed (no upstream)"], [false, "2 commits not pushed"], [false, "detached HEAD not on any remote branch"],
     [false, "agent in use: claude-code"], [false, "in use: nvim (t9)"],
   ]);
+  const f = planCleanup([wt({ path: "/r.wt/it's", foreign: { path: "/r.wt/it's/tools/__pycache__", owner: "root" } })])[0];
+  assert.deepEqual([f.eligible, f.reason, f.fix], [false,
+    "contains files owned by root (e.g. …/tools/__pycache__); git cannot delete them. Take them back, then clean up again:",
+    `sudo chown -R "$USER" -- '/r.wt/it'\\''s'`]);
 });
 
 test("cdCommand: quoted for POSIX shells and PowerShell; isShell", () => {
@@ -233,4 +237,17 @@ test("CLEANUP_SCAN_SH against real worktrees, parsed by parseCleanupScan", { ski
   assert.equal(scan[join(dir, "wt feat")].status.untracked.length, 1);
   assert.equal(scan[join(dir, "wt-det")].status.branch.head, null);
   assert.match(scan[join(dir, "wt-det")].remoteRef, /origin\//);
+});
+
+test("FOREIGN_SCAN_SH: nothing foreign in a tree the user owns", { skip: process.platform === "win32" }, async () => {
+  const { spawnSync } = await import("node:child_process");
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = mkdtempSync(join(tmpdir(), "herdr-foreign-"));
+  mkdirSync(join(dir, "a b", "__pycache__"), { recursive: true });
+  writeFileSync(join(dir, "a b", "__pycache__", "x.pyc"), "");
+  const out = spawnSync("sh", ["-c", FOREIGN_SCAN_SH, "scan", join(dir, "a b")], { encoding: "utf8" }).stdout;
+  assert.deepEqual(parseForeignScan(out), { [join(dir, "a b")]: null });
+  assert.deepEqual(parseForeignScan("/w\t/w/x/__pycache__\troot\n/v\t\t\n"), { "/w": { path: "/w/x/__pycache__", owner: "root" }, "/v": null });
 });
