@@ -593,7 +593,7 @@ export default class Git extends View {
       const recentBlock = this.log.length ? [section("Recent", this.log.length, null), ...this.log.map((c, i) => h_flex().id(`git-log-${i}`).h(22).px(10).mx(4).gap(8).items_center().rounded(6).text_size(11.5).text_color(t.dim)
         .cursor_pointer().hover((x) => x.bg(t.hover)).tooltip("Details, files and diffs")
         .on_click((_e, cx) => this.openCommit(c.hash, cx))
-        .child(div().w(56).flex_none().text_color(t.ansi4).child(c.hash)).child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(c.subject)).child(div().flex_none().child(ago(c.time))))] : [];
+        .child(div().w(64).flex_none().truncate().font_family(settings().font_family).text_color(t.ansi4).child(c.hash.slice(0, 8))).child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(c.subject)).child(div().flex_none().child(ago(c.time))))] : [];
       const pane = (id, kids) => v_flex().id(id).min_h(0).min_w(0).overflow_y_scrollbar().pb(8).children(kids);
       const sz = this.sizes;
       body = wide
