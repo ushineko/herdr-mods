@@ -565,15 +565,22 @@ export default class Git extends View {
     this.running = false;
   }
 
+  // Each step's outcome is shown in the dialog (which stays open) and logged.
   async runCleanup(cx) {
     const { root, on, plan } = props().cleanup;
     const removed = [], failed = [];
+    this.results = [];
+    const note = (ok, text) => { this.results.push({ ok, text }); logError(ok ? "clean-up" : "clean-up failed", text); cx.notify(); };
     for (const item of plan.filter((p) => p.eligible)) {
-      for (const sh of item.shells) await hc(["send", sh.address, sh.cmd]).catch(() => null);
+      for (const sh of item.shells) {
+        const r = await within_ms(cx, hc(["send", sh.address, sh.cmd]), 10000, { code: 1, stderr: "no answer in 10 s" });
+        note(r.code === 0, `${r.code === 0 ? "moved" : "could not move"} shell ${sh.address}${r.code === 0 ? "" : `: ${(r.stderr || r.stdout || "").trim()}`}`);
+      }
       if (item.shells.length) await cx.sleep(500);
-      const r = await exec("git", ["-C", root, "worktree", "remove", item.path], { on }).catch((e) => ({ code: 1, stderr: String(e) }));
-      if (r.code === 0) removed.push(item);
-      else failed.push(`${item.branch ?? item.path}: ${(r.stderr || r.stdout).trim().split("\n").pop()}`);
+      const r = await exec("git", ["-C", root, "worktree", "remove", item.path], { on }).catch((e) => ({ code: 1, stderr: String(e?.message ?? e) }));
+      const msg = (r.stderr || r.stdout || "").trim();
+      if (r.code === 0) { removed.push(item); note(true, `removed ${item.branch ?? item.path}`); }
+      else { failed.push(item); note(false, `${item.branch ?? item.path} (on ${on ?? "this computer"}): git worktree remove exited ${r.code}: ${msg}`); }
     }
     await exec("git", ["-C", root, "worktree", "prune"], { on }).catch(() => null);
     setShared("git.cleaned", { at: Date.now() });
@@ -594,7 +601,7 @@ export default class Git extends View {
       if (this.running || !go.length) return;
       this.running = true;
       cx.notify();
-      cx.spawn(async (cx) => { try { await this.runCleanup(cx); } finally { close(); } });
+      cx.spawn(async (cx) => { try { await this.runCleanup(cx); } finally { this.running = false; this.done = true; cx.notify(); } });
     };
     const lastLine = (p) => p.last
       ? h_flex().gap(6).min_w(0).text_size(11.5).text_color(t.dim)
@@ -614,7 +621,7 @@ export default class Git extends View {
     return v_flex().id("git-cleanup").track_focus(this.handle).w_full().max_h(620).p(18).gap(10).bg(t.popover).text_color(t.foreground)
       .on_key_down((e, cx) => {
         if (e.key === "escape" && !this.running) { close(); cx.stop_propagation(); }
-        else if (e.key === "enter") { remove(e, cx); cx.stop_propagation(); }
+        else if (e.key === "enter") { if (this.done) close(); else remove(e, cx); cx.stop_propagation(); }
       })
       .child(div().text_size(15).font_semibold().child(go.length ? `Remove ${go.length} worktree${go.length === 1 ? "" : "s"}?` : "Nothing to clean up"))
       .child(div().text_size(11.5).text_color(t.dim).child("Only worktrees with every change committed and pushed (as of the last fetch), not locked, and not in use. Their branches are kept."))
@@ -636,9 +643,14 @@ export default class Git extends View {
             .when(!single, (x) => x.child(div().text_size(11.5).text_color(t.muted).child(summary)))
             .when(open, (x) => x.children(skip.map((p) => card(p, false))));
         }))
+      .when(Boolean(this.results?.length), (el) => el.child(v_flex().gap(2).pt(6).border_t(1).border_color(t.border)
+        .child(div().pt(4).text_size(10.5).font_semibold().text_color(t.dim).child("RESULT"))
+        .children(this.results.map((r) => div().text_size(12).text_color(r.ok ? t.ansi2 : t.ansi1).child(`${r.ok ? "✓" : "✗"} ${r.text}`)))))
       .child(h_flex().pt(6).gap(8).justify_end()
-        .child(button("git-cleanup-cancel", "Cancel", false, !this.running, () => close()))
-        .child(button("git-cleanup-go", this.running ? "Removing…" : `Remove ${go.length}`, true, go.length > 0 && !this.running, remove)));
+        .when(!this.done, (el) => el
+          .child(button("git-cleanup-cancel", "Cancel", false, !this.running, () => close()))
+          .child(button("git-cleanup-go", this.running ? "Removing…" : `Remove ${go.length}`, true, go.length > 0 && !this.running, remove)))
+        .when(Boolean(this.done), (el) => el.child(button("git-cleanup-close", "Close", false, true, () => close()))));
   }
 
   // ---- the worktree menu (a popup copy of this mod) ---------------------------------
