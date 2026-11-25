@@ -145,7 +145,8 @@ export default class Git extends View {
     this.counts = counts;
   }
 
-  // Signal 2 (R5a): each agent program's own folder, from `hc get`.
+  // Signals 1 and 2 (R5a): each agent's label and its program's own folder, both from
+  // `hc get` (terminals(), like `hc ls`, carries no labels).
   readPrograms(cx) {
     if (!this.loc || this.readingPrograms) return;
     this.readingPrograms = true;
@@ -155,9 +156,13 @@ export default class Git extends View {
         for (const t of agentsOn(this.loc.on)) {
           const r = await hc(["get", t.address, "--json"]).catch(() => null);
           if (r?.code !== 0) continue;
-          let cwd = null;
-          try { cwd = JSON.parse(r.stdout)?.foreground?.cwd ?? null; } catch { /* not JSON */ }
-          if (this.programs.get(t.address) !== cwd) { this.programs.set(t.address, cwd); changed = true; }
+          let got = null;
+          try {
+            const d = JSON.parse(r.stdout);
+            got = { program: d?.foreground?.cwd ?? null, label: d?.labels?.[WORKTREE_LABEL] ?? null };
+          } catch { /* not JSON */ }
+          const had = this.programs.get(t.address);
+          if (got && (had?.program !== got.program || had?.label !== got.label)) { this.programs.set(t.address, got); changed = true; }
         }
         if (changed) cx.notify();
       } finally { this.readingPrograms = false; }
@@ -169,7 +174,8 @@ export default class Git extends View {
     const out = {};
     if (!this.worktrees.length || !this.loc) return out;
     for (const t of agentsOn(this.loc.on)) {
-      const at = placeAgent({ label: t.labels?.[WORKTREE_LABEL], program: this.programs.get(t.address), terminal: t.cwd }, this.worktrees);
+      const known = this.programs.get(t.address);
+      const at = placeAgent({ label: known?.label ?? t.labels?.[WORKTREE_LABEL], program: known?.program, terminal: t.cwd }, this.worktrees);
       if (!at) continue;
       (out[at.worktree.path] ??= []).push({ address: t.address, name: t.program?.name ?? t.name ?? t.address, status: t.status, source: at.source });
     }
