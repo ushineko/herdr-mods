@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { plainText, quote, commandOf, menuFor, unwrapPastes, keepLineBreaks } from "../lib/chat-text.js";
+import { plainText, quote, commandOf, menuFor, unwrapPastes, keepLineBreaks, joinLines } from "../lib/chat-text.js";
 
 test("plainText drops Markdown marks and keeps words, code and line breaks", () => {
   const md = [
@@ -61,4 +61,16 @@ test("keepLineBreaks: lines inside a paragraph stay lines; code and blank lines 
   assert.equal(keepLineBreaks("~~~~text\nx\ny\n~~~~"), "~~~~text\nx\ny\n~~~~");
   assert.equal(keepLineBreaks("already  \nbroken"), "already  \nbroken");
   assert.equal(keepLineBreaks("- a\n- b"), "- a  \n- b");
+});
+
+test("joinLines: a reply seen in parts joins where the parts overlap; no overlap gives null", () => {
+  const first = ["Intro line", "1. one", "2. two", "3. three"];
+  assert.deepEqual(joinLines(first, ["2. two", "3. three", "4. four", "5. five"]),
+    ["Intro line", "1. one", "2. two", "3. three", "4. four", "5. five"]);
+  assert.deepEqual(joinLines(first, ["3. three"]), first, "nothing new: the same lines");
+  assert.equal(joinLines(first, ["", "9. nine"]), null, "a blank line alone is no overlap");
+  assert.equal(joinLines(first, ["x", "y"]), null);
+  assert.deepEqual(joinLines(first, []), first);
+  assert.deepEqual(joinLines([...first, "", ""], ["2. two", "3. three", "4. four"]), [...first, "4. four"],
+    "blank lines that ended the earlier read don't block the overlap");
 });

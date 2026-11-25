@@ -14,7 +14,7 @@ import * as fs from "fs/promises";
 import { Buffer } from "buffer";
 import { createHash } from "crypto";
 import { Transcript } from "./parse.js";
-import { plainText, quote, commandOf, menuFor, keepLineBreaks } from "./lib/chat-text.js";
+import { plainText, quote, commandOf, menuFor, keepLineBreaks, joinLines } from "./lib/chat-text.js";
 import { Tail, locate, agentKind, machineOf } from "./source.js";
 import { catalog, launchArgv, modelName, switchModel } from "./models.js";
 import { emojify, PICKER, emojiMatches } from "./emoji.js";
@@ -22,7 +22,7 @@ import { parsePrompt, choose, menuAtBottom } from "./prompt.js";
 import { loadCommands, matchCommands } from "./commands.js";
 import { askSide, sessionOf, control, listSessions, askCodexSide, codexCalls } from "./sdk.js";
 import { copyText, pasteImage, openFile, pickFiles, imageSize } from "./platform.js";
-import { live } from "./stream.js";
+import { live, textFromRaw } from "./stream.js";
 import { herdr, chatTab, away, hide, show, adopt } from "./backstage.js";
 
 const ASK_FIRST = "Answer the question above first.";
@@ -349,7 +349,16 @@ export default class Chat extends View {
       while (this.streamLoop === loop && this.terminal()?.status === "working") {
         loop.beat = Date.now();
         const r = await hc(["read", this.term, "--lines", "80"]).catch(() => null);
-        const now = r ? live(r.stdout, kind) : null;
+        let now = r ? live(r.stdout, kind) : null;
+        // ushi-naruse: a reply taller than the screen is seen in parts (no scrollback):
+        // the part on screen joins what the chat had; without an overlap, it keeps that,
+        // rather than show less (your message dropped back into view, R15).
+        if (now?.continued) {
+          const joined = this.streamRaw ? joinLines(this.streamRaw, now.raw) : null;
+          now = joined ? { kind: "text", text: textFromRaw(joined), raw: joined }
+            : this.stream ? { kind: "text", text: this.stream, raw: this.streamRaw } : null;
+        }
+        if (now?.raw) this.streamRaw = now.raw;
         const text = now?.kind === "text" ? now.text : null;
         // Between steps the screen can show nothing new, or only text the chat
         // already has: keep the last command's card rather than drop it and
@@ -361,6 +370,7 @@ export default class Chat extends View {
       }
       if (this.streamLoop === loop) this.streamLoop = null;
       this.stream = null;
+      this.streamRaw = null;
       this.running = null;
       cx.notify();
     });

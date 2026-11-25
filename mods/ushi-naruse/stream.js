@@ -31,7 +31,10 @@ export function live(screen, kind) {
     if (l.startsWith(k.mark) && !STATUS.test(l)) { at = i; break; }
     if (k.run.test(l)) { at = i; break; }
   }
-  if (at < 0) return null;
+  // ushi-naruse: no block start on screen and no prompt either (the turn's start has
+  // scrolled off; Claude Code keeps no scrollback): the indented lines are the rest of
+  // a reply, returned as a continuation for the chat to join to what it had.
+  if (at < 0) return from === 0 ? continuation(lines.slice(0, end)) : null;
   const head = lines[at];
   const body = [];
   for (let i = at + 1; i < end; i++) {
@@ -69,8 +72,27 @@ export function live(screen, kind) {
   // A block that is only summaries ("⏺ Running 1 shell command…"): a command.
   const said = [head.slice(k.mark.length), ...body].map((l) => l.trim()).filter(Boolean);
   if (said.length && said.every((l) => SUMMARY.test(l))) return runOf(said[said.length - 1], []);
-  return textOf([head.slice(k.mark.length), ...body.map((l) => l.slice(2))]);
+  // ushi-naruse: with its terminal lines, to join a continuation to.
+  const raw = [head.slice(k.mark.length), ...body.map((l) => l.slice(2))];
+  const t = textOf(raw);
+  return t ? { ...t, raw } : null;
 }
+
+// ushi-naruse: the body of a reply whose start is off screen. Its lines are indented
+// two spaces; status lines at the bottom (a spinner, "Worked for …") are dropped.
+function continuation(block) {
+  let e = block.length;
+  while (e > 0 && (!block[e - 1].trim() || !block[e - 1].startsWith(" "))) e--;
+  const body = block.slice(0, e);
+  if (!body.some((l) => l.trim())) return null;
+  if (body.some((l) => (l.trim() && !l.startsWith("  ")) || /^\s*[⎿└]/.test(l))) return null;
+  const raw = body.map((l) => l.slice(2));
+  const t = textOf(raw);
+  return t ? { ...t, raw, continued: true } : null;
+}
+
+/** ushi-naruse: a reply's text from its terminal lines (see live()). */
+export const textFromRaw = (raw) => textOf(raw)?.text ?? null;
 
 // A reply: wrapped lines back into paragraphs; blank lines, lists and code stay.
 function textOf(block) {
