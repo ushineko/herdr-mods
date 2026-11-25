@@ -1,20 +1,36 @@
 // Terminals layout's draggable top bar: tabs (process name, nested-aware status dot) and window controls.
 
 import { View, div, svg, image } from "gpui-kit";
-import { h_flex } from "gpui-base";
-import { spaces, panes, terminals, run, theme, openOverlay, window as win } from "herdr";
+import { h_flex, ScrollHandle } from "gpui-base";
+import { spaces, panes, terminals, run, theme, openOverlay, layout, window as win } from "herdr";
 
 const C = {
   tray: "#1d1f22",
-  // The shown tab stands out; a hovered one only hints, so the two never look alike.
-  tab: "#34373c",
-  tabEdge: "#4a4d53",
-  hover: "#ffffff07",
+  // Tabs not shown sit on a faint fill; the shown one has none: it is the top of its
+  // pane, whose see-through backdrop it shares (#10).
+  tab: "#ffffff09",
+  hover: "#ffffff10",
   edge: "#383b40",
   chip: "#252628",
   text: "#e8e9eb",
   dim: "#8b8f95",
 };
+
+const TAB_W = 220; // tabs keep this width and the strip scrolls (#9)
+const BAR_H = 42;  // the layout's "tabs" block: the shown tab fills it, down to its pane
+
+// The pane frame's border colours in the shown layout (its "tab": "active" block), so
+// the shown tab is drawn in the same line as the pane it sits on.
+function paneEdges(node) {
+  if (!node || typeof node !== "object") return null;
+  const pane = node.content?.tab ? node.content.pane : null;
+  if (pane) return { border: pane.border?.color ?? null, focus: pane.focus?.color ?? pane.border?.color ?? null };
+  for (const c of node.children ?? []) {
+    const found = paneEdges(c);
+    if (found) return found;
+  }
+  return null;
+}
 
 // The pane a tab's tab speaks for: the focused one, else its agent, else the first.
 function lead(all, id) {
@@ -105,12 +121,39 @@ function iconButton(id, icon, onClick) {
 }
 
 export default class TerminalsBar extends View {
+  init() {
+    this.scroll = ScrollHandle.new();
+    this.revealed = null;
+    this.wheel = 0;
+  }
+
+  // The wheel over the strip moves along it a tab at a time.
+  onWheel(e, count) {
+    const lines = e.delta_lines;
+    this.wheel += lines ? (lines.y || lines.x) : (e.delta.y || e.delta.x) / 40;
+    let moved = false;
+    while (this.wheel >= 1) { this.view = Math.max(0, this.view - 1); this.wheel -= 1; moved = true; }
+    while (this.wheel <= -1) { this.view = Math.min(count - 1, this.view + 1); this.wheel += 1; moved = true; }
+    if (moved) this.scroll.scroll_to_item(this.view);
+  }
+
   render() {
     const t = theme();
     const space = spaces().find((p) => p.active);
     if (!space) return div();
     const all = panes();
     const w = win() ?? {};
+    const edges = paneEdges(layout()) ?? {};
+    const focusedPane = all.some((p) => p.focused && p.tab === space.tabs.find((c) => c.active)?.id);
+    const edge = (focusedPane ? edges.focus : edges.border) ?? t.border;
+    // Reveal the shown tab when it changes; a wheel scroll owns the strip until then.
+    const active = space.tabs.findIndex((c) => c.active);
+    const key = `${space.id}:${active}:${space.tabs.length}`;
+    if (active >= 0 && key !== this.revealed) {
+      this.revealed = key;
+      this.view = active;
+      this.scroll.scroll_to_item(active);
+    }
 
     const tab = (c) => {
       const p = lead(all, c.id);
@@ -122,22 +165,20 @@ export default class TerminalsBar extends View {
         ? raw.split("-").map((w) => w[0].toUpperCase() + w.slice(1)).join(" ")
         : raw;
       const same = (a, b) => a.toLowerCase().replace(/[^a-z0-9]/g, "") === b.toLowerCase().replace(/[^a-z0-9]/g, "");
+      // The shown tab reaches the bottom of the bar, open at the bottom, onto its pane;
+      // the others are shorter and lifted off it.
       return own(h_flex())
         .id(`tm-${c.id}`)
-        .flex_shrink(1)
-        .w(260)
-        .min_w(0)
-        .h_full()
-        .pl(5)
+        .flex_none()
+        .w(TAB_W)
+        .pl(6)
         .pr(4)
         .gap(9)
         .items_center()
-        .rounded(13)
-        .border_1()
         .cursor_pointer()
         .text_size(13)
-        .when(c.active, (el) => el.bg(C.tab).border_color(C.tabEdge))
-        .when(!c.active, (el) => el.border_color("#00000000").hover((s) => s.bg(C.hover)))
+        .when(c.active, (el) => el.h(BAR_H).rounded_t(11).border_t_1().border_l_1().border_r_1().border_color(edge))
+        .when(!c.active, (el) => el.h(32).mt(BAR_H - 36).rounded(10).bg(C.tab).hover((s) => s.bg(C.hover)))
         .on_click(() => run("tab.select", { id: c.id }))
         .on_mouse_down("right", () =>
           openOverlay({ mod: "menu", kind: "popup", width: 200, props: { tab: "tab", target: { id: c.id, space: space.id } } }),
@@ -196,16 +237,18 @@ export default class TerminalsBar extends View {
       )
       .child(
         h_flex()
-          .flex_shrink(1)
+          .id("tm-strip")
+          .flex_1()
           .min_w(0)
-          .h(36)
-          .p(3)
-          .gap(3)
-          .rounded(16)
-          .bg(C.tray)
+          .h(BAR_H)
+          // Past the pane's rounded corner, so the shown tab meets its straight top edge.
+          .pl(12)
+          .gap(4)
+          .overflow_x_scroll()
+          .track_scroll(this.scroll)
+          .on_scroll_wheel((e) => this.onWheel(e, space.tabs.length))
           .children(space.tabs.map(tab)),
       )
-      .child(div().flex_1())
       .child(iconButton("tm-keys", "command", () => run("app.palette")))
       .child(iconButton("tm-new", "plus", () => run("tab.new", { space: space.id })))
       .when(Boolean(w.buttons), (el) =>

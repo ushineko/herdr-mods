@@ -11,7 +11,7 @@
 // Keys (keys.json): nested-tabs.add / .next / .prev / .close.
 
 import { View, div, svg, image } from "gpui-kit";
-import { h_flex, v_flex, InputState, Input } from "gpui-base";
+import { h_flex, v_flex, InputState, Input, ScrollHandle } from "gpui-base";
 import { panes, props, run, home, theme, focused, nextCommand, openOverlay, closeOverlay, knownAgents, checking, notify, setShared, shared } from "herdr";
 import * as S from "./stack.js";
 import * as Panel from "./panel.js";
@@ -46,6 +46,9 @@ export default class NestedTabs extends View {
     this.drag = null;
     this.over = null;
     this.wheel = 0;
+    // The strip scrolls when its tabs don't fit (#9); the shown one is revealed.
+    this.scroll = ScrollHandle.new();
+    this.revealed = null;
     // Requests older than this copy were for a copy that no longer exists.
     this.seenRequest = Date.now();
     if (checking()) return;
@@ -177,8 +180,7 @@ export default class NestedTabs extends View {
     const target = this.drag && this.drag !== m.address && this.over === m.address;
     return h_flex()
       .id(`nt-chip-${pane}-${m.address}`)
-      .flex_shrink(1)
-      .min_w(56)
+      .flex_none()
       .max_w(240)
       .h(28)
       .pl(8)
@@ -264,6 +266,9 @@ export default class NestedTabs extends View {
     if (list.length < 2) return sized(this.single(me, pane, base));
     const t = theme();
     const ctx = { t, pane, base, shown: S.shownOf(pane, base), count: list.length };
+    const at = list.findIndex((m) => m.address === ctx.shown);
+    const key = `${ctx.shown}:${list.length}`;
+    if (at >= 0 && key !== this.revealed) { this.revealed = key; this.scroll.scroll_to_item(at); }
     return sized(h_flex())
       .id(`nt-head-${pane}`)
       .size_full()
@@ -283,7 +288,8 @@ export default class NestedTabs extends View {
           .h_full()
           .gap(3)
           .items_center()
-          .overflow_hidden()
+          .overflow_x_scroll()
+          .track_scroll(this.scroll)
           .on_scroll_wheel((e) => this.onWheel(e, pane, base))
           .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); this.menu("new", pane, base); })
           .children(list.map((m, i) => this.chip(m, i, ctx))),
