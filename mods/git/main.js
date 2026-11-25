@@ -4,7 +4,7 @@
 // works in the shown worktree. Diffs and files open in cria-file-preview.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { exec, hc, watchFolder, window, theme, settings, terminals, notify, nextCommand, checking, run, shared, setShared, props, openOverlay, closeOverlay } from "herdr";
+import { exec, hc, watchFolder, window, theme, settings, terminals, notify, nextCommand, checking, run, shared, setShared, props, openOverlay, closeOverlay, home, readTextFile } from "herdr";
 import {
   READ, parseStatus, parseNumstat, parseWorktrees, worktreeOf, placeAgent, lockedBy, within, WORKTREE_LABEL,
   indexWorktrees, visibleWorktrees, planCleanup, CLEANUP_SCAN_SH, parseCleanupScan,
@@ -21,6 +21,18 @@ const ROW = 24;
 const LONG = 120000; // pull, push, fetch
 const RECENT = 50;  // commits in the Recent pane (R8)
 const WT_CAP = 12;  // worktree rows shown unless "show all" (R3)
+
+// Errors are kept in ~/.cache/herdr-mods/git-errors.log (last 100 lines): the app keeps
+// no log of mod errors, and a render error is gone once the view redraws.
+const ERRLOG = () => `${home()}/.cache/herdr-mods/git-errors.log`;
+async function logError(where, e) {
+  try {
+    const old = (await readTextFile(ERRLOG()).catch(() => null)) ?? "";
+    const line = `${new Date().toISOString()} ${where}: ${String(e?.stack ?? e?.message ?? e).replace(/\n/g, " | ")}`;
+    const kept = [...old.split("\n").filter(Boolean), line].slice(-100).join("\n") + "\n";
+    await exec("sh", ["-c", 'mkdir -p "$(dirname "$1")" && printf %s "$2" > "$1"', "log", ERRLOG(), kept]).catch(() => null);
+  } catch { /* nowhere to put it */ }
+}
 
 // Resolves to `fallback` if `promise` has not settled within `ms` (hc has no timeout).
 const within_ms = (cx, promise, ms, fallback) => Promise.race([promise.catch(() => fallback), cx.sleep(ms).then(() => fallback)]);
@@ -485,9 +497,10 @@ export default class Git extends View {
     const placed = this.lastPlaced ?? {};
     const targets = this.worktrees.filter((w) => paths.includes(w.path));
     const what = `Checking ${targets.length} worktree${targets.length === 1 ? "" : "s"}`;
-    this.busy = `${what}: git status`;
-    cx.notify();
     cx.spawn(async (cx) => {
+      // Set inside the task, whose finally always clears it.
+      this.busy = `${what}: git status`;
+      cx.notify();
       try {
         const mine = terminals().filter((t) => (String(t.address).includes("/") ? t.address.split("/")[0] : null) === on && t.state === "live");
         const agentAddrs = new Set(Object.values(placed).flat().map((a) => a.address));
@@ -538,6 +551,7 @@ export default class Git extends View {
         const plan = planCleanup(items);
         openOverlay({ mod: "git", kind: "dialog", width: 620, props: { cleanup: { root, on, plan } } });
       } catch (e) {
+        logError("clean-up check", e);
         notify({ title: "Clean up: checking failed", body: String(e?.message ?? e), level: "error" });
       } finally {
         this.busy = null;
@@ -681,11 +695,27 @@ export default class Git extends View {
     this.menuAt = q.at;
     const w = this.worktrees.find((x) => x.path === q.path);
     if (!w) return;
-    if (q.action === "show") this.showWorktree(w, cx);
-    else if (q.action === "cleanup") this.planWorktreeCleanup([w.path], cx);
+    // Not inside render: these set state and redraw. Started from their own task.
+    cx.spawn(async (cx) => {
+      if (q.action === "show") this.showWorktree(w, cx);
+      else if (q.action === "cleanup") this.planWorktreeCleanup([w.path], cx);
+      cx.notify();
+    });
   }
 
   render(cx) {
+    try {
+      return this.renderAll(cx);
+    } catch (e) {
+      if (String(e) !== String(this.lastRenderError)) { this.lastRenderError = e; logError("render", e); }
+      const t = theme();
+      return v_flex().size_full().p(12).gap(6).bg(t.background).text_color(t.ansi1).text_size(12)
+        .child(div().font_semibold().child("git panel error (logged to ~/.cache/herdr-mods/git-errors.log)"))
+        .child(div().text_color(t.muted).child(String(e?.message ?? e)));
+    }
+  }
+
+  renderAll(cx) {
     if (props()?.cleanup) return this.renderCleanup();
     if (props()?.wtmenu) return this.renderMenu();
     this.takeMenu(cx);
