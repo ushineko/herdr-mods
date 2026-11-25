@@ -69,6 +69,13 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
   a click or Tab in the empty box takes it. Plain text can't tell it from text typed
   into the terminal itself, so before sending, the chat empties the agent's input line
   (Ctrl+U) whenever it showed such a row: nothing is sent in front of the message.
+- R1g **Text size** (operator, 2026-11-25: the chat's text was much smaller than the
+  terminal's). Upstream draws around a 13 px body; every chat text size now scales so
+  the body matches the terminals' `font_size` (px at zoom 1; mods' sizes follow zoom
+  too). **A− / size / A+** in the chat header set a chat size (9–32 px), shared by all
+  chats and kept (`ushi-naruse.fontSize`); clicking the size, or reaching the
+  terminals' size, goes back to following them. Palette: `ushi-naruse.font-bigger`,
+  `font-smaller`, `font-reset`.
 - R1d **A cow icon** (ushi: cow; operator, 2026-11-25) marks a chat: on its tab in the
   tab bar (`terminals-bar-proc`, which also names it "chat"), in its pane header
   (`nested-tabs`) and on a dock chat subtab (`dock-tabs`). One 16 px line drawing,
@@ -189,6 +196,8 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
       the listed changes; `herdr-app check` passes for `ushi-naruse` and
       `ushi-naruse-file`.
       (2026-11-25: every difference from 05ef3ed after the renames is R1a–f, R8, R9, R10 or R11; chat-file unchanged.)
+- [x] R1g, Mac: the chat follows the terminals' 15 px; two A+ steps give 17 (shown
+      highlighted), reset follows the terminals again (2026-11-25).
 - [x] R1d, Mac: the cow on the chat's tab and pane header (`herdr-app shot`).
 - [x] R1a/R1b/R1c, Mac: a user message sits on the left; tool call lines and output are
       smaller; the conversation fills the pane (`herdr-app shot`, 2026-11-25).

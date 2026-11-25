@@ -1,5 +1,8 @@
 { "place": "none", "title": "Chat", "focusable": true,
   "palette": [
     { "title": "Chat: back to terminal (close the chat, keep the session)", "command": "ushi-naruse.back", "words": "chat terminal claude codex escape" },
-    { "title": "Chat: show or hide the terminal", "command": "ushi-naruse.terminal", "words": "chat terminal show hide" }
+    { "title": "Chat: show or hide the terminal", "command": "ushi-naruse.terminal", "words": "chat terminal show hide" },
+    { "title": "Chat: larger text", "command": "ushi-naruse.font-bigger", "words": "chat font size text bigger zoom" },
+    { "title": "Chat: smaller text", "command": "ushi-naruse.font-smaller", "words": "chat font size text smaller zoom" },
+    { "title": "Chat: text size like the terminals", "command": "ushi-naruse.font-reset", "words": "chat font size text reset terminal" }
   ], "overlay": { "kind": "dialog", "width": 760, "height": 0.85 } }
