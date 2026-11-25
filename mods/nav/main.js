@@ -14,6 +14,8 @@ import { SpaceLocks } from "./lib/space-locks.js";
 
 const PER_FOLDER = 500;
 const REMOTE_POLL = 5000;
+// A local folder is also listed again on a timer (#14): the folder watch can be reclaimed.
+const LOCAL_POLL = 10000;
 const ROW = 26;
 const CELL = 240; // a grid cell's width in the horizontal layout
 const READ = ["--no-optional-locks", "-c", "core.fsmonitor=false"];
@@ -85,9 +87,10 @@ export default class Nav extends View {
       }
     });
     cx.timer.every(REMOTE_POLL, (cx) => { if (this.on && window()?.visible !== false) this.load(cx); });
+    cx.timer.every(LOCAL_POLL, (cx) => { if (this.path && !this.on && window()?.visible !== false) this.load(cx); });
   }
 
-  close() { this.watch?.cancel(); }
+  close() { this.watchGen = (this.watchGen ?? 0) + 1; this.watch?.cancel(); }
 
   // Point nav at a folder. Following stays as it is; browsing calls browse() instead.
   go(path, on, cx, { space = this.space, select = null } = {}) {
@@ -126,17 +129,21 @@ export default class Nav extends View {
   }
 
   watchHere(cx) {
+    // Only this copy's own cancel (a new loop, close) ends a loop: an empty result
+    // otherwise means the app reclaimed an idle watch, so watch again (#14).
+    const gen = this.watchGen = (this.watchGen ?? 0) + 1;
     this.watch?.cancel();
     this.watch = null;
     if (this.on || checking()) return;
     const path = this.path;
     cx.spawn(async (cx) => {
       try {
-        while (this.path === path && !this.on) {
+        while (this.path === path && !this.on && this.watchGen === gen) {
           this.watch = watchFolder(path);
           const changed = await this.watch;
-          if (!changed.length || this.path !== path) return;
-          this.load(cx);
+          if (this.path !== path || this.watchGen !== gen) return;
+          if (changed.length) this.load(cx);
+          else await new Promise((done) => cx.timer.after(500, () => done()));
         }
       } catch { /* the 5 s refresh of a shown copy is not running locally; reopen to retry */ }
     });
