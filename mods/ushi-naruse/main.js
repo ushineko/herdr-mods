@@ -22,7 +22,7 @@ import { loadCommands, matchCommands } from "./commands.js";
 import { askSide, sessionOf, control, listSessions, askCodexSide, codexCalls } from "./sdk.js";
 import { copyText, pasteImage, openFile, pickFiles, imageSize } from "./platform.js";
 import { live } from "./stream.js";
-import { herdr, chatTab, away, hide, show } from "./backstage.js";
+import { herdr, chatTab, away, hide, show, adopt } from "./backstage.js";
 
 const ASK_FIRST = "Answer the question above first.";
 
@@ -650,6 +650,12 @@ export default class Chat extends View {
       const map = { up: "up", down: "down", left: "left", right: "right", tab: "tab", escape: "esc" };
       if (map[e.keystroke]) { this.panelKeys(map[e.keystroke]); cx.stop_propagation(); return cx.notify(); }
     }
+    // Tab in an empty box takes Claude's suggestion (ushi-naruse).
+    if (e.keystroke === "tab" && this.suggestion && !this.slash() && !this.input.value().trim()) {
+      this.acceptSuggestion(cx);
+      cx.stop_propagation();
+      return;
+    }
     const m = this.slash();
     if (!m) return;
     const k = e.keystroke;
@@ -1136,6 +1142,33 @@ export default class Chat extends View {
     }
   }
 
+  // ushi-naruse: Claude Code's suggested next message, which it draws only in its own
+  // input line (never logged). Read from the screen while the agent waits and the
+  // message box is empty; its "Try …" hints for a new session are not suggestions.
+  // Plain text can't tell it from text typed into the terminal itself.
+  readSuggestion(term, kind, cx) {
+    const waiting = kind === "claude" && (term?.status === "idle" || term?.status === "done");
+    if (!waiting || this.dialog) { if (this.suggestion) { this.suggestion = null; cx.notify(); } return; }
+    if (this.input.value().trim() || this.readingSuggestion) return;
+    this.readingSuggestion = true;
+    cx.spawn(async (cx) => {
+      try {
+        const r = await hc(["read", this.term]).catch(() => null);
+        const line = (r?.stdout ?? "").split("\n").reverse().find((l) => /^❯[\s\u00a0]/.test(l) || l === "❯");
+        const text = (line ?? "").replace(/^❯[\s\u00a0]*/, "").trim();
+        const next = text && !/^Try ".*"$/.test(text) ? text : null;
+        if (next !== this.suggestion) { this.suggestion = next; cx.notify(); }
+      } finally { this.readingSuggestion = false; }
+    });
+  }
+
+  acceptSuggestion(cx) {
+    if (!this.suggestion) return;
+    this.input.set_value(this.suggestion);
+    this.input.focus();
+    cx.notify();
+  }
+
   check(cx) {
     this.checked = Date.now();
     const term = this.terminal();
@@ -1147,6 +1180,7 @@ export default class Chat extends View {
       if (!this.termHidden(mine)) this.hideTerminal(mine, cx);
     }
     const kind = agentKind(term);
+    this.readSuggestion(term, kind, cx);
     this.loadCmds(term, kind, cx);
     // A loop that went quiet has stopped (a reload of the mod ends its tasks
     // but keeps the chat): start it again rather than freeze the chat.
@@ -1436,6 +1470,9 @@ export default class Chat extends View {
     }
     const message = [...paths.map(shellEscape), text].filter(Boolean).join(" ");
     if (!message) return;
+    // ushi-naruse: text in the agent's input line (a suggestion, or something typed in
+    // the terminal itself) would be sent in front of the message: empty the line first.
+    if (this.suggestion) { this.suggestion = null; await hc(["keys", this.term, "ctrl+u"]).catch(() => null); }
     const r = await hc(["send", this.term, message]);
     this.error = r.code === 0 ? null : r.stderr.trim() || "send failed";
     cx.notify();
@@ -1534,6 +1571,34 @@ export default class Chat extends View {
 
   loadCatalogCached(kind, machine) {
     return this.catalogs[`${kind}@${machine ?? ""}`] ?? null;
+  }
+
+  // ushi-naruse: the escape hatch. The agent's terminal takes the chat's place in its
+  // tab and the chat closes; the session keeps running. herdr-mods' labels come off
+  // first, so its clean-up neither ends the agent (hm.chat) nor shows it twice (chat.tab).
+  backToTerminal(cx) {
+    if (this.moving) return;
+    const own = panes().find((p) => p.pane === this.pane && p.mod === "ushi-naruse") ?? panes().find((p) => p.mod === "ushi-naruse" && p.focused);
+    if (!own || this.terminal()?.state !== "live") { this.error = "Can't find this chat's pane or its agent"; return cx.notify(); }
+    this.moving = true;
+    const here = () => panes().some((p) => p.terminal === this.term && p.tab === own.tab);
+    cx.spawn(async (cx) => {
+      try {
+        await hc(["label", this.term, "hm.chat=", "chat.tab="]);
+        if (!here()) {
+          const space = spaces().find((s) => s.tabs?.some((x) => x.id === own.tab))?.id;
+          if (!space) throw new Error("the chat's space is gone");
+          await adopt(this.term, space, own.tab);
+          for (let i = 0; i < 30 && !here(); i++) await exec("sh", ["-c", "sleep 0.1"]);
+        }
+        if (own.zoomed) await herdr("pane.zoom", { pane: own.pane }).catch(() => {});
+        run("pane.close", { pane: own.pane });
+      } catch (e) {
+        this.error = `Couldn't bring the terminal back: ${e?.message ?? e}`;
+        this.moving = false;
+        cx.notify();
+      }
+    });
   }
 
   // Shows the agent's terminal to the right of the chat, or hides it again.
@@ -1917,7 +1982,10 @@ export default class Chat extends View {
           .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip(`Search (${shortcut("F")})`)
           .on_click((_e, cx) => (this.searching ? this.closeSearch(cx) : this.openSearch(cx)))
           .child(svg("mods/ushi-naruse/icons/search.svg").size(14)))
-        .child(btn("go-term", termLabel, (_e, cx) => this.toggleTerminal(cx))))
+        .child(btn("go-term", termLabel, (_e, cx) => this.toggleTerminal(cx)))
+        // ushi-naruse: in a tab, not a dock subtab (dock-tabs' menu has its own).
+        .when(!props()?.dockName, (el) => el.child(btn("back-term", "Back to terminal", (_e, cx) => this.backToTerminal(cx))
+          .tooltip("Close the chat; the session carries on in its terminal, here"))))
       .when(Boolean(this.searching) && (this.shown(), true), (el) => el.child(h_flex().id("search-bar").key_context("ChatSearch")
         .on_action("chat_search_close", (_e, cx) => this.closeSearch(cx))
         .h(38).px(12).gap(8).items_center().border_t(1).border_color(t.border).bg(t.background)
@@ -2090,6 +2158,13 @@ export default class Chat extends View {
       .hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click(action).child(text);
     const card = v_flex().w_full().max_w(COLUMN).rounded(18).border_1().border_color(this.inputFocused ? t.input : t.border)
       .bg(t.background).shadow_sm()
+      // Claude's suggested next message (ushi-naruse): click or Tab to take it.
+      .when(Boolean(this.suggestion) && !typed && !this.dialog, (el) => el.child(h_flex().id("suggestion").px(14).pt(10).gap(8)
+        .items_center().cursor_pointer().text_size(12.5).text_color(t.dim).hover((s) => s.text_color(t.muted))
+        .tooltip("Claude's suggestion: click or Tab to use it")
+        .on_click((_e, cx) => this.acceptSuggestion(cx))
+        .child(div().flex_1().min_w(0).truncate().child(this.suggestion ?? ""))
+        .child(div().flex_none().px(5).rounded(4).border_1().border_color(t.border).text_size(10.5).child("Tab"))))
       .when(this.attach.length > 0, (el) => el.child(h_flex().px(12).pt(12).gap(8).flex_wrap().children(this.attach.map((a, n) =>
         div().relative()
           .child(a.image ? this.img(a.image.ref, t, 96, 72) : div().px(10).py(8).rounded(8).bg(t.raised).text_size(11.5).child(a.name))

@@ -120,6 +120,7 @@ function setTabs(names, active, chats = {}) {
       ...names.map((n) => ({
         id: childId(dock, n),
         type: "block",
+        // A chat set to null in `chats` turns back into its terminal (Back to terminal).
         content: chat[n] ? { mod: "ushi-naruse", props: { terminal: chat[n], dockName: n } } : { terminal: n },
       })),
     ];
@@ -412,6 +413,8 @@ export default class DockTabs extends View {
     if (activeOf(dock) !== target) items.push({ label: "Show", icon: "layers", act: () => show(dock, tab) });
     if (tab.fixed) return [...items, { sep: true }, ...news].filter((it, k, all) => !(it.sep && (k === 0 || k === all.length - 1)));
     if (tab.term) items.push({ label: "Rename…", icon: "square-pen", act: () => this.rename(tab) });
+    // The chat's escape hatch (spec 008): the subtab shows the agent's terminal again.
+    if (tab.chat) items.push({ label: "Back to terminal", icon: "terminal", act: () => setTabs(ownNames(dock), { [dock]: tab.name }, { [tab.name]: null }) });
     items.push({ sep: true }, ...news, { sep: true });
     const own = list.filter((x) => !x.fixed), j = own.findIndex((x) => x.id === target);
     if (j > 0) items.push({ label: "Move left", icon: "chevron-left", act: () => moveTab(dock, tab, -1) });

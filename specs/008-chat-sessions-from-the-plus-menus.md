@@ -60,6 +60,15 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
   first (later ones, in `formerNames`, are earlier sessions). Upstream read the
   terminal's own id (no log) and the last id on the line, so Open as chat showed
   nothing while messages still reached the terminal.
+- R1f **Claude's suggested next message** (operator, 2026-11-25). Claude Code draws it
+  only in its own input line; it is not in the session log (checked on njv-cachyos:
+  "go ahead with 3c" appears only inside the reply it came from, and only the main
+  conversation's requests are logged). While a Claude agent is idle or done and the
+  message box is empty, the chat reads the screen's last `❯` line (not its `Try "…"`
+  hints for a new session) and shows it as a dim row at the top of the message box;
+  a click or Tab in the empty box takes it. Plain text can't tell it from text typed
+  into the terminal itself, so before sending, the chat empties the agent's input line
+  (Ctrl+U) whenever it showed such a row: nothing is sent in front of the message.
 - R1d **A cow icon** (ushi: cow; operator, 2026-11-25) marks a chat: on its tab in the
   tab bar (`terminals-bar-proc`, which also names it "chat"), in its pane header
   (`nested-tabs`) and on a dock chat subtab (`dock-tabs`). One 16 px line drawing,
@@ -105,6 +114,14 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
     with the same waiting rules as R6.
   - The tab bar (`terminals-bar-proc`) leaves settled tabs out, as the shipped one
     does, unless one is shown.
+- R9 **Back to terminal** (operator, 2026-11-25: an escape hatch if the chat misbehaves,
+  never losing the session): a button in the chat's header. The agent's terminal takes
+  the chat's place in its tab and the chat closes; the session keeps running. The
+  `hm.chat` and `chat.tab` labels come off first, so the clean-up (R6, R8) neither ends
+  the agent nor shows it twice. A terminal hidden in a settled tab is parked and
+  labelled into the chat's tab; a pane-less agent (R4) is labelled straight in. A dock
+  chat subtab has **Back to terminal** in its right-click menu instead: the subtab
+  shows the agent's terminal again.
 - R7 Pure selection logic (which entries to show for a platform, an agent list and
   a python3 check) lives in `lib/` with unit tests.
 
@@ -132,6 +149,11 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
       opens a chat in that tab with the terminal hidden (Mac, by the same `pane.split`:
       yes; the hidden tab is not in the tab bar); Show terminal brings it back;
       closing the chat shows the terminal's tab again (Mac: yes).
+- [x] R1f, Mac: a line in the agent's input shows as the row; the parser reads "go ahead
+      with 3c" from the hayami screen on njv-cachyos; Ctrl+U empties the line.
+- [ ] R9: Back to terminal from a New chat tab, an Open as chat tab, and a dock chat
+      subtab (Mac: the pane-less case's steps by hand work: the agent gets a pane in
+      the chat's tab and survives the chat closing).
 - [ ] All unit tests pass (`npm test` on the Mac, `./run-tests.sh` on njv-cachyos).
 - [ ] `herdr-app status` shows no errors on both machines.
 

@@ -64,6 +64,17 @@ export async function hide(term, fromTab) {
   }
 }
 
+// ushi-naruse: puts the terminal in `tab` of `space` (ids as panes() names them) as a
+// pane of its own: parked first if it sits in another tab, labelled straight away if
+// it never had a pane (an agent started for a chat).
+export async function adopt(address, space, tab) {
+  if ((await labels(address))["herdr.tab"]) {
+    await herdr("terminal.park", { terminal: address });
+    for (let i = 0; i < 30 && (await labels(address))["herdr.tab"]; i++) await pause(0.1);
+  }
+  await hc(["label", address, `herdr.space=${local(space)}`, `herdr.tab=${local(tab)}`]);
+}
+
 // Brings the terminal back into the chat's tab.
 export async function show(term) {
   const tab = term?.labels?.["chat.tab"];
