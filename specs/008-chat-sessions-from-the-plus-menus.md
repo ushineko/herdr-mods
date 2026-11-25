@@ -169,28 +169,33 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
 
 ## Acceptance Criteria
 
-- [ ] R1: LICENSE and FORK.md present; the diff against the pinned commit holds only
+- [x] R1: LICENSE and FORK.md present; the diff against the pinned commit holds only
       the listed changes; `herdr-app check` passes for `ushi-naruse` and
       `ushi-naruse-file`.
+      (2026-11-25: every difference from 05ef3ed after the renames is R1a–f, R8, R9, R10 or R11; chat-file unchanged.)
 - [x] R1d, Mac: the cow on the chat's tab and pane header (`herdr-app shot`).
 - [x] R1a/R1b/R1c, Mac: a user message sits on the left; tool call lines and output are
       smaller; the conversation fills the pane (`herdr-app shot`, 2026-11-25).
-- [ ] R2/R3: unit tests cover Windows (no entries), an agent not installed, no python3,
+- [x] R2/R3: unit tests cover Windows (no entries), an agent not installed, no python3,
       and both agents present.
-- [ ] R4, Mac: New Claude Code chat from a pane's + opens a new tab holding only the
+      (tests/chat-entries.test.js.)
+- [x] R4, Mac: New Claude Code chat from a pane's + opens a new tab holding only the
       chat, in the pane's folder; the agent answers a prompt typed into the chat, and
       Terminal shows its terminal.
-- [ ] R4, njv-cachyos: the same, and New Codex chat.
+      (new chat tab, reply, Terminal peek: Mac, 2026-11-25.)
+- [x] R4, njv-cachyos: the same, and New Codex chat.
+      (operator: "codex chat works on cachyos", 2026-11-25.)
 - [ ] R5: New Claude Code chat from a dock's + adds a chat subtab in both docks;
       × on it ends the agent.
 - [x] R6: closing the chat's tab ends its agent (`hc get` shows it gone; Mac,
       2026-11-25, also for a chat pane).
 - [x] R6a, Mac: after `app.quit` and reopening, the chat tab and its agent are back and
       connected (2026-11-25).
-- [ ] R8: the cow button shows on a Claude Code pane (Mac, `herdr-app shot`: yes) and
+- [x] R8: the cow button shows on a Claude Code pane (Mac, `herdr-app shot`: yes) and
       opens a chat in that tab with the terminal hidden (Mac, by the same `pane.split`:
       yes; the hidden tab is not in the tab bar); Show terminal brings it back;
       closing the chat shows the terminal's tab again (Mac: yes).
+      (operator: "works", njv-cachyos, 2026-11-25.)
 - [x] R1f, Mac: a line in the agent's input shows as the row; the parser reads "go ahead
       with 3c" from the hayami screen on njv-cachyos; Ctrl+U empties the line.
 - [ ] R9: Back to terminal from a New chat tab, an Open as chat tab, and a dock chat
@@ -204,8 +209,9 @@ Source review of the pinned commit (2026-11-25, `chat/*.js`, `chat-file/main.js`
       own window, finds its agent (`t3b` there) and shows its live prompt (2026-11-25).
 - [x] R12 names: hidden tab named "sysadmin" like its chat's; back under that name
       when the chat's tab closed, agent alive (Mac).
-- [ ] All unit tests pass (`npm test` on the Mac, `./run-tests.sh` on njv-cachyos).
-- [ ] `herdr-app status` shows no errors on both machines.
+- [x] All unit tests pass (`npm test` on the Mac, `./run-tests.sh` on njv-cachyos).
+      (192 on njv-cachyos, 191 on the Mac, 2026-11-25.)
+- [x] `herdr-app status` shows no errors on both machines.
 
 ## E2E (real window)
 
