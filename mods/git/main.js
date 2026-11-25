@@ -17,6 +17,11 @@ const REMOTE_POLL = 5000;
 const AGENT_POLL = 3000;
 const ROW = 24;
 const LONG = 120000; // pull, push, fetch
+// Pane sizes in px (R15): horizontal column widths, vertical section heights. Dragged
+// by the dividers between them; remembered in localStorage.
+const SIZES = "git.sizes";
+const SIZE_DEFAULTS = { wt: 300, recent: 320, wtH: 150, recentH: 140 };
+const SIZE_LIMITS = { wt: [140, 900], recent: [140, 900], wtH: [60, 900], recentH: [60, 900] };
 
 const join = (dir, rel) => `${dir.replace(/[\\/]+$/, "")}/${rel}`;
 const base = (p) => String(p ?? "").replace(/[\\/]+$/, "").split(/[\\/]/).pop();
@@ -37,6 +42,10 @@ export default class Git extends View {
     this.status = null; this.numstat = { staged: {}, unstaged: {} }; this.log = []; this.counts = {};
     this.error = null; this.busy = null; this.zone = "changes"; this.cursor = 0; this.wtCursor = 0;
     this.collapsed = {}; this.help = false; this.programs = new Map();
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(SIZES) ?? "{}") ?? {}; } catch { /* defaults */ }
+    this.sizes = { ...SIZE_DEFAULTS, ...saved };
+    this.drag = null;
     this.handle = cx.focus_handle();
     // Agent requests (005) newer than this are carried out: a copy that starts just after
     // one (first shown, or reloaded) still takes a request from the last 10 s.
@@ -296,6 +305,41 @@ export default class Git extends View {
     else openInViewer(cx, { path, on: this.loc.on, space: this.loc.space ?? undefined, diff: { repo: this.shown, staged: item.group === "Staged" } });
   }
 
+  // A divider between two panes: dragging it resizes `key` (a column width when
+  // `axis` is "x", a section height when "y"); `invert` for a pane on the far side.
+  divider(id, key, axis, invert, t) {
+    const vertical = axis === "x";
+    return div().id(id).flex_none().when(vertical, (el) => el.w(5).h_full().cursor_col_resize())
+      .when(!vertical, (el) => el.h(5).w_full().cursor_row_resize())
+      .flex().items_center().justify_center()
+      .child(div().when(vertical, (el) => el.w(1).h_full()).when(!vertical, (el) => el.h(1).w_full())
+        .bg(this.drag?.key === key ? t.accent : t.border))
+      .hover((x) => x.bg(t.hover))
+      .on_mouse_down("left", (e, cx) => {
+        this.drag = { key, axis, invert, start: vertical ? e.position.x : e.position.y, orig: this.sizes[key] };
+        cx.stop_propagation();
+        cx.notify();
+      });
+  }
+
+  dragTo(e, cx) {
+    const d = this.drag;
+    if (!d) return;
+    if (e.pressed_button && e.pressed_button !== "left") { this.endDrag(); cx.notify(); return; }
+    const zoom = settings().zoom ?? 1;
+    let delta = ((d.axis === "x" ? e.position.x : e.position.y) - d.start) / zoom;
+    if (d.invert) delta = -delta;
+    const [lo, hi] = SIZE_LIMITS[d.key];
+    this.sizes[d.key] = Math.round(Math.max(lo, Math.min(hi, d.orig + delta)));
+    cx.notify();
+  }
+
+  endDrag() {
+    if (!this.drag) return;
+    this.drag = null;
+    try { localStorage.setItem(SIZES, JSON.stringify(this.sizes)); } catch { /* not kept */ }
+  }
+
   // An agent's request (spec 005, R1a): show a worktree, or follow again.
   takeRequest(cx) {
     const q = shared("git.request");
@@ -420,13 +464,23 @@ export default class Git extends View {
       ];
       const recentBlock = this.log.length ? [section("Recent", this.log.length, null), ...this.log.map((c, i) => h_flex().id(`git-log-${i}`).h(22).px(14).gap(8).items_center().text_size(11.5).text_color(t.dim)
         .child(div().w(56).flex_none().text_color(t.ansi4).child(c.hash)).child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(c.subject)).child(div().flex_none().child(ago(c.time))))] : [];
-      const column = (id, kids) => v_flex().id(id).min_h(0).h_full().overflow_y_scrollbar().pb(8).children(kids);
+      const pane = (id, kids) => v_flex().id(id).min_h(0).min_w(0).overflow_y_scrollbar().pb(8).children(kids);
+      const sz = this.sizes;
       body = wide
+        // Horizontal: worktrees | changes | recent, the outer two resizable.
         ? h_flex().flex_1().min_h(0).items_start()
-          .child(column("git-col-wt", worktreeBlock).w(300).flex_none().border_r(1).border_color(t.border))
-          .child(column("git-col-changes", changesBlock).flex_1().min_w(0))
-          .when(recentBlock.length > 0, (el) => el.child(column("git-col-recent", recentBlock).w(320).flex_none().border_l(1).border_color(t.border)))
-        : v_flex().id("git-body").flex_1().min_h(0).overflow_y_scrollbar().pb(8).children([...worktreeBlock, ...changesBlock, ...recentBlock]);
+          .when(worktreeBlock.length > 0, (el) => el.child(pane("git-col-wt", worktreeBlock).w(sz.wt).h_full().flex_none())
+            .child(this.divider("git-div-wt", "wt", "x", false, t)))
+          .child(pane("git-col-changes", changesBlock).flex_1().h_full())
+          .when(recentBlock.length > 0, (el) => el.child(this.divider("git-div-recent", "recent", "x", true, t))
+            .child(pane("git-col-recent", recentBlock).w(sz.recent).h_full().flex_none()))
+        // Vertical: worktrees / changes / recent, the outer two resizable.
+        : v_flex().flex_1().min_h(0)
+          .when(worktreeBlock.length > 0, (el) => el.child(pane("git-sec-wt", worktreeBlock).h(sz.wtH).flex_none())
+            .child(this.divider("git-div-wth", "wtH", "y", false, t)))
+          .child(pane("git-sec-changes", changesBlock).flex_1())
+          .when(recentBlock.length > 0, (el) => el.child(this.divider("git-div-recenth", "recentH", "y", true, t))
+            .child(pane("git-sec-recent", recentBlock).h(sz.recentH).flex_none()));
     }
 
     const footer = h_flex().h(26).flex_none().px(10).gap(10).items_center().border_t(1).border_color(t.border).text_size(10.5).text_color(t.dim)
@@ -435,6 +489,8 @@ export default class Git extends View {
 
     return v_flex().id("git").track_focus(this.handle)
       .on_size_change((size, cx) => { this.size = size; cx.notify(); })
+      .on_window_mouse_move((e, cx) => this.dragTo(e, cx))
+      .on_window_mouse_up("left", (_e, cx) => { if (this.drag) { this.endDrag(); cx.notify(); } })
       .on_key_down((e, cx) => {
         if (this.committing) {
           if (e.key === "escape") { this.committing = false; this.message.set_value(""); this.message.blur(); this.handle.focus(); cx.notify(); cx.stop_propagation(); }

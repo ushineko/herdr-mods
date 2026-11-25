@@ -125,7 +125,7 @@ export default class TerminalsBar extends View {
         .min_w(0)
         .h_full()
         .pl(5)
-        .pr(12)
+        .pr(4)
         .gap(9)
         .items_center()
         .rounded(13)
@@ -141,11 +141,26 @@ export default class TerminalsBar extends View {
         .child(tile(t, p, tabStatus(all, c.id)))
         .child(
           h_flex()
+            .flex_1()
             .min_w(0)
             .gap(6)
             .truncate()
             .child(div().flex_none().text_color(c.active ? C.text : "#c4c6ca").child(c.name))
             .when(Boolean(proc) && !same(proc, c.name), (el) => el.child(div().truncate().text_color(C.dim).child(proc))),
+        )
+        // Close (herdr-mods): every tab has one; closing a space's last tab asks first.
+        .child(
+          div()
+            .id(`tm-x-${c.id}`)
+            .flex_none()
+            .p(4)
+            .rounded(6)
+            .text_color(C.dim)
+            .hover((s) => s.bg(C.hover).text_color(C.text))
+            .tooltip("Close tab")
+            .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+            .on_click((_e, cx) => { cx.stop_propagation(); run("tab.close", { id: c.id }); })
+            .child(svg("mods/terminals-bar-proc/x.svg").size(12)),
         );
     };
 

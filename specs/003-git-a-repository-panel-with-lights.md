@@ -119,6 +119,11 @@ the panel should answer at a glance.
   else vertical, re-decided on every resize. Vertical is the layout above.
   Horizontal: the header is one line (branch, upstream, follow light, machine, repository, lock) and the body is three columns side by side, each scrolling: worktrees (300 px), changes with the commit field, recent commits (320 px); keys are unchanged.
 
+- R15 **Resizable panes** (operator, 2026-11-24): the outer panes (worktrees,
+  recent) are sized by dragging the dividers between them and the changes pane —
+  column widths in the horizontal layout, section heights in the vertical one.
+  Sizes are remembered per machine (`localStorage`, key `git.sizes`).
+
 ## Acceptance Criteria
 
 - [x] Real window: in a wide, short block the horizontal layout shows; in a

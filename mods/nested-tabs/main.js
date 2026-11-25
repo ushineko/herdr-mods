@@ -182,7 +182,7 @@ export default class NestedTabs extends View {
       .max_w(240)
       .h(28)
       .pl(8)
-      .pr(active && count > 1 ? 3 : 8)
+      .pr(3)
       .gap(6)
       .items_center()
       .rounded(8)
@@ -218,20 +218,19 @@ export default class NestedTabs extends View {
       .child(div().flex_none().max_w(150).truncate().child(name))
       .when(Boolean(where) && where !== name, (el) => el.child(div().truncate().text_size(12).text_color(t.dim).child(where)))
       .when(Boolean(dot), (el) => el.child(div().flex_none().w(7).h(7).rounded_full().bg(dot)))
-      .when(active && count > 1, (el) =>
-        el.child(
-          div()
-            .id(`nt-chip-x-${pane}-${m.address}`)
-            .flex_none()
-            .p(3)
-            .rounded(5)
-            .text_color(t.dim)
-            .hover((s) => s.bg(t.hover).text_color(t.foreground))
-            .tooltip(m.base ? "Close pane (all its tabs)" : "Close tab")
-            .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
-            .on_click((_e, cx) => { cx.stop_propagation(); S.close(pane, base, m.address); })
-            .child(svg(ICON("x")).size(12)),
-        ),
+      // Every tab has a close button (herdr-mods): the pane's own tab closes the pane.
+      .child(
+        div()
+          .id(`nt-chip-x-${pane}-${m.address}`)
+          .flex_none()
+          .p(3)
+          .rounded(5)
+          .text_color(t.dim)
+          .hover((s) => s.bg(t.hover).text_color(t.foreground))
+          .tooltip(m.base ? "Close pane (all its tabs)" : "Close tab")
+          .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+          .on_click((_e, cx) => { cx.stop_propagation(); S.close(pane, base, m.address); })
+          .child(svg(ICON("x")).size(12)),
       );
   }
 

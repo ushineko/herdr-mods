@@ -287,7 +287,7 @@ export default class DockTabs extends View {
     const icon = tab.fixed ? h_flex().flex_none().gap(5).items_center().children(tab.fixed.icons.map((n) => svg(ICON(n)).size(15).flex_none().text_color(active ? t.accent : t.muted)))
       : g?.icon ? (g.tint ? svg(g.icon).size(15).flex_none().text_color(active ? t.foreground : t.muted) : image(g.icon).w(15).h(15).flex_none()) : null;
     const name = label(tab);
-    return h_flex().id(`dt-${dock}-${tab.id}`).flex_shrink(1).min_w(56).max_w(220).h(28).pl(8).pr(active ? 3 : 8).gap(6)
+    return h_flex().id(`dt-${dock}-${tab.id}`).flex_shrink(1).min_w(56).max_w(220).h(28).pl(8).pr(tab.fixed ? 8 : 3).gap(6)
       .items_center().rounded(8).border_1().cursor_pointer().text_size(13)
       .when(active, (el) => el.bg(t.raised).border_color(t.border).text_color(t.foreground))
       .when(!active, (el) => el.border_color("#00000000").text_color(t.muted).hover((s) => s.bg(t.hover)))
@@ -299,7 +299,7 @@ export default class DockTabs extends View {
       .child(div().flex_none().text_size(11).text_color(t.dim).child(String(i + 1)))
       .when(Boolean(icon), (el) => el.child(icon))
       .when(!tab.fixed, (el) => el.child(div().truncate().child(name)))
-      .when(active && count > 0 && !tab.fixed, (el) => el.child(
+      .when(!tab.fixed, (el) => el.child(
         div().id(`dt-x-${dock}-${tab.id}`).flex_none().p(3).rounded(5).text_color(t.dim)
           .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Close tab")
           .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
