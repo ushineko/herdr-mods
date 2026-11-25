@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# Write one request into the Herdr window's herdr-mods inbox (spec 005 R1). The window's
+# dock-follow mod picks it up: it opens a viewer tab, points nav or git somewhere, or
+# opens a file in its external app, in the space of the terminal that asked.
+#
+# Usage: herdr-request [--dry-run] ACTION [PATH] [key=value ...]
+#   ACTION  open | external | diff | nav | reveal | worktree | follow
+#   PATH    absolute (follow takes none)
+#   keys    line=N  repo=/abs/path  staged=true
+# --dry-run (or HERDR_REQUEST_DRY_RUN=1) prints the request instead of writing it.
+# Exits 2 when not running in a Herdr terminal ($HC_TERMINAL_ID unset).
+set -euo pipefail
+
+prog=${0##*/}
+die() { printf '%s: %s\n' "$prog" "$*" >&2; exit 1; }
+
+dry=false
+[[ ${HERDR_REQUEST_DRY_RUN:-} == 1 ]] && dry=true   # tests: print, do not write
+if [[ ${1:-} == --dry-run ]]; then dry=true; shift; fi
+[[ $# -ge 1 ]] || die "usage: $prog [--dry-run] ACTION [PATH] [key=value ...]"
+action=$1; shift
+case $action in
+  open|external|diff|nav|reveal|worktree) [[ $# -ge 1 ]] || die "$action needs a path"; path=$1; shift ;;
+  follow) path= ;;
+  *) die "unknown action: $action" ;;
+esac
+
+if [[ -z ${HC_TERMINAL_ID:-} ]] && ! $dry; then
+  printf '%s: not in a Herdr terminal (HC_TERMINAL_ID is unset); nothing sent\n' "$prog" >&2
+  exit 2
+fi
+
+# A JSON string. Values with control characters are refused rather than escaped.
+json_str() {
+  local s=$1
+  [[ $s != *[[:cntrl:]]* ]] || die "control characters are not allowed: $s"
+  s=${s//\\/\\\\}
+  s=${s//\"/\\\"}
+  printf '"%s"' "$s"
+}
+
+session=default
+if [[ ${HC_TERMINAL_SOCKET:-} =~ /herdr-core/([^/]+)/ ]]; then session=${BASH_REMATCH[1]}; fi
+
+id="$(date +%s)-$$-${RANDOM}"
+at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+json="{\"v\":1,\"id\":$(json_str "$id"),\"at\":$(json_str "$at"),\"action\":$(json_str "$action")"
+[[ -n $path ]] && json+=",\"path\":$(json_str "$path")"
+json+=",\"terminal\":$(json_str "${HC_TERMINAL_ID:-}")"
+for kv in "$@"; do
+  key=${kv%%=*} value=${kv#*=}
+  case $key in
+    line) [[ $value =~ ^[1-9][0-9]*$ ]] || die "line must be a positive number"; json+=",\"line\":$value" ;;
+    repo) json+=",\"repo\":$(json_str "$value")" ;;
+    staged) [[ $value == true ]] && json+=",\"staged\":true" ;;
+    *) die "unknown key: $key" ;;
+  esac
+done
+json+="}"
+
+if $dry; then printf '%s\n' "$json"; exit 0; fi
+
+dir="${HOME:?}/.cache/herdr-mods/inbox/${session}"
+mkdir -p -- "$dir"
+chmod 700 -- "$dir" "${dir%/*}" 2>/dev/null || true
+tmp="$dir/.$id.tmp"
+printf '%s\n' "$json" > "$tmp"
+mv -f -- "$tmp" "$dir/$id.json"

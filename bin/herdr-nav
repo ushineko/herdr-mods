@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Point the person's nav and git panels somewhere (spec 005 R7, R7a).
+#
+# Usage: herdr-nav [-v] DIR            nav shows DIR (it stops following the terminal)
+#        herdr-nav --reveal FILE       nav shows FILE's folder with FILE selected
+#        herdr-nav --follow            nav and git follow the focused terminal again
+#        herdr-nav --worktree PATH     you work in PATH's git worktree: git (and nav) show it,
+#                                      and this terminal is labelled so the git panel places
+#                                      you there and locks that worktree while you work
+#        herdr-nav --worktree -        you left the worktree: the label is removed
+set -euo pipefail
+
+prog=${0##*/}
+die() { printf '%s: %s\n' "$prog" "$*" >&2; exit 1; }
+here="$(cd "$(dirname "$0")" && pwd)"
+LABEL=herdr-mods.worktree
+
+abs_dir() { (cd -- "$1" && pwd -P); }
+
+verbose=false
+[[ ${1:-} == -v ]] && { verbose=true; shift; }
+case ${1:-} in
+  -h|--help|"") sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; [[ -n ${1:-} ]]; exit $? ;;
+  --follow)
+    "$here/herdr-request" follow ;;
+  --reveal)
+    [[ $# -eq 2 && -e $2 ]] || die "usage: $prog --reveal FILE (an existing file)"
+    path="$(abs_dir "$(dirname -- "$2")")/$(basename -- "$2")"
+    "$here/herdr-request" reveal "$path" ;;
+  --worktree)
+    [[ $# -eq 2 ]] || die "usage: $prog --worktree PATH | -"
+    [[ -n ${HC_TERMINAL_ID:-} ]] || { printf '%s: not in a Herdr terminal; nothing done\n' "$prog" >&2; exit 2; }
+    if [[ $2 == - ]]; then
+      hc label "$HC_TERMINAL_ID" "$LABEL=" >/dev/null
+      "$here/herdr-request" follow
+    else
+      [[ -d $2 ]] || die "no such folder: $2"
+      root=$(git -C "$2" rev-parse --show-toplevel 2>/dev/null) || die "not in a git worktree: $2"
+      root=$(abs_dir "$root")
+      hc label "$HC_TERMINAL_ID" "$LABEL=$root" >/dev/null
+      "$here/herdr-request" worktree "$root"
+      path=$root
+    fi ;;
+  -*) die "unknown option: $1" ;;
+  *)
+    [[ $# -eq 1 && -d $1 ]] || die "usage: $prog DIR (an existing folder)"
+    path=$(abs_dir "$1")
+    "$here/herdr-request" nav "$path" ;;
+esac
+if $verbose; then printf '%s: done %s\n' "$prog" "${path:-}"; fi

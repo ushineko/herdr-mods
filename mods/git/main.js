@@ -4,7 +4,7 @@
 // works in the shown worktree. Diffs and files open in cria-file-preview.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { exec, hc, watchFolder, window, theme, settings, terminals, notify, nextCommand, checking, run } from "herdr";
+import { exec, hc, watchFolder, window, theme, settings, terminals, notify, nextCommand, checking, run, shared } from "herdr";
 import {
   READ, parseStatus, parseNumstat, parseWorktrees, worktreeOf, placeAgent, lockedBy, within, WORKTREE_LABEL,
   stageArgs, unstageArgs, stageAllArgs, unstageAllArgs, commitArgs, pullArgs, pushArgs, fetchArgs,
@@ -38,6 +38,9 @@ export default class Git extends View {
     this.error = null; this.busy = null; this.zone = "changes"; this.cursor = 0; this.wtCursor = 0;
     this.collapsed = {}; this.help = false; this.programs = new Map();
     this.handle = cx.focus_handle();
+    // Agent requests (005) newer than this are carried out: a copy that starts just after
+    // one (first shown, or reloaded) still takes a request from the last 10 s.
+    this.requestAt = Date.now() - 10000;
     this.message = InputState.new({ placeholder: "Commit message (Enter commits, Esc cancels)" });
     this.message.on("submit", (_e, cx) => this.commitNow(cx));
     this.last = terminalLocation() ?? fallbackLocation();
@@ -293,7 +296,19 @@ export default class Git extends View {
     else openInViewer(cx, { path, on: this.loc.on, space: this.loc.space ?? undefined, diff: { repo: this.shown, staged: item.group === "Staged" } });
   }
 
+  // An agent's request (spec 005, R1a): show a worktree, or follow again.
+  takeRequest(cx) {
+    const q = shared("git.request");
+    if (!q || q.at <= this.requestAt) return;
+    this.requestAt = q.at;
+    if (q.action === "follow") { this.relock(cx); return; }
+    this.follow = false;
+    this.shown = q.path;
+    this.goTo({ cwd: q.path, on: q.on ?? null, space: this.loc?.space ?? null }, cx);
+  }
+
   render(cx) {
+    this.takeRequest(cx);
     const loc = terminalLocation();
     if (loc) this.last = loc;
     if (this.follow && loc && (!this.loc || loc.cwd !== this.loc.cwd || loc.on !== this.loc.on)) this.goTo(loc, cx);

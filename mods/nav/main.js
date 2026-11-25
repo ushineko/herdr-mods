@@ -3,7 +3,7 @@
 // in cria-file-preview. No file operations: those are asked of the agent.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, ScrollHandle } from "gpui-base";
-import { exec, watchFolder, window, theme, settings, home, notify, nextCommand, checking } from "herdr";
+import { exec, watchFolder, window, theme, settings, home, notify, nextCommand, checking, shared } from "herdr";
 import { breadcrumb, parentOf, childOf, parseListing, sortEntries, filterEntries, parsePorcelain, marksFor, keyAction } from "./lib/nav.js";
 import { fileType } from "./lib/filetype.js";
 import { openExternal, openDefault } from "./lib/external-open.js";
@@ -60,6 +60,9 @@ export default class Nav extends View {
     this.marks = { files: {}, folders: {} }; this.repo = null; this.branch = null; this.dirty = 0;
     this.showHidden = false; this.selected = null; this.query = "";
     this.handle = cx.focus_handle();
+    // Agent requests (005) newer than this are carried out: a copy that starts just after
+    // one (first shown, or reloaded) still takes a request from the last 10 s.
+    this.requestAt = Date.now() - 10000;
     this.scroll = ScrollHandle.new();
     this.filter = InputState.new({ placeholder: "Filter" });
     this.filter.on("change", (_e, cx) => { this.query = this.filter.value(); this.keepSelection(); cx.notify(); });
@@ -226,7 +229,21 @@ export default class Nav extends View {
     return true;
   }
 
+  // An agent's request (spec 005 via dock-follow's inbox): nav, reveal or follow.
+  takeRequest(cx) {
+    const q = shared("nav.request");
+    if (!q || q.at <= this.requestAt) return;
+    this.requestAt = q.at;
+    if (q.action === "follow") { this.relock(cx); return; }
+    this.follow = false;
+    if (q.action === "reveal") {
+      const name = q.path.split(/[\\/]/).filter(Boolean).pop();
+      this.go(parentOf(q.path), q.on ?? null, cx, { select: name });
+    } else this.go(q.path, q.on ?? null, cx);
+  }
+
   render(cx) {
+    this.takeRequest(cx);
     // Following: a focus change, tab switch or cd moves nav; a mod pane or dock block does not.
     const loc = terminalLocation();
     if (loc) this.last = loc;

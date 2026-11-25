@@ -24,6 +24,7 @@
 import { View, div } from "gpui-kit";
 import { focused, terminals, hc, exec, home, appHome, readTextFile, checking, nextCommand, notify, run, setWindowTitle, spaces, shared } from "herdr";
 import * as fs from "fs/promises";
+import { Inbox } from "./inbox.js"; // herdr-mods spec 005: agent requests
 
 let YAZI = "dock-yazi";
 let LAZYGIT = "dock-lazygit";
@@ -139,6 +140,7 @@ export default class DockFollow extends View {
     this.want = null;   // latest folder asked for
     this.busy = false;
     if (checking()) return;
+    this.inbox = new Inbox(cx);
     // Which session this window is, for the taskbar and KWin rules: both
     // windows share the app id "herdr-app", so the title tells them apart.
     setWindowTitle(/-work$/.test(appHome()) ? "Herdr (work)" : "Herdr (default)");

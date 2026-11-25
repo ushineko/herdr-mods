@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Show a file to the person in the Herdr window (spec 005 R6): in a viewer tab of the
+# space this terminal is in, or in its external app (Zettlr for Markdown by default).
+#
+# Usage: herdr-open [-v] [--external | --diff | --staged] PATH[:LINE]
+#   (default)    the file in a viewer tab (an open one is selected, not duplicated)
+#   --external   the file's external app, on the machine the file is on
+#   --diff       the file's working-tree diff in a viewer tab
+#   --staged     the file's staged diff
+#   A folder goes to nav instead.
+set -euo pipefail
+
+prog=${0##*/}
+die() { printf '%s: %s\n' "$prog" "$*" >&2; exit 1; }
+here="$(cd "$(dirname "$0")" && pwd)"
+
+mode=open verbose=false
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --external) mode=external; shift ;;
+    --diff) mode="diff"; shift ;;
+    --staged) mode=staged; shift ;;
+    -v) verbose=true; shift ;;
+    -h|--help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --) shift; break ;;
+    -*) die "unknown option: $1" ;;
+    *) break ;;
+  esac
+done
+[[ $# -eq 1 ]] || die "usage: $prog [--external | --diff | --staged] PATH[:LINE]"
+
+arg=$1 line=
+# PATH:LINE, unless the whole argument is a file name that exists.
+if [[ ! -e $arg && $arg =~ ^(.+):([1-9][0-9]*)$ ]]; then arg=${BASH_REMATCH[1]}; line=${BASH_REMATCH[2]}; fi
+[[ -e $arg ]] || die "no such file or folder: $arg"
+
+# Absolute, with symlinked folders resolved (as git and Herdr report them).
+if [[ -d $arg ]]; then path=$(cd -- "$arg" && pwd -P)
+else path="$(cd -- "$(dirname -- "$arg")" && pwd -P)/$(basename -- "$arg")"; fi
+
+extra=()
+[[ -n $line ]] && extra+=("line=$line")
+case $mode in
+  open) action=open; [[ -d $path ]] && action=nav ;;
+  external) action=external ;;
+  diff|staged)
+    [[ -f $path ]] || die "--$mode needs a file"
+    repo=$(git -C "$(dirname -- "$path")" rev-parse --show-toplevel 2>/dev/null) || die "not in a git repository: $path"
+    action="diff"; extra+=("repo=$repo")
+    [[ $mode == staged ]] && extra+=("staged=true") ;;
+esac
+
+"$here/herdr-request" "$action" "$path" ${extra[@]+"${extra[@]}"}
+if $verbose; then printf '%s: %s %s\n' "$prog" "$action" "$path"; fi

@@ -2,7 +2,22 @@
   "place": "none",
   "title": "Dock follower (yazi + lazygit follow the shown tab)",
   "palette": [
-    { "title": "Dock: follow the current tab now", "command": "dock-follow.sync", "words": "dock yazi lazygit cwd follow" },
-    { "title": "Resume Claude conversations lost to a restart", "command": "dock-follow.resume", "words": "claude resume restore reboot agents" }
+    {
+      "title": "Dock: follow the current tab now",
+      "command": "dock-follow.sync",
+      "words": "dock yazi lazygit cwd follow"
+    },
+    {
+      "title": "Resume Claude conversations lost to a restart",
+      "command": "dock-follow.resume",
+      "words": "claude resume restore reboot agents"
+    }
+  ],
+  "lib": [
+    "requests.js",
+    "open.js",
+    "filetype.js",
+    "external.js",
+    "external-open.js"
   ]
 }
