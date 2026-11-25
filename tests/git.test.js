@@ -4,7 +4,7 @@ import {
   parseStatus, parseNumstat, parseWorktrees, within, worktreeOf, placeAgent, lockedBy,
   stageArgs, unstageArgs, unstageAllArgs, pushArgs, pullArgs, fetchArgs, commitArgs,
   parseLog, ago, gitKeyAction, WRITES, parseCommit, parseCommitFiles, indexWorktrees, visibleWorktrees,
-  planCleanup, cdCommand, isShell, CLEANUP_SCAN_SH, parseCleanupScan, FOREIGN_SCAN_SH, parseForeignScan, DOCKER_CHOWN_SH,
+  planCleanup, cdCommand, isShell, CLEANUP_SCAN_SH, parseCleanupScan, FOREIGN_SCAN_SH, parseForeignScan, DOCKER_CHOWN_SH, DOCKER_PREFLIGHT_SH,
 } from "../lib/git.js";
 
 const z = (...recs) => recs.join("\0") + "\0";
@@ -257,4 +257,34 @@ test("DOCKER_CHOWN_SH refuses a path docker --mount cannot take", { skip: proces
   const r = spawnSync("sh", ["-c", DOCKER_CHOWN_SH, "fix", "/tmp/a,b"], { encoding: "utf8" });
   assert.equal(r.status, 2);
   assert.match(r.stderr, /comma/);
+});
+
+// A stand-in `docker` on PATH reports a given setup; the preflight accepts only the default.
+test("DOCKER_PREFLIGHT_SH accepts default Docker and refuses everything else", { skip: process.platform !== "linux" }, async () => {
+  const { spawnSync } = await import("node:child_process");
+  const { mkdtempSync, writeFileSync, chmodSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = mkdtempSync(join(tmpdir(), "herdr-docker-"));
+  try {
+    const run = ({ info = 'Arch Linux|["name=seccomp,profile=builtin","name=cgroupns"]', components = "Engine;containerd;", image = true } = {}) => {
+      writeFileSync(join(dir, "docker"), `#!/bin/sh
+case "$1" in
+  info) printf '%s\\n' '${info}';;
+  version) printf '%s\\n' '${components}';;
+  image) exit ${image ? 0 : 1};;
+esac
+`);
+      chmodSync(join(dir, "docker"), 0o755);
+      const r = spawnSync("sh", ["-c", DOCKER_PREFLIGHT_SH], { encoding: "utf8", env: { ...process.env, PATH: `${dir}:/usr/bin:/bin` } });
+      return [r.status, r.stderr.trim()];
+    };
+    assert.deepEqual(run(), [0, ""]);
+    assert.deepEqual(run({ info: 'Arch Linux|["name=seccomp","name=rootless"]' }), [3, "refused: Docker runs rootless; use the sudo command instead"]);
+    assert.deepEqual(run({ info: 'Arch Linux|["name=userns"]' })[1], "refused: Docker remaps user namespaces; use the sudo command instead");
+    assert.deepEqual(run({ info: 'Fedora Linux|["name=selinux"]' })[1], "refused: SELinux is on for Docker; use the sudo command instead");
+    assert.deepEqual(run({ info: 'Docker Desktop|[]' })[1], "refused: Docker Desktop; use the sudo command instead");
+    assert.deepEqual(run({ components: "Podman Engine;" })[1], "refused: this is Podman, not Docker; use the sudo command instead");
+    assert.deepEqual(run({ image: false })[1], "refused: the alpine image is not on this machine; use the sudo command instead");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

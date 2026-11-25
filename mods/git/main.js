@@ -7,7 +7,7 @@ import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { exec, hc, watchFolder, window, theme, settings, terminals, notify, nextCommand, checking, run, shared, setShared, props, openOverlay, closeOverlay, home, readTextFile } from "herdr";
 import {
   READ, parseStatus, parseNumstat, parseWorktrees, worktreeOf, placeAgent, lockedBy, within, WORKTREE_LABEL,
-  indexWorktrees, visibleWorktrees, planCleanup, CLEANUP_SCAN_SH, parseCleanupScan, FOREIGN_SCAN_SH, parseForeignScan, DOCKER_CHOWN_SH,
+  indexWorktrees, visibleWorktrees, planCleanup, CLEANUP_SCAN_SH, parseCleanupScan, FOREIGN_SCAN_SH, parseForeignScan, DOCKER_CHOWN_SH, DOCKER_PREFLIGHT_SH,
   stageArgs, unstageArgs, stageAllArgs, unstageAllArgs, commitArgs, pullArgs, pushArgs, fetchArgs,
   LOG_FORMAT, parseLog, ago, gitKeyAction, WRITES, COMMIT_FORMAT, parseCommit, parseCommitFiles,
 } from "./lib/git.js";
@@ -588,12 +588,22 @@ export default class Git extends View {
   async fixOwnership(cx, paths) {
     const { on, items } = props().cleanup;
     const note = (ok, text) => { (this.results ??= []).push({ ok, text }); logError(ok ? "fix ownership" : "fix ownership failed", text); cx.notify(); };
+    // Default Docker only; anything else is refused before a worktree is touched.
+    this.fixing = { path: null, n: 0, of: paths.length, phase: "checking Docker" };
+    cx.notify();
+    const pre = await exec("sh", ["-c", DOCKER_PREFLIGHT_SH], { on, timeout: 30000 }).catch((e) => ({ code: 1, stderr: String(e?.message ?? e) }));
+    if (pre.code !== 0) {
+      note(false, `Fix ownership ${(pre.stderr || pre.stdout || "").trim().split("\n").pop() || `refused (exit ${pre.code})`}`);
+      this.fixing = null;
+      cx.notify();
+      return;
+    }
     for (const [i, path] of paths.entries()) {
       this.fixing = { path, n: i + 1, of: paths.length };
       cx.notify();
       const r = await exec("sh", ["-c", DOCKER_CHOWN_SH, "fix", path], { on, timeout: 600000 }).catch((e) => ({ code: 1, stderr: String(e?.message ?? e) }));
       const msg = (r.stderr || r.stdout || "").trim().split("\n").pop();
-      if (r.code !== 0) note(false, `${path}: ${/No such image|pull access|not found/i.test(msg) ? "the alpine image is not on this machine (docker pull alpine)" : msg || `docker exited ${r.code}`}`);
+      if (r.code !== 0) note(false, `${path}: ${msg || `docker exited ${r.code}`}`);
     }
     this.fixing = { path: null, n: paths.length, of: paths.length };
     cx.notify();
@@ -720,7 +730,7 @@ export default class Git extends View {
       .child(div().flex_none().text_size(15).font_semibold().child(go.length ? `Remove ${picked.length} of ${go.length} worktree${go.length === 1 ? "" : "s"}?` : "Nothing to clean up"))
       .child(div().flex_none().text_size(12).text_color(t.muted).child(`Repository ${props().cleanup.root} · on ${props().cleanup.on ?? "this computer"} · ${plan.length} worktree${plan.length === 1 ? "" : "s"} checked`))
       .when(Boolean(this.fixing), (el) => el.child(div().flex_none().text_size(12).text_color(t.accent)
-        .child(this.fixing.path ? `Fixing ownership ${this.fixing.n} of ${this.fixing.of} (docker chown): ${this.fixing.path}` : "Checking file owners again…")))
+        .child(this.fixing.phase ? `Fix ownership: ${this.fixing.phase}…` : this.fixing.path ? `Fixing ownership ${this.fixing.n} of ${this.fixing.of} (docker chown): ${this.fixing.path}` : "Checking file owners again…")))
       .child(div().flex_none().text_size(11.5).text_color(t.dim).child("Only worktrees with every change committed and pushed (as of the last fetch), not locked, and not in use. Their branches are kept."))
       .child(v_flex().id("git-cleanup-list").flex_1().min_h(0).overflow_y_scrollbar().gap(4)
         .when(go.length > 0, (el) => el.child(h_flex().flex_none().pt(4).gap(10).items_center()
