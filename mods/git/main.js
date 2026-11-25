@@ -618,22 +618,31 @@ export default class Git extends View {
     // One worktree: branch and path; why it goes (or stays); its latest commit; shells moved.
     // flex_none: in the scrolling list below, items would otherwise shrink to their
     // borders (only the section headers stayed readable).
+    // Ticked and unticked must be told apart at a glance: a filled green box with a
+    // white check vs an empty outlined one, a label, a green edge, and fading.
+    const toggle = (p) => (_e, cx) => { if (this.running || this.done) return; if (this.chosen.has(p.path)) this.chosen.delete(p.path); else this.chosen.add(p.path); cx.notify(); };
     const checkbox = (p) => {
       const on = this.chosen.has(p.path);
-      return div().id(`git-cu-chk-${p.path}`).flex_none().size(16).mt(1).rounded(4).border_1().cursor_pointer()
-        .border_color(on ? t.accent : t.input).when(on, (el) => el.bg(t.accent))
-        .flex().items_center().justify_center().text_size(11).text_color(t.background)
-        .when(!this.running && !this.done, (el) => el.on_click((_e, cx) => { if (on) this.chosen.delete(p.path); else this.chosen.add(p.path); cx.notify(); }))
+      return div().flex_none().size(20).mt(1).rounded(5).border_2()
+        .border_color(on ? t.ansi2 : t.muted).when(on, (el) => el.bg(t.ansi2))
+        .flex().items_center().justify_center().text_size(13).font_bold().text_color("#ffffff")
         .child(on ? "✓" : "");
     };
-    const card = (p, going) => h_flex().flex_none().items_start().gap(8).p(8).rounded(7).border_1().border_color(t.border).bg(t.background)
-      .when(going && !this.chosen.has(p.path), (el) => el.opacity(0.55))
+    const card = (p, going) => h_flex().id(`git-cu-card-${p.path}`).flex_none().items_start().gap(10).p(8).rounded(7).border_1().bg(t.background)
+      .border_color(going && this.chosen.has(p.path) ? t.ansi2 : t.border)
+      .when(going && this.chosen.has(p.path), (el) => el.border_l(4))
+      .when(going && !this.chosen.has(p.path), (el) => el.opacity(0.4))
+      .when(going && !this.running && !this.done, (el) => el.cursor_pointer().on_click(toggle(p)))
       .when(going, (el) => el.child(checkbox(p)))
       .child(v_flex().flex_1().min_w(0).gap(3)
       // The branch on its own line, whole (long names wrap); the path under it.
-      .child(div().text_size(12.5).font_semibold().child(p.branch ?? "(detached)"))
+      .child(h_flex().gap(8).items_start()
+        .child(div().flex_1().min_w(0).text_size(12.5).font_semibold().child(p.branch ?? "(detached)"))
+        .when(going, (el) => el.child(div().flex_none().px(6).rounded(4).text_size(11).font_semibold()
+          .when(this.chosen.has(p.path), (x) => x.bg(t.ansi2).text_color("#ffffff").child("will be removed"))
+          .when(!this.chosen.has(p.path), (x) => x.bg(t.raised).text_color(t.muted).child("skipped")))))
       .child(div().min_w(0).truncate().text_size(11.5).text_color(t.dim).child(p.path))
-      .child(div().text_size(12).text_color(going ? t.ansi2 : t.blocked).child(going ? `✓ ${p.why}` : `kept: ${p.reason}`))
+      .child(div().text_size(12).text_color(going ? t.ansi2 : t.blocked).child(going ? `safe: ${p.why}` : `kept: ${p.reason}`))
       .when(Boolean(p.last), (el) => el.child(lastLine(p)))
       .when(going && p.shells.length > 0, (el) => el.children(p.shells.map((sh) =>
         div().text_size(11.5).text_color(t.muted).child(`shell ${sh.address} moves to ${p.parent}`)))));
