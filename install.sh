@@ -2,7 +2,8 @@
 # Copy this repo's mods into a Herdr app home as real folders.
 #
 # Herdr does not hot-reload a mod reached through a symlink, so the app home
-# gets copies; run this again after every edit (it only rewrites what changed).
+# gets copies; run this again after every edit. Files are compared by content,
+# so only mods whose files changed are rewritten (and reloaded).
 # Only the mods in ./mods are touched; Herdr's shipped mods are left alone.
 #
 # Usage: install.sh [--home DIR]... [--link DIR]... [MOD...]
@@ -46,7 +47,7 @@ for home in "${homes[@]}"; do
     dst="${home:?}/mods/${m:?}"
     # A symlinked copy never hot-reloads: replace it with a real folder.
     [[ -L "$dst" ]] && rm -- "$dst"
-    changed=$(rsync -a --delete --itemize-changes \
+    changed=$(rsync -rlpc --delete --itemize-changes \
       --exclude '*.d.ts' --exclude 'jsconfig.json' \
       "$repo/mods/$m/" "$dst/" | grep -c '^[<>c*]' || true)
     ((changed)) && printf 'installed %s (%s changed) -> %s\n' "$m" "$changed" "$home"
