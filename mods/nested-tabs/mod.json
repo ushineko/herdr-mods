@@ -6,7 +6,7 @@
     { "title": "Nested tabs: next tab", "command": "nested-tabs.next", "words": "stack nested tab next" },
     { "title": "Nested tabs: previous tab", "command": "nested-tabs.prev", "words": "stack nested tab previous" },
     { "title": "Nested tabs: close tab", "command": "nested-tabs.close", "words": "stack nested tab close" },
-    { "title": "Toggle yazi + lazygit panel (right)", "command": "nested-tabs.panel", "words": "panel yazi lazygit files git" },
-    { "title": "Toggle yazi + lazygit panel (below, portrait)", "command": "nested-tabs.panel-portrait", "words": "panel yazi lazygit files git portrait" }
+    { "title": "Toggle nav + git panel (right)", "command": "nested-tabs.panel", "words": "panel nav git files folder yazi lazygit" },
+    { "title": "Toggle nav + git panel (below, portrait)", "command": "nested-tabs.panel-portrait", "words": "panel nav git files folder portrait" }
   ]
 }

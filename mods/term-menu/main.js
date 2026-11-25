@@ -1,11 +1,11 @@
 // Terminal right-click menu for the terminals-dock layout ("terminal_menu").
 //
 // The shipped menu ("menu") only knows tab panes: for a terminal in a layout
-// block (the docks' yazi/lazygit/shells, the usage strip) it drops every pane
+// block (the docks' shells, the usage strip) it drops every pane
 // item and showed an almost empty popup. This mod:
 //   - a terminal in a tab pane: hands over to the shipped menu, sized to it;
-//   - a dock terminal: restart its yazi/lazygit, new / rename / close dock
-//     tab, hide the dock, and where its right-clicks go;
+//   - a dock terminal (a shell or agent added with "+"): new / rename / close
+//     dock tab, hide the dock, and where its right-clicks go;
 //   - any other block terminal (the usage strip): where its right-clicks go.
 // The app opens this at a fixed size, so the first copy reopens itself at
 // the pointer, sized to its items ({ sized: true }), and closes.
@@ -26,7 +26,6 @@ const TITLE = "nt.title";
 
 const dockOf = (pane) => DOCKS.find((d) => pane?.startsWith(`${d}-`) && pane !== `${d}-tabs` && pane !== `${d}-stack`) ?? null;
 const baseOf = (name) => (name && name.includes("/") ? name.slice(name.indexOf("/") + 1) : name ?? "");
-const toolOf = (name) => (/^dock-yazi(-|$)/.test(baseOf(name)) ? "yazi" : /^dock-lazygit(-|$)/.test(baseOf(name)) ? "lazygit" : null);
 
 function rightClickItem(term) {
   if (!term) return [];
@@ -41,14 +40,7 @@ function items(p) {
   const term = terminals().find((t) => t.address === tg.terminal);
   const dock = dockOf(tg.pane);
   if (!dock) return rightClickItem(term);
-  const tool = toolOf(term?.name);
   const out = [];
-  if (tool) out.push({
-    label: `Restart ${tool}`, icon: "spinner",
-    // Quit it; its restart loop starts it again. A pause after the escapes:
-    // an esc right before a key reads as Alt+key.
-    act: async (cx) => { await hc(["keys", term.address, "esc", "esc"]); await cx.sleep(150); await hc(["keys", term.address, "q"]); },
-  });
   out.push({ label: "New dock tab", icon: "plus", run: ["dock-tabs.add", {}] });
   if (term) out.push({
     label: "Rename dock tab…", icon: "square-pen",

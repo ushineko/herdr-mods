@@ -53,8 +53,8 @@ the panel should answer at a glance.
   `cd` inside its own commands), so the terminal's folder alone is not enough.
   Signals, first match wins:
   1. **Its label** `herdr-mods.worktree=<path>` (set by `herdr-nav --worktree`,
-     spec 005 R7a; `hc label`), read with `hc get` — `terminals()`, like
-     `hc ls`, does not carry labels (found 2026-11-24).
+     spec 005 R7a; `hc label`), read with `hc get` (which certainly has them;
+     `hc ls` shows none), `terminals()` labels as the fallback.
   2. **Its program's folder**: the agent process's current folder
      (`foreground.cwd` from the same `hc get`, as `dock-follow` reads it),
      refreshed with the status scan (R13), at most every 3 s per machine.
