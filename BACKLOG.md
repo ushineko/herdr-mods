@@ -24,8 +24,18 @@ a GitHub issue and a spec (`specs/NNN-…md`) when work starts.
   `/v1/sections/{key}/details/{id}` (hayami `docs/api.md`, "Details and drills").
   Wanted: open them from the block. `checkPath` will need the details path added to
   its allow-list, with each ID step percent-encoded.
-- **hayami-js, more** (not yet asked for): sparklines from the readings' trails; the
-  event stream (`/v1/events`) instead of polling.
+- **TODO: hayami-js sparklines** (operator, 2026-11-26: to be done later). The
+  readings carry recent values oldest first: an interface's `trail.rx` and
+  `trail.tx`, a probe's `trail` (its load). Draw them beside the figures, as
+  hayami's panel does (`internal/view/sparkline.go` there), at a fixed width so
+  nothing moves (glance rule).
+- **TODO: hayami-js on the event stream** (operator, 2026-11-26: to be done later).
+  `/v1/events?sections=a,b` sends each reading as it is made (Server-Sent Events),
+  where the block now runs a process every 5 s to poll. A mod's `exec` returns only
+  when its program ends, so a stream needs a long-running reader: for example a
+  herdr-core background terminal running curl into a file the mod reads, one per
+  machine, ended when the block stops following that machine. The stream is a new
+  path for `checkPath`'s allow-list.
 
 ## Ideas from spec 006 (not yet asked for)
 
