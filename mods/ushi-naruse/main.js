@@ -14,7 +14,7 @@ import * as fs from "fs/promises";
 import { Buffer } from "buffer";
 import { createHash } from "crypto";
 import { Transcript, summarize } from "./parse.js";
-import { subagentProgress, lastLines, elapsed } from "./lib/chat-tasks.js";
+import { subagentProgress, stopMessage, lastLines, elapsed } from "./lib/chat-tasks.js";
 import { plainText, quote, commandOf, menuFor, keepLineBreaks, joinLines } from "./lib/chat-text.js";
 import { Tail, locate, agentKind, machineOf, subagentLog } from "./source.js";
 import { catalog, launchArgv, modelName, switchModel } from "./models.js";
@@ -175,6 +175,7 @@ export default class Chat extends View {
     this.outputs = {};
     this.heights = {};
     this.seek = null;
+    this.stopping = new Set();
     this.images = {};
     this.attach = [];
     this.pending = []; // sent, not yet in the log: { text, files, users } (users: user messages the log had then)
@@ -1410,10 +1411,19 @@ export default class Chat extends View {
     if (r.code === 0) this.outputs[i.id] = { lines: lastLines(r.stdout, 30), final: false };
   }
 
+  // ushi-naruse (spec 009 R8): asks Claude to stop a background task (its TaskStop),
+  // once; busy or not, Claude reads the message at its next step.
+  stopTask(i, cx) {
+    if (i?.bg?.status !== "running" || this.stopping.has(i.id)) return;
+    this.stopping.add(i.id);
+    this.deliverCommand(stopMessage(i), cx);
+  }
+
   // What a running row says it is doing: a subagent's tool count and latest step,
   // a script's last line of output.
   progressOf(i) {
     if (i.bg && i.bg.status !== "running") return null;
+    if (this.stopping.has(i.id)) return "stopping…";
     const s = this.subs[i.id];
     if (s && (i.bg || i.result === null)) {
       const step = s.last ? ` · ${s.last.name}${s.last.summary ? " " + s.last.summary : ""}` : "";
@@ -1432,14 +1442,20 @@ export default class Chat extends View {
     return h_flex().w_full().justify_center().child(h_flex().w_full().max_w(COLUMN).px(6).gap(6).items_center()
       .text_size(tsz(12)).text_color(t.muted)
       .child(div().flex_none().text_color(t.dim).child(`Background ${list.length}`))
-      .children(list.slice(0, 3).map(({ item, key }) => h_flex().id(`bg-${item.id}`).min_w(0).gap(6).px(8).py(3).rounded(8)
-        .bg(t.surface).cursor_pointer().hover((s) => s.bg(t.hover))
-        .tooltip("Show it in the chat")
-        .on_click((_e, cx) => { this.open.add(key); this.seek = key; cx.notify(); })
-        .child(div().flex_none().text_color(t.working).frames(SPINNER, 90))
-        .child(div().flex_none().text_color(t.dim).child(item.bg.kind === "agent" ? "agent" : "script"))
-        .child(div().min_w(0).truncate().child(item.summary || item.name))
-        .child(div().flex_none().text_color(t.dim).child(elapsed(now - (item.bg.started ?? now))))))
+      .children(list.slice(0, 3).map(({ item, key }) => h_flex().min_w(0).items_center().rounded(8).bg(t.surface)
+        .child(h_flex().id(`bg-${item.id}`).min_w(0).gap(6).pl(8).pr(4).py(3).rounded(8).cursor_pointer().hover((s) => s.bg(t.hover))
+          .tooltip("Show it in the chat")
+          .on_click((_e, cx) => { this.open.add(key); this.seek = key; cx.notify(); })
+          .child(div().flex_none().text_color(t.working).frames(SPINNER, 90))
+          .child(div().flex_none().text_color(t.dim).child(item.bg.kind === "agent" ? "agent" : "script"))
+          .child(div().min_w(0).truncate().child(item.summary || item.name))
+          .child(div().flex_none().text_color(t.dim).child(this.stopping.has(item.id) ? "stopping…" : elapsed(now - (item.bg.started ?? now)))))
+        // Stop: Claude is asked to stop it (R8).
+        .when(!this.stopping.has(item.id), (el) => el.child(div().id(`bg-stop-${item.id}`).flex_none().px(6).py(3).rounded(8)
+          .cursor_pointer().text_color(t.dim).hover((s) => s.bg(t.hover).text_color(t.blocked))
+          .tooltip("Stop (asks Claude to stop it)")
+          .on_click((_e, cx) => { this.stopTask(item, cx); cx.notify(); })
+          .child("×")))))
       .when(list.length > 3, (el) => el.child(div().flex_none().text_color(t.dim).child(`+${list.length - 3} more`))));
   }
 
@@ -1781,6 +1797,7 @@ export default class Chat extends View {
     else if (id === "quote") { const v = this.input.value(); this.input.set_value(""); this.input.replace(quote(target.text) + v); this.input.focus(); }
     else if (id === "ask-side") { this.openSide(null, cx); this.sideInput.set_value(""); this.sideInput.replace(`About this part of the reply:\n${quote(target.text.slice(0, 600))}`); }
     else if (id === "show-terminal") this.showTerminal(cx);
+    else if (id === "stop-task") for (const i of target.kind === "tool" ? [target.item] : target.items ?? []) this.stopTask(i, cx);
     cx.notify();
   }
 

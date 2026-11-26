@@ -48,6 +48,15 @@ test("menuFor: entries per target; a selection comes first; no side chat without
   assert.deepEqual(menuFor(null), []);
 });
 
+test("menuFor: Stop for background work still running, and only then", () => {
+  const ids = (m) => m.map((x) => x.sep ? "|" : x.id);
+  const running = { bg: { status: "running" } }, done = { bg: { status: "completed" }, result: "r" };
+  assert.deepEqual(ids(menuFor({ kind: "tool", item: running })), ["copy-command", "|", "show-terminal", "|", "stop-task"]);
+  assert.ok(!ids(menuFor({ kind: "tool", item: done })).includes("stop-task"));
+  assert.equal(menuFor({ kind: "tools", items: [running, running, done] }).at(-1).label, "Stop 2 background tasks");
+  assert.ok(!ids(menuFor({ kind: "tools", items: [done, {}] })).includes("stop-task"));
+});
+
 test("unwrapPastes: the paste tags Claude Code logs go, the pasted text stays", () => {
   const logged = '\n\n<pasted_content id="b483">\n> a quoted reply\n\n(this is from the menu)\n</pasted_content id="b483">\n';
   assert.equal(unwrapPastes(logged), "> a quoted reply\n\n(this is from the menu)");

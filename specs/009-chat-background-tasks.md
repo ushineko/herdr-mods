@@ -62,6 +62,11 @@ chats are unchanged.
   clipped now), and its last non-blank line beside the summary while it runs. Read
   on the agent's machine (remote spaces included), at most every 2 s, only for
   running scripts and opened rows.
+- R8 **Stop from the chat.** A running background row's right-click menu offers
+  Stop (a group with several: "Stop N background tasks"), and each strip entry has a
+  ×. Stop sends Claude a message naming the task id and asking it to stop it with
+  TaskStop; the row says "stopping…" until it ends ("Stopped by Claude"). Sent once
+  per task; works whether Claude is busy (it reads it at its next step) or idle.
 - R6 The pure parts (recognising launches, parsing notifications, a subagent log's
   progress) live in `lib/` with unit tests; the chat only reads files and draws.
 - R7 Cross-platform as the rest of the chat: file reads through the same `exec`
@@ -80,6 +85,8 @@ chats are unchanged.
 - [ ] R4: a running subagent's row shows its tool count and latest step, changing
   as it works.
 - [ ] R5: an opened background script row shows its latest output while it runs.
+- [ ] R8: Stop from a row's menu and from the strip's × ends the task; the row
+  shows "stopping…", then stopped.
 - [ ] R6: unit tests for the lib helpers pass on macOS, Linux and Windows.
 - [ ] `herdr-app check` passes; `herdr-app status` shows no errors.
 

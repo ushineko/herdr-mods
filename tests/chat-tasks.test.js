@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { launchOf, stoppedBy, parseNotification, ended, subagentProgress, lastLines, elapsed } from "../lib/chat-tasks.js";
+import { launchOf, stoppedBy, parseNotification, ended, subagentProgress, stopMessage, lastLines, elapsed } from "../lib/chat-tasks.js";
 
 test("launchOf: background agents and scripts are recognised; ordinary results are not", () => {
   assert.deepEqual(
@@ -63,6 +63,13 @@ test("subagentProgress: counts its tool calls and names the latest; bad lines ar
   const sum = (i) => i.file_path ?? i.pattern ?? i.command;
   assert.deepEqual(subagentProgress(lines, sum), { tools: 3, last: { name: "Bash", summary: "ls" } });
   assert.deepEqual(subagentProgress([]), { tools: 0, last: null });
+});
+
+test("stopMessage: names the task id for TaskStop, and what it is", () => {
+  assert.equal(stopMessage({ summary: "Count  lines\nin lib", bg: { kind: "agent", task: "a63e" } }),
+    'Stop the background subagent "Count lines in lib" (task a63e) with TaskStop, then say so in one line.');
+  assert.equal(stopMessage({ summary: "", bg: { kind: "shell", task: "bq1" } }),
+    "Stop the background script (task bq1) with TaskStop, then say so in one line.");
 });
 
 test("lastLines and elapsed", () => {
