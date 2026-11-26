@@ -16,9 +16,16 @@ a GitHub issue and a spec (`specs/NNN-…md`) when work starts.
   helpers; Go helpers, worth it mainly for Windows (no python3 there; one .exe per
   machine, built or shipped).
 - **Fake fullscreen** (UX question raised, deferred).
-- **hayami-js, details and drills** (specs 010, 011 draw the sections only): the
-  service's details (a section's processes, peers, accounts) opened from the block;
-  sparklines from the readings' trails; the event stream instead of polling.
+- **TODO: hayami-js details and drills** (operator, 2026-11-26: to be done later).
+  Specs 010 and 011 draw the sections only. The service lists each section's
+  details (`details` in a Section: the cooler's cpu, gpu, memory and io; the
+  bandwidth's processes, peers and vpn; the usage's accounts and development
+  overview) and their drills below them (`children`, e.g. `cpu/firefox/4411`), at
+  `/v1/sections/{key}/details/{id}` (hayami `docs/api.md`, "Details and drills").
+  Wanted: open them from the block. `checkPath` will need the details path added to
+  its allow-list, with each ID step percent-encoded.
+- **hayami-js, more** (not yet asked for): sparklines from the readings' trails; the
+  event stream (`/v1/events`) instead of polling.
 
 ## Ideas from spec 006 (not yet asked for)
 
