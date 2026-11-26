@@ -336,12 +336,20 @@ export default class NestedTabs extends View {
     this.chats = [];
     this.handle = cx.focus_handle();
     this.handle.focus();
+    const where = props()?.on ?? "this computer";
+    // What the agent entries are waiting on, or why there are none (a remote
+    // machine's check can be slow, or fail): shown as a note in the menu.
+    this.agentNote = `Looking for agents on ${where}…`;
     cx.spawn(async (cx) => {
       const { base, menu, on } = props() ?? {};
       try {
         // The tab bar's + (menu "top") asks for its space's machine.
-        this.agents = (await knownAgents(menu === "top" ? { on: on ?? null } : undefined)).filter((a) => a.installed && a.run?.length).slice(0, 4);
-      } catch { this.agents = []; }
+        this.agents = (await (menu === "top" ? Chat.agentsOn(on ?? null) : knownAgents())).filter((a) => a.installed && a.run?.length).slice(0, 4);
+        this.agentNote = this.agents.length ? null : `No agents found on ${where}`;
+      } catch (e) {
+        this.agents = [];
+        this.agentNote = `Couldn't list agents on ${where}: ${String(e?.message ?? e).split("\n")[0].slice(0, 120)}`;
+      }
       cx.notify();
       this.chats = menu === "top" ? await Chat.optionsOn(on ?? null) : base ? await Chat.options(base) : [];
       cx.notify();
@@ -389,13 +397,14 @@ export default class NestedTabs extends View {
       { label: "New tab", icon: "terminal", act: () => run("tab.new", { space }) },
       ...this.agents.map((a) => ({ label: `New ${a.name} tab`, icon: "terminal", act: () => run("tab.new", { space, argv: a.run, ...(cwd ? { folder: cwd } : {}) }) })),
       ...this.chats.map((c) => ({ label: c.label, icon: "layers", act: () => Chat.openIn(space, on ?? null, cwd, c.run.join(" "), c.label.replace(/^New /, "")) })),
+      ...(this.agentNote ? [{ note: this.agentNote }] : []),
     ];
   }
 
   // Run the entry, then close: closing the popup cancels its pending calls,
   // so an async action (hc run, hc send) must finish first.
   choose(it, cx) {
-    if (!it || it.sep || this.busy) return;
+    if (!it || it.sep || it.note || this.busy) return;
     this.busy = true;
     const overlay = props()?.overlay;
     cx.spawn(async () => {
@@ -407,7 +416,7 @@ export default class NestedTabs extends View {
   renderMenu() {
     const t = theme();
     const items = this.menuItems();
-    const real = items.map((it, k) => (it.sep ? -1 : k)).filter((k) => k >= 0);
+    const real = items.map((it, k) => (it.sep || it.note ? -1 : k)).filter((k) => k >= 0);
     if (!real.includes(this.at)) this.at = real[0] ?? 0;
     return v_flex()
       .id("nt-menu")
@@ -428,7 +437,9 @@ export default class NestedTabs extends View {
       })
       .children(
         items.map((it, k) =>
-          it.sep
+          it.note
+            ? div().px(8).py(5).text_size(11.5).text_color(t.dim).child(it.note)
+          : it.sep
             ? div().mx(7).my(4).h(1).bg(t.border)
             : h_flex()
                 .id(`nt-mi-${k}`)

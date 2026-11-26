@@ -25,7 +25,7 @@ import {
   layout, terminals, focused, run, hc, exec, home, theme, shared, setShared, notify, window,
   openOverlay, closeOverlay, knownAgents, checking, props, nextCommand, spaces, machines,
 } from "herdr";
-import { chatEntries, newChatId, ID_LABEL } from "./lib/chat-entries.js";
+import { chatEntries, newChatId, ID_LABEL, AGENT_LOOKUP, parseAgentLookup, withLoginAgents, hasChatAgent } from "./lib/chat-entries.js";
 
 const ICON = (n) => `mods/dock-tabs/${n}.svg`;
 const DOCKS = ["dock-right", "dock-bottom"];
@@ -198,6 +198,12 @@ async function chatOptions(on) {
   if (platform === "windows") return [];
   let agents = [], python = false;
   try { agents = await knownAgents({ on }); } catch {}
+  // Another machine's answer can miss agents outside its core's PATH (Homebrew on
+  // macOS): its login shell is asked too, as nested-tabs' agentsOn does.
+  if (on && !hasChatAgent(agents)) {
+    const r = await exec("sh", ["-c", AGENT_LOOKUP], { on, timeout: 8000 }).catch(() => null);
+    agents = withLoginAgents(agents, parseAgentLookup(r?.stdout));
+  }
   try { python = (await exec("sh", ["-c", "command -v python3"], { on, timeout: 5000 })).code === 0; } catch {}
   return chatEntries({ platform, python, agents });
 }

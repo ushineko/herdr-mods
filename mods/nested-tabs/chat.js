@@ -6,7 +6,7 @@
 // it ends when the chat (or its tab) is closed (sweep).
 
 import { knownAgents, exec, hc, panes, spaces, terminals, run, window, notify, setShared } from "herdr";
-import { chatEntries, strayChats, orphanedHidden, toSettle, toRename, localId, newChatId, ID_LABEL, visibleNeighbour, CHAT_LABEL, HIDDEN_LABEL, OWNER_LABEL } from "./lib/chat-entries.js";
+import { chatEntries, strayChats, orphanedHidden, toSettle, toRename, localId, newChatId, ID_LABEL, visibleNeighbour, CHAT_LABEL, HIDDEN_LABEL, OWNER_LABEL, AGENT_LOOKUP, parseAgentLookup, withLoginAgents, hasChatAgent } from "./lib/chat-entries.js";
 
 const where = (base) => {
   const i = base.indexOf("/");
@@ -18,12 +18,29 @@ const pause = () => exec("sh", ["-c", "sleep 0.1"]);
 /** The "New … chat" entries for the machine `base` runs on; [] where the chat can't run. */
 export const options = (base) => optionsOn(where(base).on);
 
+/**
+ * knownAgents() for machine `on`; for another machine whose answer has no chat agent,
+ * also its login shell's: the app asks it with the environment its core started with,
+ * which on macOS lacks Homebrew's folder (claude there was missing from the menus).
+ */
+export async function agentsOn(on) {
+  let list = [], error = null;
+  try { list = await knownAgents({ on }); } catch (e) { error = e; }
+  if (on && !hasChatAgent(list)) {
+    const r = await exec("sh", ["-c", AGENT_LOOKUP], { on, timeout: 8000 }).catch(() => null);
+    const found = parseAgentLookup(r?.stdout);
+    if (Object.keys(found).length) return withLoginAgents(list, found);
+  }
+  if (error) throw error;
+  return list;
+}
+
 /** The "New … chat" entries for machine `on` (null: this computer). */
 export async function optionsOn(on) {
   const platform = window().platform;
   if (platform === "windows") return [];
   let agents = [], python = false;
-  try { agents = await knownAgents({ on }); } catch {}
+  try { agents = await agentsOn(on); } catch {}
   try { python = (await exec("sh", ["-c", "command -v python3"], { on, timeout: 5000 })).code === 0; } catch {}
   return chatEntries({ platform, python, agents });
 }

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chatEntries, strayChats, orphanedHidden, toSettle, toRename, localId, agentsToKeep, visibleNeighbour } from "../lib/chat-entries.js";
+import { chatEntries, strayChats, orphanedHidden, toSettle, toRename, localId, agentsToKeep, visibleNeighbour, parseAgentLookup, withLoginAgents } from "../lib/chat-entries.js";
 
 const claude = { key: "claude", name: "Claude Code", installed: true, run: ["claude"] };
 const codex = { key: "codex", name: "Codex", installed: true, run: ["codex", "--no-daemon"] };
@@ -128,4 +128,26 @@ test("closing the shown tab shows a visible neighbour, never a hidden terminal's
   assert.equal(visibleNeighbour(tabs, "chat"), "readme", "right past the hidden tab");
   assert.equal(visibleNeighbour([{ id: "x" }, { id: "h", settled: true }], "x"), null);
   assert.equal(visibleNeighbour(tabs, "nope"), null);
+});
+
+test("parseAgentLookup: absolute paths of the chat agents only", () => {
+  assert.deepEqual(parseAgentLookup("claude\t/opt/homebrew/bin/claude\ncodex\t\nnvim\t/usr/bin/nvim\nclaude2\tx\n"), { claude: "/opt/homebrew/bin/claude" });
+  assert.deepEqual(parseAgentLookup("claude\tclaude: aliased to foo\n"), {}, "not a path");
+  assert.deepEqual(parseAgentLookup(null), {});
+});
+
+test("withLoginAgents: a missing or uninstalled agent the login shell found becomes runnable by its path", () => {
+  const list = [
+    { key: "claude", name: "Claude Code", installed: false, run: ["claude"] },
+    { key: "nvim", name: "Neovim", installed: true, run: ["nvim"] },
+  ];
+  const out = withLoginAgents(list, { claude: "/opt/homebrew/bin/claude", codex: "/usr/local/bin/codex" });
+  assert.deepEqual(out.find((a) => a.key === "claude"), { key: "claude", name: "Claude Code", installed: true, run: ["/opt/homebrew/bin/claude"] });
+  assert.deepEqual(out.find((a) => a.key === "nvim"), list[1], "others untouched");
+  const codex = out.find((a) => a.key === "codex");
+  assert.equal(codex.name, "Codex");
+  assert.deepEqual([codex.installed, codex.run], [true, ["/usr/local/bin/codex"]]);
+  const ok = [{ key: "claude", name: "Claude Code", installed: true, run: ["claude", "--x"] }];
+  assert.deepEqual(withLoginAgents(ok, { claude: "/other/claude" }), ok, "one the app found stays as it is");
+  assert.deepEqual(withLoginAgents([], {}), []);
 });
