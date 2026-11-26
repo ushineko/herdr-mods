@@ -29,6 +29,13 @@ that macOS and Linux did not.
   5)" opening it. A core started in the desktop session is reachable from both
   sides. The fix: the task "herdr-core at logon" runs `herdr-core server start`
   hidden (`conhost --headless`) at sign-in, interactive and not elevated.
+- **Found after the spec closed (#49):** that task loses when another machine
+  connects before the sign-in (a crash restart, 2026-11-26: njv-cachyos 22 s after
+  boot, the sign-in 6 s later): `server start` saw the SSH-started core and did
+  nothing. Now two tasks, installed by `tools/windows/install-logon-tasks.ps1`:
+  "herdr-core take back" (at sign-in, elevated) stops a core in session 0, then
+  runs "herdr-core at logon" (on demand, not elevated), which starts the core in
+  the desktop session. Log: `%LOCALAPPDATA%\herdr-mods\herdr-core-take-back.log`.
 - **Machines:** `C:\Users\nvere\.ssh\config` has `njv-cachyos` and
   `njv-mbp-m1`/`mbp` over Tailscale with `njv_ssh_key` (backup `config.bak-herdr`).
   The Windows core has `njv-cachyos-default`, `njv-cachyos-work` (`--session

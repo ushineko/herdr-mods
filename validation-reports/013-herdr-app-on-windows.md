@@ -78,3 +78,21 @@ Rollback, item by item:
 - **Windows:** delete the task ("herdr-core at logon"), restore
   `.ssh\config.bak-herdr` and `keys.json.bak-default`, and uninstall the app from
   `%LOCALAPPDATA%\Programs\herdr-app`.
+
+## Addendum: the race at boot (#49)
+
+After an unplanned restart, njv-cachyos's SSH connection started an elevated core
+before the sign-in, and the logon task left it alone. Fixed with
+`tools/windows/install-logon-tasks.ps1`: an elevated sign-in task stops a
+session-0 core, then starts the unelevated task that starts the core in the desktop
+session.
+
+Checked on win11-kvm:
+- **The take-back by hand on the crash's leftover state (15:07):** it stopped
+  session 0's serve and hold (5320, 7432), and the core came up in session 1.
+- **A reboot (15:09):** the sign-in trigger ran, the core started in session 1,
+  the app opened with no errors, and njv-cachyos's connection attached at
+  15:09:37.
+
+Not yet seen in one go: a reboot where njv-cachyos connects before the sign-in and
+the task cleans up at sign-in.
