@@ -1,17 +1,17 @@
 // hayami (specs 010, 011): hayami's readings under the dock's nav and git, from the
 // hayami service (lib/hayami.js, hayami-js) on the machine the dock follows: the
-// focused terminal's, local or remote, as nav and git follow it. The sections shown
+// shown space's, local or remote. The sections shown
 // are chosen in the block (its header's button, or a right-click), one choice per
 // app home; side by side when the block is wide, one under another when narrow.
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { exec, window, theme, settings, checking, props, shared, setShared, run, openOverlay, closeOverlay, nextCommand } from "herdr";
+import { exec, window, theme, settings, checking, props, shared, setShared, run, openOverlay, closeOverlay, nextCommand, spaces } from "herdr";
 import {
   readings, usageRows, windowTail, leadWindow, otherFigures, quotaStatus,
   ORDER, TITLES, shownSections, due, arrange, blockHeight,
   bandwidthRows, coolerRows, peripheralRows, clockRow,
 } from "./lib/hayami.js";
-import { terminalLocation, fallbackLocation } from "./lib/location.js";
+import { shownSpace } from "./lib/location.js";
 
 const ROW = 20;
 const SECTIONS = "hayami.sections"; // shared: the shown section keys, per app home
@@ -40,6 +40,15 @@ async function platformOf(on) {
 
 const shown = () => shownSections(shared(SECTIONS));
 
+// The machine the dock follows: the shown space's. Every terminal in a space runs on
+// its machine, and a chat or a mod pane with focus (which has no terminal to ask)
+// is in that space too. undefined while no space is shown.
+function followedMachine() {
+  const id = shownSpace();
+  const space = id ? spaces().find((s) => s.id === id) : null;
+  return space ? space.machine ?? null : undefined;
+}
+
 function setSection(key, on) {
   const now = shown();
   const next = on ? [...now, key] : now.filter((k) => k !== key);
@@ -59,8 +68,8 @@ export default class Hayami extends View {
     this.last = {}; // key -> when it was last asked for (ms)
     this.failure = null; // { kind, message } of the last read, if it failed
     this.reading = false;
-    const loc = terminalLocation() ?? fallbackLocation();
-    if (loc) this.follow(loc.on, cx);
+    const on = followedMachine();
+    if (on !== undefined) this.follow(on, cx);
     if (checking()) return;
     // The palette's "hayami: show/hide <section>": idempotent, so every copy may act.
     cx.spawn(async (cx) => {
@@ -140,8 +149,8 @@ export default class Hayami extends View {
 
   render(cx) {
     if (props()?.menu) return this.renderMenu();
-    const loc = terminalLocation();
-    if (loc) this.follow(loc.on, cx);
+    const on = followedMachine();
+    if (on !== undefined) this.follow(on, cx);
     const t = theme();
     const mono = settings().font_family;
     const zoom = Number(settings().zoom) || 1;
@@ -196,24 +205,25 @@ export default class Hayami extends View {
     const s = this.sections[key];
     const note = (text, color = t.dim) => div().h(ROW).flex_none().truncate().text_color(color).child(text);
     // Its absences in one line that gives way to the title (a long one is cut short).
-    const absences = (s?.absences ?? []).map((a) => (a.detail ? `${a.text}, ${a.detail}` : a.text)).join(" · ");
-    const title = h_flex().h(ROW).flex_none().gap(8).items_center().text_size(11.5)
-      .child(div().flex_none().font_semibold().text_color(t.muted).child(TITLES[key]))
-      .child(div().flex_1().min_w(0).truncate().text_right().text_color(t.dim).child(absences));
-
+    let absences = (s?.absences ?? []).map((a) => (a.detail ? `${a.text}, ${a.detail}` : a.text)).join(" · ");
     let rows;
     if (!s && this.failure?.kind === "no-service") rows = [note(`${this.on ?? "this machine"}: hayami service not running`)];
     else if (!s && this.failure) rows = [note(this.failure.message, t.blocked)];
-    else if (!s) rows = [note(this.on === undefined ? "No terminal to follow" : "Reading…")];
+    else if (!s) rows = [note(this.on === undefined ? "No space shown" : "Reading…")];
     else if (key === "usage") {
       const u = usageRows(s);
       rows = u.accounts.length ? u.accounts.map((a, ai) => this.usageRow(t, mono, a, colWidth, `${ai}`))
         : [note(u.error ?? "No accounts", u.error ? t.blocked : t.dim)];
     } else {
       const lines = key === "clock" ? [clockRow(s)] : ROWS[key](s);
-      rows = lines.length ? lines.map((r, i) => this.line(t, mono, r, `${key}-${i}`))
+      // Nothing to list: why goes on the line, where it has room, not in the title.
+      if (!lines.length && !s.error && absences) { rows = [note(absences)]; absences = ""; }
+      else rows = lines.length ? lines.map((r, i) => this.line(t, mono, r, `${key}-${i}`))
         : [note(s.error ?? "Nothing to show", s.error ? t.blocked : t.dim)];
     }
+    const title = h_flex().h(ROW).flex_none().gap(8).items_center().text_size(11.5)
+      .child(div().flex_none().font_semibold().text_color(t.muted).child(TITLES[key]))
+      .child(div().flex_1().min_w(0).truncate().text_right().text_color(t.dim).child(absences));
     return { title, rows, lines: rows.length };
   }
 
