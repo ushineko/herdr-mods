@@ -8,5 +8,23 @@
   "cloned_from": {
     "name": "terminals-bar",
     "version": "0.1.18"
-  }
+  },
+  "palette": [
+    {
+      "title": "Tab: move left",
+      "command": "tab.move",
+      "args": {
+        "by": -1
+      },
+      "words": "tab move reorder left"
+    },
+    {
+      "title": "Tab: move right",
+      "command": "tab.move",
+      "args": {
+        "by": 1
+      },
+      "words": "tab move reorder right"
+    }
+  ]
 }

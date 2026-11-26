@@ -93,6 +93,7 @@ export default class NestedTabs extends View {
     if (c === "panel") await Panel.toggle(cx, "right", sizes);
     else if (c === "panel-portrait") await Panel.toggle(cx, "portrait", sizes);
     else if (c === "add") S.add(pane, base);
+    else if (c === "move-left" || c === "move-right") S.move(pane, base, S.shownOf(pane, base), c === "move-left" ? -1 : 1);
     // Chats (spec 008): a new chat (the first agent the + menu offers), Open as chat,
     // and the × (a chat's terminal hides behind it; anything else closes).
     else if (c === "chat") { const [e] = await Chat.options(base); if (e) await Chat.open(pane, base, e.run.join(" "), e.label.replace(/^New /, "")); }
@@ -239,13 +240,6 @@ export default class NestedTabs extends View {
         else if (this.over === m.address) this.over = null;
         cx.notify();
       })
-      .on_mouse_up("left", (_e, cx) => {
-        const from = this.drag;
-        this.drag = null;
-        this.over = null;
-        if (from && from !== m.address) S.reorder(pane, base, from, m.address);
-        cx.notify();
-      })
       .on_click((e) => {
         if (e.click_count >= 2) this.rename(m);
         else S.select(pane, base, m.address);
@@ -314,8 +308,15 @@ export default class NestedTabs extends View {
       .gap(6)
       .items_center()
       .on_click(() => run("pane.focus", { pane }))
+      // The drop: the window's mouse-up comes before the chip's own (seen in the tab
+      // bar), so the move is made here, onto the chip last hovered.
       .on_window_mouse_up("left", (_e, cx) => {
-        if (this.drag) { this.drag = null; this.over = null; cx.notify(); }
+        const from = this.drag, onto = this.over;
+        if (!from) return;
+        this.drag = null;
+        this.over = null;
+        if (onto && onto !== from) S.reorder(pane, base, from, onto);
+        cx.notify();
       })
       .child(
         h_flex()

@@ -171,6 +171,8 @@ export default class TerminalsBar extends View {
         ? raw.split("-").map((w) => w[0].toUpperCase() + w.slice(1)).join(" ")
         : raw;
       const same = (a, b) => a.toLowerCase().replace(/[^a-z0-9]/g, "") === b.toLowerCase().replace(/[^a-z0-9]/g, "");
+      // herdr-mods: dragged onto another tab, a tab takes its place (tab.move).
+      const target = this.drag && this.drag !== c.id && this.over?.id === c.id;
       // The shown tab reaches the bottom of the bar, open at the bottom, onto its pane;
       // the others are shorter and lifted off it.
       return own(h_flex())
@@ -185,6 +187,15 @@ export default class TerminalsBar extends View {
         .text_size(13)
         .when(c.active, (el) => el.h(BAR_H).rounded_t(11).border_t_1().border_l_1().border_r_1().border_color(edge))
         .when(!c.active, (el) => el.h(32).mt(BAR_H - 36).rounded(10).bg(C.tab).hover((s) => s.bg(C.hover)))
+        .when(target, (el) => el.border_1().border_color(t.accent))
+        .when(this.drag === c.id && Boolean(this.over) && this.over.id !== c.id, (el) => el.opacity(0.55))
+        .on_mouse_down("left", (_e, cx) => { cx.stop_propagation(); this.drag = c.id; this.over = null; })
+        .on_hover((hovered, cx) => {
+          if (!this.drag) return;
+          if (hovered) this.over = { id: c.id, index: c.index };
+          else if (this.over?.id === c.id) this.over = null;
+          cx.notify();
+        })
         .on_click(() => run("tab.select", { id: c.id }))
         .on_mouse_down("right", () =>
           openOverlay({ mod: "menu", kind: "popup", width: 200, props: { tab: "tab", target: { id: c.id, space: space.id } } }),
@@ -220,6 +231,16 @@ export default class TerminalsBar extends View {
       .size_full()
       .gap(8)
       .items_center()
+      // The drop: the window's mouse-up comes before the tab's own, so the move is
+      // made here, onto the tab last hovered; let go anywhere else, nothing moves.
+      .on_window_mouse_up("left", (_e, cx) => {
+        const from = this.drag, onto = this.over;
+        if (!from) return;
+        this.drag = null;
+        this.over = null;
+        if (onto && onto.id !== from) run("tab.move", { id: from, index: onto.index });
+        cx.notify();
+      })
       // macOS: the window buttons sit in the spaces bar above (the top row),
       // which leaves them room; none here.
       // (The space picker pill is gone: the spaces bar above shows every space.)
