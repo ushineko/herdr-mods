@@ -2,7 +2,7 @@
 
 **Issue**: #45
 
-## Status: INCOMPLETE
+## Status: COMPLETE
 
 ## Executive Summary
 
@@ -61,10 +61,12 @@ Python (operator's choice, 2026-11-26).
   conversation, its images (cache files written in full: 398,662 bytes, as on the
   Mac) and Send for a suggestion (operator). Unit tests: `imageSizeOf` (PNG, GIF,
   JPEG, three WebP kinds), `MERMAID_WINDOWS` the same as the viewer's command.
-  Not yet seen on Windows: copying a reply, Ctrl+V of a screenshot, the + picker,
-  Show/Hide terminal.
-- [ ] R3: a chat with Claude Code running on win11-kvm: the conversation, live
-  replies, the command menu and models, a side question.
+  Then also seen (operator, 2026-11-26): copying a reply, Ctrl+V of a screenshot,
+  the + picker, Show/Hide terminal.
+- [x] R3: a chat with Claude Code running on win11-kvm: the conversation, live
+  replies, the command menu and models, a side question. (Codex on Windows: its
+  bridge isn't ported, and the chat isn't offered for it; Codex isn't installed
+  there.)
   - [x] The conversation, with a Mermaid diagram (operator, 2026-11-26): the session
     lookup found `f23aa476…` (claude.exe, child of the pane's pwsh) and the chat
     followed its log (591,690 bytes); `mermaid-40186f75….png` drawn by mmdc
@@ -72,9 +74,11 @@ Python (operator's choice, 2026-11-26).
   - [x] The PowerShell scripts run directly against it: the sessions list, the
     bridge's `initialize` (commands came back), the log's size and a read from an
     offset, `Get-Content -Tail`.
-  - [ ] Seen in the window: live replies, the / menu, the model picker, `/btw`.
-- [ ] R4: `npm test` on macOS, `./run-tests.sh` on Linux, `tools/test-windows.sh`;
-  a chat on the Mac and on njv-cachyos still works.
+  - [x] Seen in the window (operator, 2026-11-26): live replies, the / menu, the
+    model picker, `/btw`.
+- [x] R4: `npm test` on macOS (274 pass), `./run-tests.sh` on Linux (275 pass),
+  `tools/test-windows.sh` (288 tests: 270 pass, 18 skipped, 0 fail); chats on the Mac
+  and on njv-cachyos still work (this work was driven through them).
 
 ## Test approach
 
