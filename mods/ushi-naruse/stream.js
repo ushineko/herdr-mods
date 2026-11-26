@@ -13,6 +13,18 @@ const STATUS = /^• (Working|Waiting|Interrupted)\b/;
 // command…", "Read 2 files"): a command running, not text.
 const SUMMARY = /^(Running|Ran|Reading|Read|Searching|Searched|Listing|Listed|Writing|Wrote|Editing|Edited|Updating|Updated|Fetching|Fetched|Calling|Called|Creating|Created|Stopping|Stopped)\b.*\b(commands?|files?|patterns?|director(y|ies)|tools?|agents?|pages?|tasks?|searches)\b|^\d+ tool calls?\b/i;
 
+// ushi-naruse: Claude Code's notices above its message box ("Update available! Run:
+// brew upgrade claude-code") are pushed to the right; a reply is indented 2 columns.
+const NOTICE = /^\s{20,}\S|^\s*(Update available!|Auto-update|✓ Update installed|Auto-updat)/;
+
+/** The screen's lines above Claude Code's notices that sit over its message box. */
+function beforeNotices(lines, end) {
+  let e = end;
+  while (e > 0 && (!lines[e - 1].trim() || NOTICE.test(lines[e - 1]))) e--;
+  // Only the notices go: blank lines between text and the box stay out of it anyway.
+  return lines.slice(e, end).some((l) => l.trim()) ? e : end;
+}
+
 // { kind: "text", text } | { kind: "run", title, out: [lines], time } | null
 export function live(screen, kind) {
   const k = kind === "codex" ? CODEX : CLAUDE;
@@ -21,6 +33,7 @@ export function live(screen, kind) {
   let end = lines.length;
   if (kind === "codex") { for (let i = lines.length - 1; i >= 0; i--) if (/^› /.test(lines[i])) { end = i; break; } }
   else for (let i = lines.length - 1; i > 0; i--) if (/^─{10,}/.test(lines[i]) && /^❯/.test(lines[i + 1] ?? "")) { end = i; break; }
+  if (kind !== "codex") end = beforeNotices(lines, end);
   // This turn: after the last message sent.
   let from = 0;
   for (let i = end - 1; i >= 0; i--) if (k.prompt.test(lines[i])) { from = i + 1; break; }
