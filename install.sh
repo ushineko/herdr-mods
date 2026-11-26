@@ -11,6 +11,9 @@
 # The agent commands (./bin) and Claude Code skills (./skills) are symlinked, not
 # copied (they need no hot reload): into ~/.local/bin and ~/.claude/skills.
 #
+# Needs bash, coreutils and node only (no rsync or python3), so it runs the same
+# on macOS, Linux and Windows (Git Bash; there with --no-agent, spec 013).
+#
 # Usage: install.sh [--home DIR]... [--link DIR]... [--bin DIR] [--skills DIR] [--no-agent] [MOD...]
 #   --home DIR    app home to copy into (repeatable; default ~/.config/herdr-app)
 #   --link DIR    app home that gets symlinks to the first --home's copies
@@ -56,9 +59,35 @@ done
 
 # The lib/ files a mod lists in mod.json ("lib": ["a.js", ...]), one per line.
 mod_libs() {
-  python3 -c 'import json, sys
-for f in json.load(open(sys.argv[1])).get("lib", []):
-    print(f)' "$1"
+  node -e 'for (const f of JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).lib ?? []) console.log(f)' "$1"
+}
+
+# Files the app writes into a mod folder itself (type definitions), never copied
+# nor removed.
+kept() { [[ $1 == *.d.ts || $(basename -- "$1") == jsconfig.json ]]; }
+
+# Makes folder $2 hold exactly what folder $1 holds, comparing by content: a file
+# is copied only when it differs, and a file $1 doesn't have is removed (kept()
+# files aside). Prints how many files it changed.
+sync_dir() {
+  local src=$1 dst=$2 n=0 f
+  mkdir -p -- "$dst"
+  while IFS= read -r -d '' f; do
+    f=${f#./}
+    kept "$f" && continue
+    if ! cmp -s -- "$src/$f" "$dst/$f"; then
+      mkdir -p -- "$(dirname -- "$dst/$f")"
+      cp -p -- "$src/$f" "$dst/$f"
+      n=$((n + 1))
+    fi
+  done < <(cd "$src" && find . -type f -print0)
+  while IFS= read -r -d '' f; do
+    f=${f#./}
+    kept "$f" && continue
+    if [[ ! -f "$src/$f" ]]; then rm -f -- "$dst/$f"; n=$((n + 1)); fi
+  done < <(cd "$dst" && find . -type f -print0)
+  find "$dst" -mindepth 1 -type d -empty -delete
+  printf '%s\n' "$n"
 }
 
 # Each mod is assembled in a staging folder (its own files plus its lib/
@@ -66,7 +95,8 @@ for f in json.load(open(sys.argv[1])).get("lib", []):
 stage=$(mktemp -d)
 trap 'rm -rf -- "${stage:?}"' EXIT
 for m in "${mods[@]}"; do
-  rsync -a --exclude '*.d.ts' --exclude 'jsconfig.json' "$repo/mods/$m/" "$stage/$m/"
+  mkdir -p "$stage/$m"
+  cp -R "$repo/mods/$m/." "$stage/$m/"
   while IFS= read -r f; do
     [[ -n "$f" ]] || continue
     [[ "$f" != */* && -f "$repo/lib/$f" ]] || die "$m: lib file not found: lib/$f"
@@ -82,9 +112,7 @@ for home in "${homes[@]}"; do
     dst="${home:?}/mods/${m:?}"
     # A symlinked copy never hot-reloads: replace it with a real folder.
     [[ -L "$dst" ]] && rm -- "$dst"
-    changed=$(rsync -rlpc --delete --itemize-changes \
-      --exclude '*.d.ts' --exclude 'jsconfig.json' \
-      "$stage/$m/" "$dst/" | grep -c '^[<>c*]' || true)
+    changed=$(sync_dir "$stage/$m" "$dst")
     ((changed)) && printf 'installed %s (%s changed) -> %s\n' "$m" "$changed" "$home"
   done
 done
