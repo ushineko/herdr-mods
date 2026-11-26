@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { plainText, quote, commandOf, menuFor, unwrapPastes, keepLineBreaks, joinLines, sentHistory, recallStep, panelLinks, linkBareUrls } from "../lib/chat-text.js";
+import { plainText, quote, commandOf, menuFor, unwrapPastes, keepLineBreaks, joinLines, sentHistory, recallStep, panelLinks, linkBareUrls, literalMarkdown, plainSpaces } from "../lib/chat-text.js";
 
 test("plainText drops Markdown marks and keeps words, code and line breaks", () => {
   const md = [
@@ -141,4 +141,11 @@ test("linkBareUrls: bare URLs become links; code, links and trailing punctuation
   assert.equal(linkBareUrls("run `curl https://example.com` here"), "run `curl https://example.com` here");
   assert.equal(linkBareUrls("```\nhttps://example.com\n```\nhttps://b.example"), "```\nhttps://example.com\n```\n<https://b.example>");
   assert.equal(linkBareUrls("no links"), "no links");
+});
+
+test("literalMarkdown: Markdown characters escaped, indents and blank lines kept, hard breaks", () => {
+  assert.equal(literalMarkdown("# not a heading"), "\\# not a heading");
+  assert.equal(literalMarkdown("a*b*_c_ [x](y) `z` <i> 1. 2 - 3 & 4"), "a\\*b\\*\\_c\\_ \\[x\\]\\(y\\) \\`z\\` \\<i\\> 1\\. 2 \\- 3 &amp; 4");
+  assert.equal(literalMarkdown("top\n  in\n\n\tdeep  x"), "top\\\n  in\\\n \\\n    deep  x");
+  assert.equal(plainSpaces("  in  x"), "  in  x");
 });

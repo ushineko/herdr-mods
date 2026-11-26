@@ -18,7 +18,7 @@ import { subagentProgress, stopMessage, lastLines, elapsed } from "./lib/chat-ta
 import { contextMeter } from "./lib/chat-context.js";
 import { MERMAID_SH, MERMAID_WINDOWS, mermaidTheme, mermaidFailure } from "./lib/mermaid.js";
 import { powershell, win } from "./lib/powershell.js";
-import { plainText, quote, commandOf, menuFor, keepLineBreaks, joinLines, sentHistory, recallStep, panelLinks, linkBareUrls } from "./lib/chat-text.js";
+import { plainText, quote, commandOf, menuFor, keepLineBreaks, joinLines, sentHistory, recallStep, panelLinks, linkBareUrls, literalMarkdown, plainSpaces } from "./lib/chat-text.js";
 import { Tail, locate, agentKind, machineOf, subagentLog, onAgent } from "./source.js";
 import { catalog, launchArgv, modelName, switchModel } from "./models.js";
 import { emojify, PICKER, emojiMatches } from "./emoji.js";
@@ -2303,10 +2303,30 @@ export default class Chat extends View {
     // ushi-naruse: a selection is copied when it settles (the pointer released, a double
     // or triple click), as the herdr TUI does; the right-click menu's Copy stays.
     // Bare URLs are made links (linkBareUrls), which a click opens, shift-click too.
-    return TextView.markdown(id, keepLineBreaks(linkBareUrls(text))).selectable(true).on_selection_change((sel, cx) => {
-      this.selection = sel?.text || null;
-      if (this.selection) cx.write_to_clipboard(this.selection);
-    });
+    return TextView.markdown(id, keepLineBreaks(linkBareUrls(text))).selectable(true).on_selection_change((sel, cx) => this.selected(sel, cx));
+  }
+
+  // ushi-naruse: text shown exactly as written (tool output), selectable like the rest.
+  literal(id, text) {
+    return TextView.markdown(id, literalMarkdown(text)).selectable(true).raw_html(false).on_selection_change((sel, cx) => this.selected(sel, cx));
+  }
+
+  // A settled selection: kept for the right-click menu's Copy, and copied now, which a
+  // "Copied" pill over the bottom of the chat says for a moment (copiedPill).
+  selected(sel, cx) {
+    this.selection = sel?.text ? plainSpaces(sel.text) : null;
+    if (!this.selection) return;
+    cx.write_to_clipboard(this.selection);
+    const copied = this.copied = { n: [...this.selection].length, at: Date.now() };
+    cx.timer.after(1400, (cx) => { if (this.copied === copied) { this.copied = null; cx.notify(); } });
+    cx.notify();
+  }
+
+  copiedPill(t) {
+    const n = this.copied?.n ?? 0;
+    return div().absolute().bottom(10).left(0).right(0).flex().justify_center()
+      .child(div().px(12).py(4).rounded_full().bg(t.popover).border_1().border_color(t.border).shadow_md()
+        .text_size(tsz(12)).text_color(t.foreground).child(n > 1 ? `Copied · ${n} characters` : "Copied"));
   }
 
   // A row whose height is kept (spec 009: scrolling to a row).
@@ -2514,11 +2534,12 @@ export default class Chat extends View {
         .child(progress ?? i.bg.summary)))
       .when(i.images.length > 0, (el) => el.child(h_flex().flex_wrap().gap(6).children(i.images.map((im) => this.img(im.ref, t, 280, 200)))))
       .when(result.join("").trim() !== "", (el) => el.child(
-        // ushi-naruse: plain monospace lines, since a Markdown code block keeps its own (larger) size.
+        // ushi-naruse: monospace text, not a Markdown code block, which keeps its own (larger) size.
         v_flex().px(10).py(8).rounded(6).border_1().border_color(i.error ? t.blocked : t.border).bg(t.surface)
           .text_size(tsz(TOOL_OUTPUT)).text_color(t.muted)
           .when(Boolean(settings().font_family), (d) => d.font_family(settings().font_family))
-          .children(clipped.map((l) => div().child(l || " ")))));
+          // ushi-naruse: selectable, still as written (lib/chat-text.js literalMarkdown).
+          .child(this.literal(`out-${key}-${n}`, clipped.join("\n")))));
   }
 
   // Model and effort picks, for a new chat or the running one.
@@ -2781,7 +2802,8 @@ export default class Chat extends View {
     const scroll = div().id("scroll").relative().flex_1().min_h(0).overflow_hidden()
       .on_size_change((size, cx) => { this.viewH = size.height; this.width = size.width; this.clamp(); cx.notify(); })
       .on_scroll_wheel((e, cx) => { this.off += e.delta.y; this.clamp(); cx.notify(); })
-      .child(content);
+      .child(content)
+      .when(Boolean(this.copied), (el) => el.child(this.copiedPill(t)));
 
     // ushi-naruse (R15): your last message, pinned at the top once its top scrolls out
     // of view (it stays in place below). Heights arrive zoomed; the scroll offset is
