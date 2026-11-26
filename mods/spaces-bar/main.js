@@ -20,15 +20,61 @@
 
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, v_flex, ScrollHandle } from "gpui-base";
-import { spaces, terminals, run, theme, props, openOverlay, closeOverlay, hc, window as win } from "herdr";
+import { spaces, terminals, run, theme, props, openOverlay, closeOverlay, hc, exec, home, appHome, shared, setShared, window as win } from "herdr";
 import { allAgents, worst, focusAgent, ORDER, RANK } from "./agents.js";
 import { machineColor } from "./lib/machine-color.js";
-import { inboxSections, inboxBadge, inboxRow } from "./lib/inbox.js";
+import { inboxSections, inboxBadge, inboxRow, sessionOfHome, homeOfSession, parseSiblings } from "./lib/inbox.js";
+
+// The other windows on this computer (another herdr-core session with its window
+// open: njv-cachyos's default and work) and their agents, for the inbox: its own and
+// those on the machines its core has added (so a window whose core has none still
+// hears of them). One JSON line per window: { session, home, agents: [hc get, ...] },
+// agents that aren't idle only. A session is asked only when its core's socket and its window's are there:
+// asking hc about a session that isn't running would start a core for it. POSIX.
+const SIBLINGS = String.raw`
+import glob, json, os, subprocess, sys
+own, config = sys.argv[1], sys.argv[2]
+hc = os.path.expanduser("~/.local/bin/hc")
+if not os.path.exists(hc): hc = "hc"
+for sock in sorted(glob.glob("/run/user/%d/herdr-core/*.sock" % os.getuid())):
+    name = os.path.basename(sock)[:-5]
+    if ".holder." in name or name == own: continue
+    home = os.path.join(config, "herdr-app" if name == "default" else "herdr-app-" + name)
+    if not os.path.exists(os.path.join(home, "herdr-app.sock")): continue
+    env = dict(os.environ, HC_SESSION=name)
+    run = lambda *a: subprocess.run([hc, *a, "--json"], env=env, capture_output=True, text=True, timeout=8).stdout
+    try: terms = json.loads(run("ls")).get("terminals", [])
+    except Exception: continue
+    agents = []
+    for t in terms:
+        if t.get("status") not in ("blocked", "done", "working", "error"): continue
+        try: agents.append(json.loads(run("get", t["address"])))
+        except Exception: pass
+    print(json.dumps({"session": name, "home": home, "agents": agents}))
+`;
 
 // A machine's colour among the machines this window shows (lib/machine-color.js).
 const colorOf = (machine) => machineColor(machine, spaces().map((s) => s.machine));
 
 const ICON = (n) => `mods/spaces-bar/${n}.svg`;
+// The other windows on this computer and their agents (see SIBLINGS). Shared state
+// belongs to this window's app home, so each window keeps its own list.
+const SIBLINGS_KEY = "spaces-bar.siblings";
+// Agents on a machine this window has added itself are left out: its own inbox has them.
+const siblings = () => {
+  const mine = new Set(spaces().map((s) => s.machine).filter(Boolean));
+  const list = Array.isArray(shared(SIBLINGS_KEY)) ? shared(SIBLINGS_KEY) : [];
+  return list.map((w) => ({ ...w, agents: w.agents.filter((a) => !a.machine || !mine.has(a.machine)) }));
+};
+// Runs the app commands in $2 (lines "<command> <json args>", lib/inbox.js showSteps)
+// in the window of app home $1 (session $3), in order, and raises that window.
+const RAISE = String.raw`H=$(command -v herdr-app || echo "$HOME/.local/bin/herdr-app")
+printf '%s
+' "$2" | while read -r cmd args; do HERDR_APP_HOME="$1" "$H" do "$cmd" "$args" >/dev/null 2>&1; done
+L=$(command -v herdr-app-session || echo "$HOME/.local/bin/herdr-app-session")
+if [ -x "$L" ]; then HERDR_APP_HOME="$1" HC_SESSION="$3" nohup "$L" "$3" >/dev/null 2>&1 &
+else HERDR_APP_HOME="$1" HC_SESSION="$3" nohup "$H" >/dev/null 2>&1 &
+fi`;
 // Text on a machine's filled chip: dark, as every machine colour is light.
 const ON_COLOR = "#0b0d10";
 const GLYPH = { blocked: "✕", done: "✓", idle: "○" };
@@ -90,6 +136,19 @@ export default class SpacesBar extends View {
     this.revealed = null;
     this.view = 0;
     this.wheelAcc = 0;
+    // The other windows' agents (SIBLINGS), every 5 s, kept in shared state so the
+    // inbox's dropdown (another copy of this mod) reads the same list.
+    if (win()?.platform !== "windows") cx.spawn(async (cx) => {
+      for (;;) {
+        const own = sessionOfHome(appHome());
+        if (own) {
+          const r = await exec("python3", ["-c", SIBLINGS, own, `${home()}/.config`], { timeout: 20000 }).catch(() => null);
+          const list = r?.code === 0 ? parseSiblings(r.stdout) : [];
+          if (JSON.stringify(list) !== JSON.stringify(shared(SIBLINGS_KEY) ?? [])) setShared(SIBLINGS_KEY, list);
+        }
+        await cx.sleep(5000);
+      }
+    });
   }
 
   // ---- bar ------------------------------------------------------------------
@@ -276,7 +335,8 @@ export default class SpacesBar extends View {
   // finished unseen; its dropdown lists Needs you, Done and Working on every machine.
 
   inboxButton(t, agents) {
-    const badge = inboxBadge(agents);
+    // This window's agents and the other windows' on this computer.
+    const badge = inboxBadge([...agents, ...siblings().flatMap((w) => w.agents)]);
     const tip = badge?.kind === "needs" ? `${badge.count} agent${badge.count > 1 ? "s" : ""} waiting for you`
       : badge ? `${badge.count} agent${badge.count > 1 ? "s" : ""} finished` : "Inbox: nothing needs you";
     return own(div())
@@ -308,7 +368,13 @@ export default class SpacesBar extends View {
 
   renderInbox() {
     const t = theme();
-    const sections = this.inboxRows();
+    // This window's sections, then one per other window on this computer ("Work
+    // window"), its agents most urgent first; their rows show the agent over there.
+    const order = { blocked: 0, done: 1, working: 2 };
+    const sections = [...this.inboxRows(), ...siblings().filter((w) => w.agents.length).map((w) => ({
+      status: "window", title: w.title, window: w,
+      agents: [...w.agents].sort((a, b) => (order[a.status] ?? 3) - (order[b.status] ?? 3)).map((a) => ({ ...a, window: w })),
+    }))];
     const flat = sections.flatMap((s) => s.agents);
     if (this.at >= flat.length) this.at = Math.max(0, flat.length - 1);
     let k = -1;
@@ -324,7 +390,7 @@ export default class SpacesBar extends View {
         const n = Math.max(1, flat.length);
         if (e.key === "down") this.at = (this.at + 1) % n;
         else if (e.key === "up") this.at = (this.at - 1 + n) % n;
-        else if (e.key === "enter") this.choose(flat[this.at]);
+        else if (e.key === "enter") this.chooseInbox(flat[this.at]);
         else if (e.key === "escape") closeOverlay(props().overlay);
         else return;
         cx.notify();
@@ -348,7 +414,7 @@ export default class SpacesBar extends View {
             .text_color(t.foreground)
             .when(i === this.at, (el) => el.bg(t.selected))
             .hover((x) => x.bg(t.hover))
-            .on_click(() => this.choose(a))
+            .on_click(() => this.chooseInbox(a))
             .child(div().pt(2).child(glyph(t, a.status)))
             .when(Boolean(programIcon(a, t.foreground)), (el) => el.child(div().pt(2).child(programIcon(a, t.foreground))))
             .child(v_flex().flex_1().min_w(0).gap(2)
@@ -357,8 +423,22 @@ export default class SpacesBar extends View {
                 .when(Boolean(a.project), (el) => el.child(tag(a.project, t.muted, t.raised)))
                 .when(Boolean(a.machine), (el) => el.child(tag(a.machine, mc, mc + "26"))))
               .child(div().truncate().text_size(11.5).text_color(a.status === "blocked" ? t.blocked : t.dim)
-                .child(a.doing || a.spaceName || "")));
+                .child(a.doing || a.spaceName || a.where || "")));
         }))));
+  }
+
+  // An inbox row: this window's agent is shown here; another window's is shown there
+  // (its steps, lib/inbox.js showSteps: a chat's agent as its chat, through that
+  // window's CLI), and that window raised: launching the app again
+  // with an open window's home only raises it. Through njv-cachyos's session launcher
+  // when there is one (each session runs its own copy of the app), with the session's
+  // home and core.
+  chooseInbox(a) {
+    if (!a) return;
+    if (!a.window) return this.choose(a);
+    closeOverlay(props()?.overlay);
+    const steps = (a.steps ?? [["agent.focus", { terminal: a.address }]]).map(([c, args]) => `${c} ${JSON.stringify(args)}`).join("\n");
+    exec("sh", ["-c", RAISE, "sh", a.window.home, steps, a.window.session]).catch(() => {});
   }
 
   // ---- agent picker -------------------------------------------------------------
