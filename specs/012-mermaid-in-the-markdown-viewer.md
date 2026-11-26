@@ -2,7 +2,7 @@
 
 **Issue**: #30
 
-## Status: INCOMPLETE
+## Status: COMPLETE
 
 ## Executive Summary
 
@@ -62,19 +62,29 @@ that doesn't parse leaves the code block, with a note saying why.
 
 ## Acceptance Criteria
 
-- [ ] R1: unit tests: a mermaid fence becomes one diagram block between text
+- [x] R1: unit tests: a mermaid fence becomes one diagram block between text
   blocks; tilde fences and long fences work; a `mermaid` fence inside another fence
-  stays text.
-- [ ] R2/R4: a Markdown file with a flowchart and a sequence diagram shows both
+  stays text. (`tests/mermaid.test.js`; an unclosed fence stays code too.)
+- [x] R2/R4: a Markdown file with a flowchart and a sequence diagram shows both
   drawn in the viewer, on njv-mbp-m1 and on njv-cachyos; reopening draws nothing
-  again (cached); a click opens the picture zoomable.
-- [ ] R3: the diagrams follow a dark theme (dark) and a light one (light).
-- [ ] R5: a broken diagram shows its code and Mermaid's error line; with `mmdc`
-  not found, the note says Mermaid isn't installed.
-- [ ] R6/R7: unit tests for the command lines (POSIX and Windows) and theme
-  choice pass on macOS, Linux and Windows.
-- [ ] R8: VENDOR.md lists the changes.
-- [ ] `herdr-app check` passes; `herdr-app status` shows no errors (both machines).
+  again (cached); a click opens the picture zoomable. (Operator's
+  `sysadmin/docs/home-network.md`, two diagrams: drawn on njv-cachyos at 21:21 and
+  on the Mac at 21:39, `mermaid-37rdpg.png` and `mermaid-1a1xzu4.png` in each
+  cache, screenshot on the Mac; the click to zoom confirmed by the operator. Drawn
+  once per key: the real render script's cache test in `tests/mermaid.test.js`.)
+- [x] R3: the diagrams follow a dark theme (dark) and a light one (light). (Dark:
+  seen on both machines. Light: the theme choice is unit-tested (`mermaidTheme`);
+  not checked in the window, by the operator's call: no light theme in use.)
+- [x] R5: a broken diagram shows its code and Mermaid's error line; with `mmdc`
+  not found, the note says Mermaid isn't installed. (The broken diagram confirmed
+  by the operator; the error wording from `mmdc`'s real stderr is unit-tested. Not
+  installed: unit-tested only (`mermaidFailure`, exit 127), not seen in the window,
+  since both machines have `mmdc`.)
+- [x] R6/R7: unit tests for the command lines (POSIX and Windows) and theme
+  choice pass on macOS, Linux and Windows. (The mod's command with Herdr's bare
+  PATH on the Mac found Homebrew's `mmdc` and drew in 0.8 s.)
+- [x] R8: VENDOR.md lists the changes.
+- [x] `herdr-app check` passes; `herdr-app status` shows no errors (both machines).
 
 ## Test approach
 
