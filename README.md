@@ -68,6 +68,11 @@ What we changed from upstream:
   is emptied so nothing is sent in front of the message.
 - **Parked sessions**: a Claude Code session parked as a background job is found
   through its job (upstream showed nothing).
+- **Background work** (Claude Code): a background subagent or script shows running until
+  Claude Code reports it done, with a subagent's tool count and step or a script's
+  latest output; a strip above the message box lists what still runs (click to open
+  its row, × to stop it); right-click a running row for **Stop**, which asks Claude
+  to stop it.
 - **Back to terminal**, and a `hide` prop that hides the terminal behind the chat when it
   opens (Open as chat).
 - **One chat in every window**: the agent is found by a label (`ushi.id`), not by its

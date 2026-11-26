@@ -2,7 +2,7 @@
 
 **Issue**: #25
 
-## Status: INCOMPLETE
+## Status: COMPLETE
 
 ## Executive Summary
 
@@ -75,20 +75,28 @@ chats are unchanged.
 
 ## Acceptance Criteria
 
-- [ ] R1: a background subagent's row shows running with "background" until its
+- [x] R1: a background subagent's row shows running with "background" until its
   notification, then completed with its result; a background script's likewise,
-  with its exit code in the summary; no launch text shown.
-- [ ] R1: a stopped or killed task shows that status.
-- [ ] R2: no `<task-notification>` text appears as a message.
-- [ ] R3: the strip lists running tasks with elapsed time; a click scrolls to and
-  opens the row; it goes away when they finish.
-- [ ] R4: a running subagent's row shows its tool count and latest step, changing
-  as it works.
-- [ ] R5: an opened background script row shows its latest output while it runs.
-- [ ] R8: Stop from a row's menu and from the strip's × ends the task; the row
-  shows "stopping…", then stopped.
-- [ ] R6: unit tests for the lib helpers pass on macOS, Linux and Windows.
-- [ ] `herdr-app check` passes; `herdr-app status` shows no errors.
+  with its exit code in the summary; no launch text shown. (Real window on the Mac;
+  `parse.js` `toolResult`/`notify`; the session log replayed through the parser.)
+- [x] R1: a stopped or killed task shows that status. (Killed from `/tasks` after
+  42 s, and stopped by TaskStop: "stopped · 7s" seen.)
+- [x] R2: no `<task-notification>` text appears as a message, nor in the queued
+  list (`parse.js` `claude()`/`queued()`).
+- [x] R3: the strip lists running tasks with elapsed time; a click scrolls to and
+  opens the row; it goes away when they finish. (Real window; the click confirmed by
+  the operator.)
+- [x] R4: a running subagent's row shows its tool count and latest step, changing
+  as it works. (Screenshot: "4 tool uses · Read …/lib/edit-open.js".)
+- [x] R5: an opened background script row shows its latest output while it runs.
+  ("step 10 of 12" beside the summary; opened row's ticks updating, confirmed by the
+  operator.)
+- [x] R8: Stop from a row's menu and from the strip's × ends the task; the row
+  shows "stopping…", then stopped. (Confirmed by the operator; the chat's message
+  reached Claude and TaskStop ended task b2yjcxzwi.)
+- [x] R6: unit tests for the lib helpers pass on macOS, Linux and Windows
+  (`tests/chat-tasks.test.js`, `tests/chat-text.test.js`).
+- [x] `herdr-app check` passes; `herdr-app status` shows no errors (both machines).
 
 ## E2E (real window)
 
