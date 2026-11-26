@@ -2,11 +2,17 @@
 
 **Issue**: #29
 
-## Status: INCOMPLETE
+## Status: COMPLETE
 
 ## Executive Summary
 
-(Filled in before the work is closed.)
+The dock's block (`mods/hayami`, renamed from `hayami-usage`) shows any of hayami's
+sections (usage, bandwidth, cooler, peripherals, clock) from the service on the
+shown space's machine: side by side in the bottom dock, stacked in the right one,
+sized to fit. The sections are chosen from the block's header, a right-click or the
+palette, once per app home. Reviewers should look first at `lib/hayami.js`'s new
+pure pieces (cadence, arrangement, hayami's bands and units, the rows functions)
+and at the block following the space rather than the focused terminal.
 
 ## Context
 
@@ -89,7 +95,7 @@ nothing lets the person choose.
 - [x] Real window (njv-cachyos): the bottom dock shows the chosen sections as
       columns; the right dock stacked; the block's height fits each; a shot of each
       is read back.
-- [ ] Real window: the header button and a right-click open the checklist; a
+- [x] Real window: the header button and a right-click open the checklist; a
       section shown or hidden changes both docks at once and survives an app
       restart (or a mod reload).
 - [x] Real window: an njv-mbp-m1 space shows the Mac's sections (peripherals and
@@ -128,7 +134,8 @@ nothing lets the person choose.
   re-flowed and the block shrank to 164 px; the choice is in `shared.json` and held
   across every reinstall (a mod reload). The checklist was opened and used in the
   window by the operator (seen in a shot, Cooler and Peripherals unticked). The
-  right-click route and an app restart were not checked by the agent.
+  right-click route and an app restart were confirmed by the operator (2026-11-26):
+  a right-click opens the checklist, and the choice survived a restart. Pass.
 - Step 4 (an njv-mbp-m1 space): "njv-mbp-m1", its one account, its clock, and its
   absences for bandwidth and cooler. Pass after the follow fix (220af3c).
 - Step 5: `./run-tests.sh` 243 / 0; Mac `npm test` 242 / 0 (live case on its
