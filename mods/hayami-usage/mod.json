@@ -1,0 +1,5 @@
+{
+  "place": "none",
+  "title": "hayami usage, under the dock's nav and git (spec 010)",
+  "lib": ["hayami.js", "location.js"]
+}

@@ -32,18 +32,23 @@ const DOCKS = ["dock-right", "dock-bottom"];
 const STACK = (dock) => `${dock}-stack`;
 const TITLE = "nt.title";
 // The fixed subtab, first in every dock: nav and git split, side by side in the bottom
-// dock (a row) and stacked in the right one (a column).
+// dock (a row) and stacked in the right one (a column), with hayami's usage under
+// them (spec 010), which replaced the lower dock's usage terminal.
 const FIXED = [{ key: "panels", label: "nav + git", icons: ["folder", "git-branch"] }];
 const fixedId = (dock, key) => `${dock}-${key}`;
-const panelsNode = (dock) => ({
-  id: fixedId(dock, "panels"),
-  type: dock === "dock-bottom" ? "row" : "column",
-  divider: { width: 1, color: "border", hover: "accent" },
-  children: [
-    { id: `${dock}-nav`, type: "block", size: { weight: 1 }, content: { mod: "nav" } },
-    { id: `${dock}-git`, type: "block", size: { weight: 1 }, content: { mod: "git" } },
-  ],
-});
+const USAGE_PX = 144; // a header and five usage windows
+const usageNode = (dock) => ({ id: `${dock}-usage`, type: "block", size: { px: USAGE_PX }, content: { mod: "hayami-usage" } });
+const navGit = (dock) => [
+  { id: `${dock}-nav`, type: "block", size: { weight: 1 }, content: { mod: "nav" } },
+  { id: `${dock}-git`, type: "block", size: { weight: 1 }, content: { mod: "git" } },
+];
+const DIVIDER = { width: 1, color: "border", hover: "accent" };
+const panelsNode = (dock) => dock === "dock-bottom"
+  ? { id: fixedId(dock, "panels"), type: "column", children: [
+    { id: `${dock}-navgit`, type: "row", divider: DIVIDER, children: navGit(dock) },
+    usageNode(dock),
+  ] }
+  : { id: fixedId(dock, "panels"), type: "column", divider: DIVIDER, children: [...navGit(dock), usageNode(dock)] };
 // Blocks from before spec 004 (any window suffix): dropped on migration.
 const RETIRED = /^dock-(yazi|lazygit)(-|$)/;
 
@@ -157,11 +162,13 @@ async function setLayout(t) {
 }
 
 // True when a dock's stack does not start with the nav + git split of the right
-// direction, or still holds retired blocks or the earlier separate nav/git blocks.
+// direction and the usage block (spec 010), or still holds retired blocks or the
+// earlier separate nav/git blocks.
 function needsMigration(dock) {
   const kids = find(layout(), STACK(dock))?.children ?? [];
   const first = kids[0];
-  const splitOk = first?.id === fixedId(dock, "panels") && first.type === panelsNode(dock).type;
+  const splitOk = first?.id === fixedId(dock, "panels") && first.type === panelsNode(dock).type
+    && Boolean(find(first, `${dock}-nav`)) && Boolean(find(first, `${dock}-usage`));
   return !splitOk || kids.some((c, i) => i > 0 && ((modOf(c) && !chatOf(c)) || RETIRED.test(baseOf(nameOf(c) ?? ""))));
 }
 

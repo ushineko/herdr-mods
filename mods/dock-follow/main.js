@@ -4,42 +4,19 @@
 // Since spec 004 (herdr-mods) the dock shows the native nav and git panels, which
 // follow the focused terminal themselves; this mod no longer drives yazi or lazygit.
 // What it does:
-//   - starts the usage strip (hayami-tui) when it is missing, e.g. after a reboot;
 //   - sets the window title, so the two njv-cachyos windows (default, work) differ;
 //   - resumes Claude conversations a herdr-core restart ended (see resumeAgents);
 //   - reads the agent request inbox (inbox.js, spec 005).
 //
-// Only this machine's terminals count as the usage strip and Claude terminals:
-// terminals() also lists other machines' terminals, which may carry the same names.
+// Only this machine's terminals count as Claude terminals: terminals() also lists
+// other machines' terminals, which may carry the same names.
+//
+// The usage strip it used to keep running (a hayami-tui terminal in the lower dock)
+// went in spec 010: mods/hayami-usage draws usage under the dock's nav and git.
 
 import { View, div } from "gpui-kit";
-import { terminals, hc, exec, home, appHome, checking, nextCommand, notify, run, setWindowTitle } from "herdr";
+import { terminals, hc, appHome, checking, nextCommand, notify, setWindowTitle } from "herdr";
 import { Inbox } from "./inbox.js"; // herdr-mods spec 005: agent requests
-
-// The user's login PATH, for the usage strip started with hc run (herdr-core
-// started over SSH may have only /usr/bin:/bin).
-let userPath = null;
-async function withPath(argv) {
-  userPath ??= exec("/bin/sh", ["-c", 'printf %s "$PATH"']).then((r) => r.stdout.trim()).catch(() => "");
-  const p = await userPath;
-  return p ? ["env", `PATH=${p}`, ...argv] : argv;
-}
-const USAGE = "usage";
-// A block whose terminal didn't exist yet stays empty until shown again.
-const BLOCK = { [USAGE]: "usage-dock" };
-const USAGE_CHECK = 10000;
-
-const term = (name) => terminals().find((t) => t.name === name && t.state === "live" && !t.address.includes("/"));
-
-async function start(name, argv, cwd) {
-  const r = await hc(["run", "--bg", "--json", "--no-parent", "--no-notify", "--name", name, "--cwd", cwd, "--", ...(await withPath(argv))]);
-  if (r.code !== 0) {
-    notify({ title: `Dock: starting ${name} failed`, body: (r.stderr || r.stdout).trim().slice(0, 300), level: "error" });
-    return;
-  }
-  run("layout.hide", { id: BLOCK[name] });
-  run("layout.show", { id: BLOCK[name] });
-}
 
 export default class DockFollow extends View {
   init(_props, cx) {
@@ -54,9 +31,6 @@ export default class DockFollow extends View {
         if (c === "resume") await this.resumeAgents(cx, true);
       }
     });
-    // The usage strip: now, and whenever it has gone.
-    this.ensure();
-    cx.timer.every(USAGE_CHECK, () => this.ensure());
     // Resume Claude conversations a herdr-core restart (reboot) ended: now,
     // and whenever the core has restarted since the last look.
     this.coreStart = 0;
@@ -105,13 +79,6 @@ export default class DockFollow extends View {
     if (resumed.length) notify({ title: `Resumed ${resumed.length} Claude session${resumed.length > 1 ? "s" : ""}`, body: resumed.join(", "), level: "info" });
   }
 
-
-  async ensure() {
-    if (this.starting || term(USAGE)) return;
-    this.starting = true;
-    try { await start(USAGE, ["hayami-tui", "--sections", "usage", "--arrangement", "row"], home()); }
-    finally { this.starting = false; }
-  }
 
   render() {
     return div();

@@ -12,10 +12,11 @@ JavaScript panels drawn natively by Herdr's GPUI shell.
 | `spaces-bar` | Horizontal spaces bar along the top; remote machines fold into one chip with a dropdown. Each space lists its agents (a chat's agent shows as its chat, with the cow) |
 | `terminals-bar-proc` | The tab bar: each tab shows the program running in it; the shown tab joins its pane like a file tab; scrolls when tabs don't fit. **+** at the left: click for a shell, right-click for an agent or a chat. Closing a tab moves a chat's agent out first, so its session isn't ended |
 | `nested-tabs` | Pane header with nested tabs (port of the herdr TUI fork's pane stacks), and the per-tab nav/git panel. Right-click **+** for an agent or a chat; the cow button opens a running Claude Code or Codex terminal as a chat |
-| `dock-tabs` | Tab strip for the window-level dock; its fixed tab holds nav and git as a split; **+** adds shells, agents and chats as subtabs |
+| `dock-tabs` | Tab strip for the window-level dock; its fixed tab holds nav and git as a split, with usage under them; **+** adds shells, agents and chats as subtabs |
 | `dock-follow` | Keeps the dock's nav and git on the focused pane's folder (a chat counts as its agent's folder); handles agent requests (`herdr-open`, `herdr-nav`) |
 | `nav` | Folder panel (spec 002): follows the focused terminal's folder, breadcrumbs, git marks, opens files in the viewer, right-click menu (open, edit, open in app, copy path) |
 | `git` | Repository panel (spec 003): branch and upstream, worktrees with a light per agent (writes locked while an agent works there), changes with diffs, recent commits with their authors, drill-down and **Load 50 more** (**expand** makes the list fill the panel), lazygit keys. **Clean up…** (spec 007) removes worktrees that are clean and pushed, with a checkbox each; root-owned files (Docker writing to a mapped volume) are handed back through default Docker; a kept worktree can be removed anyway with **Really remove…**, which says what is lost |
+| `hayami-usage` | Claude Code and Codex usage under the dock's nav and git (spec 010): read from the hayami service on the machine the dock follows, local or remote, through `lib/hayami.js` (hayami-js, below) |
 | `cria-file-preview` | File viewer in a tab (vendored from gsydler/herdr-cria, Apache-2.0; see `vendor/cria/VENDOR.md`): Markdown with images and links, PDF, images, CSV/TSV, JSON, code, plus local diff view and "Open in <app>" |
 | `ushi-naruse`, `ushi-naruse-file` | A chat view for Claude Code and Codex: our fork of naruse/herdr-chat, see [ushi-naruse](#ushi-naruse-chat-a-fork-of-naruseherdr-chat) |
 | `term-menu` | Dock-aware terminal right-click menu |
@@ -84,6 +85,19 @@ Needs `python3` on the agent's machine (the side chat, info cards and the resume
 talk to `claude -p` and `codex app-server` through it) and `claude` and/or `codex`.
 macOS and Linux; not offered on Windows. Changing the model or effort backs up
 `~/.claude/settings.json` and puts it back about 2.4 s later (upstream behaviour).
+
+## hayami-js
+
+`lib/hayami.js` is a client for [hayami](https://github.com/ushineko/hayami)'s
+service (`hayami-tui serve`, hayami spec 113; contract `api/openapi.yaml`, prose
+`docs/api.md` there). It belongs to this repository, not to hayami. Mods have no
+sockets, so each request is one command on the machine that serves it: `curl
+--unix-socket` on Linux and macOS, `hayami-tui api get` on Windows. Usage is the
+only section drawn so far (`hayami-usage`); the client already asks for any section.
+
+Needs, on each machine the dock follows: the hayami service set up (hayami's
+installer on Linux and Windows; `hayami-tui api-service install` on macOS) and
+`curl`. Without the service the block says "hayami service not running".
 
 ## Where mods run
 
