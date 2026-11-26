@@ -2,7 +2,7 @@
 
 **Issue**: #50
 
-## Status: INCOMPLETE
+## Status: COMPLETE
 
 ## Executive Summary
 
@@ -34,16 +34,28 @@ does (spec 015 builds on the inbox's other-window support, #48).
 
 ## Acceptance Criteria
 
-- [ ] R1: unit tests for the order (record, move to front, drop gone tabs, seed).
-- [ ] R2: in the window: hold Ctrl, Tab twice, release: the third most recent tab
-  is shown; a tap flips between two tabs; Esc cancels.
-- [ ] R3: rows show the title, space, project and machine; a remote tab's tag in
-  its machine's colour.
-- [ ] R4: on njv-cachyos, the default window's switcher lists the work window's
-  tabs, and choosing one raises the work window on it.
-- [ ] R5: works on macOS, Linux and Windows; keys added to each machine's
-  keys.json and its dotfiles snapshot.
-- [ ] `herdr-app check` passes; tests pass on macOS, Linux and Windows.
+- [x] R1: unit tests for the order (record, move to front, drop gone tabs, seed):
+  \`tests/tab-order.test.js\`, plus each row's details (\`tabEntry\`) and the merged
+  list (\`switcherList\`). Added on the way: a window re-stamps its shown tab when it
+  gets the focus, so across windows the order follows what was used.
+- [x] R2: in the window: hold Ctrl, Tab twice, release: the third most recent tab
+  is shown; a tap flips between two tabs; Esc cancels. (Operator, 2026-11-26, on all
+  three systems. On macOS a click with Ctrl held is a right-click: rows take that
+  too.)
+- [x] R3: rows show the title, space, project and machine; a remote tab's tag in
+  its machine's colour (operator).
+- [x] R4: on njv-cachyos, the default window's switcher lists the work window's
+  tabs, and choosing one raises the work window on it (operator). Raising needed
+  KWin: under Wayland a second launch of the session didn't take the focus; a KWin
+  script (loaded over D-Bus) activates the window by its title. The other windows'
+  orders are read every 2 s, so a quick tap has them. A chat landed on gets the
+  cursor in its message box (ushi-naruse: when its pane is focused in the active
+  window), in both directions between the windows.
+- [x] R5: works on macOS, Linux and Windows (operator); keys added to each
+  machine's keys.json (njv-cachyos's two homes too) and its dotfiles snapshot
+  (dotfiles 553843f).
+- [x] `herdr-app check` passes on every machine; tests pass: macOS 298, Linux 299,
+  Windows 294 of 312 (18 skipped), no failures.
 
 ## Test approach
 
