@@ -5,7 +5,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { exec, window, theme, settings, checking } from "herdr";
-import { readings, usageRows, until, pollEvery } from "./lib/hayami.js";
+import { readings, usageRows, windowTail, leadWindow, otherFigures, pollEvery } from "./lib/hayami.js";
 import { terminalLocation, fallbackLocation } from "./lib/location.js";
 
 const ROW = 20;
@@ -100,27 +100,38 @@ export default class HayamiUsage extends View {
     else if (!u) body = [note(this.on === undefined ? "No terminal to follow" : "Reading…")];
     else if (u.error && !u.accounts.length) body = [note(u.error, t.blocked)];
     else if (!u.accounts.length) body = [note("No accounts")];
-    else body = u.accounts.flatMap((a, ai) => a.windows.map((w, wi) => this.row(t, mono, a, w, `${ai}-${wi}`)));
+    else {
+      // The other windows' figures need room; a narrow dock keeps the meter instead.
+      const width = this.size ? this.size.width / (Number(settings().zoom) || 1) : 0;
+      const figures = !width || width >= 620;
+      body = u.accounts.map((a, ai) => this.row(t, mono, a, figures, `${ai}`));
+    }
 
     return v_flex().id("hayami-usage").size_full().px(10).py(6).gap(2).overflow_hidden()
+      .on_size_change((size, cx) => { this.size = size; cx.notify(); })
       .text_size(12).text_color(t.foreground)
       .child(header)
       .children(body);
   }
 
-  // One usage window: account and badge, window, meter, percentage, reset or note.
-  // Fixed widths, so a changing figure never moves the row (glance rule).
-  row(t, mono, a, w, key) {
+  // One account, one line (#28), as hayami's panel draws it: the name and badge,
+  // the lead window (leadWindow) as name, meter and share, the other windows'
+  // figures, then the lead's reset or amounts. Fixed widths, so a changing figure
+  // never moves the row (glance rule).
+  row(t, mono, a, figures, key) {
+    const w = leadWindow(a.windows);
+    const head = h_flex().w(110).flex_none().gap(4).items_center()
+      .child(div().min_w(0).truncate().font_semibold().child(a.name))
+      .children(a.badge ? [div().flex_none().px(4).rounded(3).bg(t.raised).text_size(10).text_color(t.muted).child(a.badge)] : []);
+    const line = h_flex().id(`u-${key}`).h(ROW).flex_none().gap(8).items_center().child(head);
+    if (!w) return line.child(div().text_color(t.dim).child("no windows"));
     const color = w.pct >= 90 ? t.blocked : w.pct >= 70 ? t.working : t.accent;
-    const tail = w.note ?? (w.resets_at ? `↻ ${until(w.resets_at)}` : "");
-    return h_flex().id(`u-${key}`).h(ROW).flex_none().gap(8).items_center()
-      .child(h_flex().w(120).flex_none().gap(4).items_center()
-        .child(div().min_w(0).truncate().font_semibold().child(a.name))
-        .children(a.badge ? [div().flex_none().px(4).rounded(3).bg(t.raised).text_size(10).text_color(t.muted).child(a.badge)] : []))
+    return line
       .child(div().w(44).flex_none().truncate().text_color(t.muted).child(w.name))
       .child(div().flex_1().min_w(40).h(6).rounded(3).bg(t.raised)
         .child(div().h_full().rounded(3).bg(color).w(`${w.pct}%`)))
-      .child(div().w(40).flex_none().font_family(mono).text_color(color).child(`${String(Math.round(w.pct)).padStart(3, " ")}%`))
-      .child(div().w(140).flex_none().truncate().font_family(mono).text_color(t.dim).child(tail));
+      .child(div().w(36).flex_none().font_family(mono).text_color(color).child(`${String(Math.round(w.pct)).padStart(3, " ")}%`))
+      .children(figures ? [div().w(250).flex_none().truncate().font_family(mono).text_size(11).text_color(t.dim).child(otherFigures(a.windows, w))] : [])
+      .child(div().w(140).flex_none().truncate().font_family(mono).text_color(t.dim).child(windowTail(w)));
   }
 }

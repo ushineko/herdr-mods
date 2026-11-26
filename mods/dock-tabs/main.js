@@ -36,7 +36,7 @@ const TITLE = "nt.title";
 // them (spec 010), which replaced the lower dock's usage terminal.
 const FIXED = [{ key: "panels", label: "nav + git", icons: ["folder", "git-branch"] }];
 const fixedId = (dock, key) => `${dock}-${key}`;
-const USAGE_PX = 144; // a header and five usage windows
+const USAGE_PX = 100; // a header and three accounts, one line each (#28)
 const usageNode = (dock) => ({ id: `${dock}-usage`, type: "block", size: { px: USAGE_PX }, content: { mod: "hayami-usage" } });
 const navGit = (dock) => [
   { id: `${dock}-nav`, type: "block", size: { weight: 1 }, content: { mod: "nav" } },

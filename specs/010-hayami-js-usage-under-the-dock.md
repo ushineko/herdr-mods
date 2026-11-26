@@ -168,6 +168,17 @@ later, on the same client.
   it after the layout edit. The old `usage` terminal (t6) was ended and has not
   come back.
 
+## Follow-up: one line per account (#28, 2026-11-26)
+
+R5 drew a line per usage window, so Codex (5h, 7d, limit) took three. Now each
+account is one line with one meter, by hayami's own rule (hayami
+`internal/view/usage.go`, `leading`): the shortest window, or the `limit` once a
+window with a span is full (`leadWindow`). The other windows are figures beside
+it, amounts where given and days left when they reset later (`otherFigures`), in
+a block wide enough for them (620 px); a narrower one, such as the right dock,
+keeps the meter and drops the figures. The block is 100 px (header and three
+accounts) instead of 144. Checked in the bottom and right docks on njv-cachyos.
+
 ## E2E results (2026-11-25)
 
 - Step 1: njv-cachyos default window, local terminal: five usage windows, same

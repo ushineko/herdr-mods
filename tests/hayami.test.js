@@ -4,7 +4,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { platform as osPlatform, userInfo } from "node:os";
 import { join } from "node:path";
-import { request, checkPath, parse, get, readings, usageRows, until, pollEvery } from "../lib/hayami.js";
+import { request, checkPath, parse, get, readings, usageRows, until, pollEvery, windowTail, leadWindow, otherFigures, daysLeft } from "../lib/hayami.js";
 
 // An invented usage section, in the contract's shape (hayami api/openapi.yaml, Section).
 const SECTION = {
@@ -144,6 +144,45 @@ test("until and pollEvery", () => {
   assert.equal(pollEvery(30), 30000);
   assert.equal(pollEvery(1), 15000);
   assert.equal(pollEvery(null), 30000);
+});
+
+test("windowTail: the lead window's note, else the time to its reset", () => {
+  const now = Date.parse("2026-01-02T03:00:00Z");
+  assert.equal(windowTail({ resets_at: "2026-01-02T06:05:00Z", note: null }, now), "↻ 3h 05m");
+  assert.equal(windowTail({ resets_at: "2026-02-01T00:00:00Z", note: "$12.00 / $10.00" }, now), "$12.00 / $10.00");
+  assert.equal(windowTail({}, now), "");
+});
+
+// An invented Codex-like account: five hours, a week and a limit.
+const win = (name, pct, span_s, resets_at, used = null, limit = null) => ({ name, pct, span_s, resets_at, used, limit, note: used ? `${used} / ${limit}` : null, severity: null });
+const H5 = win("5h", 10, 18000, "2026-01-02T05:00:00Z");
+const D7 = win("7d", 47, 604800, "2026-01-06T12:00:00Z");
+const LIM = win("limit", 27, null, "2026-02-01T00:00:00Z", "320.11", "1200.00");
+
+test("leadWindow: the shortest window, whatever its share", () => {
+  assert.equal(leadWindow([D7, H5, LIM]), H5, "not the week, though it is further along");
+  assert.equal(leadWindow([LIM, D7]), D7, "a window with no span sorts last");
+  assert.equal(leadWindow([LIM]), LIM, "a spend is better than nothing");
+  assert.equal(leadWindow([]), null);
+});
+
+test("leadWindow: the limit once a window with a span is full", () => {
+  const full = { ...H5, pct: 100 };
+  assert.equal(leadWindow([full, D7, LIM]), LIM);
+  assert.equal(leadWindow([full, D7]), full, "no limit to spend: the full window stays");
+});
+
+test("otherFigures: the rest in order, amounts where given, days left when they reset later", () => {
+  const now = Date.parse("2026-01-02T03:00:00Z");
+  assert.equal(otherFigures([H5, D7, LIM], H5, now), "7d 47% (5d)  320.11 / 1200.00 (27%) (30d)");
+  assert.equal(otherFigures([H5], H5, now), "");
+});
+
+test("daysLeft: rounded up, <1d on the last day, nothing once passed", () => {
+  const now = Date.parse("2026-01-02T03:00:00Z");
+  assert.equal(daysLeft("2026-01-03T15:00:00Z", now), "2d");
+  assert.equal(daysLeft("2026-01-02T20:00:00Z", now), "<1d");
+  assert.equal(daysLeft("2026-01-01T00:00:00Z", now), "");
 });
 
 // Integration (spec 010 AC): the real command against this machine's running service.
