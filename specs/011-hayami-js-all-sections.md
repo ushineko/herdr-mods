@@ -76,26 +76,63 @@ nothing lets the person choose.
 
 ## Acceptance Criteria
 
-- [ ] Unit: `due` gives only shown sections whose time has come, by R1's cadence.
-- [ ] Unit: `arrange` and `blockHeight` give columns or stacked and the heights of
+- [x] Unit: `due` gives only shown sections whose time has come, by R1's cadence.
+- [x] Unit: `arrange` and `blockHeight` give columns or stacked and the heights of
       R4/R5, capped.
-- [ ] Unit: rate and size units, and the quota, battery, coolant and rate bands,
+- [x] Unit: rate and size units, and the quota, battery, coolant and rate bands,
       give hayami's values at their thresholds.
-- [ ] Unit: `bandwidthRows`, `coolerRows`, `peripheralRows` and `clockRow` on
+- [x] Unit: `bandwidthRows`, `coolerRows`, `peripheralRows` and `clockRow` on
       invented readings give the R1 lines, with nulls and unknown fields handled.
-- [ ] Integration: the live test reads all five sections from the running service
+- [x] Integration: the live test reads all five sections from the running service
       and each holds to what its rows function reads; skips without a service.
-- [ ] `herdr-app check` passes for hayami-usage and dock-tabs; no errors in status.
-- [ ] Real window (njv-cachyos): the bottom dock shows the chosen sections as
+- [x] `herdr-app check` passes for hayami-usage and dock-tabs; no errors in status.
+- [x] Real window (njv-cachyos): the bottom dock shows the chosen sections as
       columns; the right dock stacked; the block's height fits each; a shot of each
       is read back.
 - [ ] Real window: the header button and a right-click open the checklist; a
       section shown or hidden changes both docks at once and survives an app
       restart (or a mod reload).
-- [ ] Real window: an njv-mbp-m1 space shows the Mac's sections (peripherals and
+- [x] Real window: an njv-mbp-m1 space shows the Mac's sections (peripherals and
       cooler as the Mac has them, or their absences).
-- [ ] Bandwidth rates appear (not "--") after the second read.
-- [ ] Tests pass on njv-cachyos, the Mac and Windows.
+- [x] Bandwidth rates appear (not "--") after the second read.
+- [x] Tests pass on njv-cachyos, the Mac and Windows.
+
+## Notes (2026-11-26)
+
+- **The mod is `hayami`**, renamed from 010's `hayami-usage` now that it shows every
+  section; its layout nodes are `dock-<side>-hayami`, with `props.dock` so the block
+  can resize its own node. dock-tabs' migration check now wants that node (with its
+  prop), so a dock built before this is rebuilt on its next showing. The old
+  `hayami-usage` folders were removed from both app homes on both machines.
+- **It follows the shown space's machine**, not the focused terminal's location
+  (010): a chat focused on a remote space has no terminal location the window can
+  place, and the block stayed on the last machine. Every terminal in a space runs
+  on the space's machine, so the space is the answer.
+- **The palette** has `hayami: show/hide <section>` (`hayami.show-cooler`, …),
+  idempotent so both docks' copies may act on one command; it is also how the
+  block was driven in the checks without the pointer.
+- **Heights**: 320 px at most side by side, 640 px stacked (all five stacked need
+  about 630); shared `hayami.px` holds each dock's.
+- **Rates** are padded to one width (hayami's five-character number and unit), so a
+  changing rate never moves what follows it.
+- **A section with nothing to list** (the Mac: no interfaces chosen, no processor
+  sensor) gives its reason the line instead of the title.
+
+## E2E results (2026-11-26)
+
+- Step 1 (bottom dock, all five): columns, the block 300 px, rates within a read
+  (eno2 ↓ 58.6 KiB/s); cooler's seven probes, peripherals' four devices (three stale
+  with when last seen), the clock. Pass.
+- Step 2 (right dock): stacked, all five, about 610 px. Pass.
+- Step 3 (hide cooler): `hayami.hide-cooler` from the palette: gone, the other four
+  re-flowed and the block shrank to 164 px; the choice is in `shared.json` and held
+  across every reinstall (a mod reload). The checklist was opened and used in the
+  window by the operator (seen in a shot, Cooler and Peripherals unticked). The
+  right-click route and an app restart were not checked by the agent.
+- Step 4 (an njv-mbp-m1 space): "njv-mbp-m1", its one account, its clock, and its
+  absences for bandwidth and cooler. Pass after the follow fix (220af3c).
+- Step 5: `./run-tests.sh` 243 / 0; Mac `npm test` 242 / 0 (live case on its
+  service); `tools/test-windows.sh` 239 / 0.
 
 ## Risks & Assumptions
 

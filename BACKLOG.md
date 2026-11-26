@@ -16,8 +16,9 @@ a GitHub issue and a spec (`specs/NNN-…md`) when work starts.
   helpers; Go helpers, worth it mainly for Windows (no python3 there; one .exe per
   machine, built or shipped).
 - **Fake fullscreen** (UX question raised, deferred).
-- **hayami-js, more sections** (spec 010 drew usage only): bandwidth, cooler,
-  peripherals and clock from the same client; the usage block's details and drills.
+- **hayami-js, details and drills** (specs 010, 011 draw the sections only): the
+  service's details (a section's processes, peers, accounts) opened from the block;
+  sparklines from the readings' trails; the event stream instead of polling.
 
 ## Ideas from spec 006 (not yet asked for)
 
