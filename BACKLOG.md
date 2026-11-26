@@ -1,6 +1,6 @@
 # Backlog
 
-Open items to come back to (updated 2026-11-25, after spec 008). Each new feature gets
+Open items to come back to (updated 2026-11-25, after specs 008 and 006). Each new feature gets
 a GitHub issue and a spec (`specs/NNN-…md`) when work starts.
 
 ## Features, parked by the operator
@@ -9,8 +9,6 @@ a GitHub issue and a spec (`specs/NNN-…md`) when work starts.
   `~/.cache/herdr-mods/inbox/<session>/`; with no herdr-app window running these mods,
   nothing claims it and the agent believes it worked. Idea: wait ~2 s for a claim and
   otherwise say "no Herdr window with herdr-mods picked this up".
-- **Spec 006: evaluate ChmaraX/herdr-nvim** (source review, build at a recorded commit,
-  isolated trial, recommendation). All criteria open.
 - **ushi-naruse without python3** (spec 008; operator kept python3 required, 2026-11-25).
   python3 only brokers stdio for `claude -p` stream-json and `codex app-server` JSON-RPC
   (side chat, info cards, resume list) and reads image sizes. Options: a soft dependency
@@ -20,6 +18,13 @@ a GitHub issue and a spec (`specs/NNN-…md`) when work starts.
 - **Fake fullscreen** (UX question raised, deferred).
 - **hayami-js**: the herdr client for hayami spec 113 (JSON socket service); start
   from `mods/ui-lab`'s patterns.
+
+## Ideas from spec 006 (not yet asked for)
+
+- **Two herdr-nvim features, borrowed rather than adopted** (spec 006 decided skip):
+  code comments in our own nvim sent to the agent with `file:line` (its
+  `comments.lua`/`prompt.lua`, MIT), and a "touched by the agent" list in nav or git
+  read from the agent's session log.
 
 ## Ideas from spec 008 (not yet asked for)
 

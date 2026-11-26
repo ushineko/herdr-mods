@@ -2,7 +2,7 @@
 
 **Issue**: #6
 
-## Status: INCOMPLETE
+## Status: COMPLETE (decision: skip)
 
 ## Executive Summary
 
@@ -122,13 +122,77 @@ its own personal layout so no `layout.clone` happens; nvim 0.12.6 is already on
 njv-cachyos, so no Neovim download. njv-cachyos had no herdr-nvim folders before the
 trial (2026-11-25), so the clean-up removes all four shared folders.
 
+## Build (R2)
+
+On njv-cachyos, 2026-11-25: `cargo build --release --locked` at
+`2905408e1985db1a319b466ba9873f40e29f5e7a`, rustc 1.100.0, 4 min 7 s (run as a
+systemd user unit: `hc exec` ends what it starts after 60 s). `herdr-nvim` 39.5 MB
+(sha256 `658f29c3…59e7`), `herdr-nvim-launch` 440 KB (`b6be6557…99fd`).
+
+`cargo audit` 0.23.0 on its `Cargo.lock`: 3 vulnerabilities, 3 warnings.
+- libz-sys 1.1.29: RUSTSEC-2026-0418 (build script leaks environment variables into
+  the build folder; fixed ≥1.1.31) and RUSTSEC-2026-0544 (heap buffer overflow;
+  fixed ≥1.1.33).
+- url 2.5.8: RUSTSEC-2026-0592 (stack overflow on nested `blob:` URLs; fixed
+  ≥2.5.9), reached only through merman, the Mermaid renderer.
+- Unmaintained, no fix: bincode 1.3.3, rustybuzz 0.20.1, ttf-parser 0.25.1.
+
+## Trial (R3, R4)
+
+A third app home, `~/.config/herdr-app-nvimtest` on njv-cachyos, on its own core
+session (`HC_SESSION=nvimtest`): the person's settings and keys copied, the
+`terminals-dock` layout (personal, so no `layout.clone`) without the usage strip,
+our mods installed, a scratch git repo as the only space. `herdr-nvim app-install
+--home` added its keys and patched the layout; `herdr-app check` passed for both
+mods, no errors in `herdr-app status`; the default and work homes were untouched.
+
+Seen:
+- `herdr-app do herdr-nvim.toggle` opened the tree (right), the tab's nvim (middle,
+  the person's own config) and the "nvim is ready" card.
+- Nothing in our layout opens it by mouse: it hangs off the tab bar's Files button,
+  which our nested tabs replace; the side panel it adds stays hidden until a key
+  or command. Its keys are `cmd-` (Super) on Linux, where KDE takes Super+E.
+- Our terminals bar named the tab after nvim's terminal ("Neovim").
+
+Not tried: the agent picker and comments sent to the agent. The operator stopped
+the trial after comparing it with the nvim already in use (below).
+
+## Decision (R5): skip
+
+Agreed with the operator, 2026-11-25: keep using our own Neovim (`herdr-open
+--edit`, cria's Edit button). What herdr-nvim adds over that is mostly covered
+already (a persistent per-tab nvim: a terminal tab; the tree: nav; preview: the
+viewer). The parts we lack, a picker over the files an agent touched and code
+comments sent to the agent, don't justify a second editor integration to keep
+updated, with its cost: a 39 MB binary outside our install, a layout patch at
+install (Files slot, a sync block, frozen pane headers), keys that clash on Linux,
+state folders shared by every app home, and the open advisories above.
+
+If those two features are wanted later, they can be borrowed rather than adopted
+(MIT; keep its notice): its comment plugin (`lua/herdr-nvim/comments.lua`,
+`prompt.lua`, `dispatch.lua`) works in any nvim given a sender, and the picker's
+session-log reading (`src/sessions.rs`, `src/app/session.rs`) could become a
+"touched by the agent" list in nav or git.
+
+## Clean-up
+
+`herdr-nvim app-install --uninstall --force` (keys and layout edits taken out, its
+nvim stopped), the test window quit and its core session stopped, then removed:
+the test home, `~/.cache/herdr-nvim-eval` (clone, build, demo repo),
+`~/.config/herdr-nvim`, `~/.local/share/herdr-nvim`, `~/.local/state/herdr-nvim`,
+`/run/user/1000/herdr-nvim`, `~/.local/state/herdr-core/nvimtest`; the review clone
+on the Mac. Checked afterwards: none of them exist, no herdr-nvim process runs, no
+herdr-nvim key or layout entry in the default or work home. `cargo-audit` (pacman)
+stays installed on njv-cachyos.
+
 ## Acceptance Criteria
 
 - [x] Source review notes (R1) in this spec.
-- [ ] Built from source at a recorded commit (R2).
-- [ ] Hands-on trial in an isolated home/layout (R3, R4).
-- [ ] Recommendation recorded and agreed with the operator (R5).
-- [ ] The trial home/layout and build artefacts removed afterwards.
+- [x] Built from source at a recorded commit (R2).
+- [x] Hands-on trial in an isolated home/layout (R3, R4); stopped by the operator
+  before the picker and comments were tried (see Trial).
+- [x] Recommendation recorded and agreed with the operator (R5): skip.
+- [x] The trial home/layout and build artefacts removed afterwards.
 
 ## Threat model delta
 
