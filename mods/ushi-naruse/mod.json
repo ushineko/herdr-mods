@@ -4,6 +4,11 @@
   "focusable": true,
   "palette": [
     {
+      "title": "Chat: search",
+      "command": "ushi-naruse.search",
+      "words": "chat search find"
+    },
+    {
       "title": "Chat: back to terminal (close the chat, keep the session)",
       "command": "ushi-naruse.back",
       "words": "chat terminal claude codex escape"

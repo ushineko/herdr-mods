@@ -35,6 +35,19 @@ function folder(cwd) {
   return cwd === h ? "~" : cwd.startsWith(h + "/") ? "~" + cwd.slice(h.length) : cwd;
 }
 
+// Chats whose header this mod draws in the pane's row (ushi-naruse publishes what it
+// says, "ushi-naruse.heads"; the panes drawn so go to "nested-tabs.folded" and those
+// chats leave out their own title row). Filled while drawing, shared by every copy.
+const folded = new Set();
+const NARUSE_ICON = (name) => `mods/ushi-naruse/icons/${name}.svg`;
+
+function publishFolded() {
+  const live = new Set(panes().map((p) => p.pane));
+  const list = [...folded].filter((p) => live.has(p)).sort();
+  const was = shared("nested-tabs.folded");
+  if (JSON.stringify(list) !== JSON.stringify(Array.isArray(was) ? was : [])) setShared("nested-tabs.folded", list);
+}
+
 // Several copies get each key command; only the first within a moment acts.
 let lastCommand = { name: "", at: 0 };
 
@@ -57,6 +70,7 @@ export default class NestedTabs extends View {
     // Agents whose chat pane was closed end (spec 008); whether this pane's machine
     // can show a chat (for Open as chat).
     cx.timer.every(2000, () => { Chat.sweep(); });
+    cx.timer.every(250, () => publishFolded());
     cx.spawn(async (cx) => { const b = this.base(); if (b && await Chat.check(b)) cx.notify(); });
     cx.spawn(async (cx) => {
       for (;;) {
@@ -145,7 +159,7 @@ export default class NestedTabs extends View {
       .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
       .on_click((_e, cx) => { cx.stop_propagation(); onClick(cx); })
       .when(Boolean(onRight), (el) => el.on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); onRight(); }))
-      .child(svg(ICON(icon)).size(15));
+      .when(Boolean(icon), (el) => el.child(svg(ICON(icon)).size(15)));
   }
 
   paneButtons(me, pane, base) {
@@ -186,6 +200,9 @@ export default class NestedTabs extends View {
   // One pane, one terminal: the plain header (title, folder) plus "+".
   single(me, pane, base) {
     const t = theme();
+    const head = me.mod === "ushi-naruse" ? shared("ushi-naruse.heads")?.[pane] : null;
+    if (head) folded.add(pane); else folded.delete(pane);
+    if (head) return this.chatHead(me, pane, head);
     const title = me.title || "shell";
     const where = folder(me.cwd);
     const dir = where && !title.includes(where) && !/^[~/]/.test(title) ? where : "";
@@ -206,6 +223,44 @@ export default class NestedTabs extends View {
       .child(this.paneButtons(me, pane, base));
   }
 
+  // A chat's pane: the chat's own header (agent, conversation, its tools) in this row,
+  // so the pane has one header, not two. Its buttons focus the chat and run its commands.
+  chatHead(me, pane, head) {
+    const t = theme();
+    const chat = (c) => () => { run("pane.focus", { pane }); run(`ushi-naruse.${c}`); };
+    const tool = (id, icon, tip, on, action) => this.button(`nt-${id}-${pane}`, null, tip, action)
+      .when(on, (el) => el.bg(t.hover).text_color(t.foreground))
+      .child(svg(NARUSE_ICON(icon)).size(15));
+    const text = (id, label, tip, action, color) => div().id(`nt-${id}-${pane}`).flex_none().px(5).py(2).rounded(5).cursor_pointer()
+      .text_color(color ?? t.dim).hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip(tip)
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .on_click((_e, cx) => { cx.stop_propagation(); action(); }).child(label);
+    return h_flex()
+      .id(`nt-head-${pane}`)
+      .size_full()
+      .pl(12)
+      .pr(8)
+      .gap(8)
+      .items_center()
+      .text_size(13)
+      .on_click(() => run("pane.focus", { pane }))
+      .child(svg(ICON("cow")).size(15).flex_none().text_color(t.foreground))
+      .child(div().flex_none().font_semibold().text_color(me.focused ? t.foreground : t.muted).child(head.agent))
+      .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(head.sub))
+      .child(h_flex().flex_none().gap(1).items_center()
+        .child(tool("search", "search", "Search the chat", head.searching, chat("search")))
+        .child(text("font-down", "A−", "Smaller text in chats", chat("font-smaller")))
+        .child(text("font-size", String(head.font),
+          head.fontSet ? `Chat text ${head.font} px (terminals ${head.termFont}): click to match them` : `Chat text matches the terminals (${head.termFont} px)`,
+          chat("font-reset"), head.fontSet ? t.foreground : t.dim))
+        .child(text("font-up", "A+", "Larger text in chats", chat("font-bigger")))
+        .child(tool("term", "terminal-side", head.termOn ? "Hide the agent's terminal (the chat keeps the session)" : "Show the agent's terminal beside the chat",
+          head.termOn, chat("terminal")))
+        .child(tool("back", "terminal-window", "Close this chat and continue in the terminal (the session keeps running)", false, chat("back"))))
+      .child(div().flex_none().w(1).h(16).bg(t.border))
+      .child(this.paneButtons(me, pane, null));
+  }
+
   chip(m, index, ctx) {
     const { t, pane, base, shown, count } = ctx;
     const active = m.address === shown;
@@ -220,7 +275,7 @@ export default class NestedTabs extends View {
       .id(`nt-chip-${pane}-${m.address}`)
       .flex_none()
       .max_w(240)
-      .h(28)
+      .h(24)
       .pl(8)
       .pr(3)
       .gap(6)

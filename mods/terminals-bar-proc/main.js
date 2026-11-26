@@ -19,7 +19,7 @@ const C = {
 };
 
 const TAB_W = 220; // tabs keep this width and the strip scrolls (#9)
-const BAR_H = 42;  // the layout's "tabs" block: the shown tab fills it, down to its pane
+const BAR_H = 32;  // the layout's "tabs" block: the shown tab fills it, down to its pane
 
 // The pane frame's border colours in the shown layout (its "tab": "active" block), so
 // the shown tab is drawn in the same line as the pane it sits on.
@@ -66,9 +66,9 @@ function tile(t, p, status) {
   return div()
     .relative()
     .flex_none()
-    .w(26)
-    .h(26)
-    .rounded(7)
+    .w(22)
+    .h(22)
+    .rounded(6)
     .border_1()
     .border_color("#ffffff14")
     .bg(g?.tile ?? C.chip)
@@ -76,10 +76,10 @@ function tile(t, p, status) {
     .items_center()
     .justify_center()
     .when(Boolean(g?.icon), (el) =>
-      el.child(g.tint ? svg(g.icon).size(15).text_color(g.color ?? C.text) : image(g.icon).w(15).h(15)),
+      el.child(g.tint ? svg(g.icon).size(13).text_color(g.color ?? C.text) : image(g.icon).w(13).h(13)),
     )
     .when(Boolean(dot), (el) =>
-      el.child(div().absolute().top(-4).right(-4).w(11).h(11).rounded_full().border_2().border_color(C.tray).bg(dot)),
+      el.child(div().absolute().top(-3).right(-3).w(9).h(9).rounded_full().border_2().border_color(C.tray).bg(dot)),
     );
 }
 
@@ -113,14 +113,14 @@ function iconButton(id, icon, onClick, onRight) {
   return own(div())
     .id(id)
     .flex_none()
-    .p(7)
-    .rounded(8)
+    .p(5)
+    .rounded(7)
     .text_color(C.dim)
     .cursor_pointer()
     .hover((s) => s.bg(C.chip).text_color(C.text))
     .on_click(onClick)
     .when(Boolean(onRight), (el) => el.on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); onRight(); }))
-    .child(svg(`mods/terminals-bar-proc/${icon}.svg`).size(17));
+    .child(svg(`mods/terminals-bar-proc/${icon}.svg`).size(16));
 }
 
 export default class TerminalsBar extends View {
@@ -185,8 +185,8 @@ export default class TerminalsBar extends View {
         .items_center()
         .cursor_pointer()
         .text_size(13)
-        .when(c.active, (el) => el.h(BAR_H).rounded_t(11).border_t_1().border_l_1().border_r_1().border_color(edge))
-        .when(!c.active, (el) => el.h(32).mt(BAR_H - 36).rounded(10).bg(C.tab).hover((s) => s.bg(C.hover)))
+        .when(c.active, (el) => el.h(BAR_H).rounded_t(9).border_t_1().border_l_1().border_r_1().border_color(edge))
+        .when(!c.active, (el) => el.h(BAR_H - 6).mt(3).rounded(8).bg(C.tab).hover((s) => s.bg(C.hover)))
         .when(target, (el) => el.border_1().border_color(t.accent))
         .when(this.drag === c.id && Boolean(this.over) && this.over.id !== c.id, (el) => el.opacity(0.55))
         .on_mouse_down("left", (_e, cx) => { cx.stop_propagation(); this.drag = c.id; this.over = null; })
@@ -257,7 +257,7 @@ export default class TerminalsBar extends View {
           h_flex()
             .id("tm-machine")
             .flex_none()
-            .h(30)
+            .h(24)
             .px(10)
             .gap(7)
             .items_center()

@@ -43,6 +43,11 @@ const COLUMN = 100000;
 // kept: "ushi-naruse.fontSize"). SCALE is set at the top of each render.
 const BASE_TEXT = 13;
 const FONT_KEY = "ushi-naruse.fontSize";
+// ushi-naruse: each chat's header, by pane, for nested-tabs to draw in the pane's own
+// header row; nested-tabs lists the panes it draws so ("nested-tabs.folded"), and those
+// chats leave out their own title row.
+const HEADS_KEY = "ushi-naruse.heads";
+const FOLDED_KEY = "nested-tabs.folded";
 const FONT_MIN = 9, FONT_MAX = 32;
 let SCALE = 1;
 // (Not "fs": that name is the file system import above.)
@@ -268,6 +273,7 @@ export default class Chat extends View {
         else if (c === "font-bigger" && this.focusedMine()) this.setFont(1);
         else if (c === "font-smaller" && this.focusedMine()) this.setFont(-1);
         else if (c === "font-reset" && this.focusedMine()) this.setFont(0);
+        else if (c === "search" && this.focusedMine()) (this.searching ? this.closeSearch(cx) : this.openSearch(cx));
         cx.notify();
       }
     });
@@ -2432,8 +2438,10 @@ export default class Chat extends View {
       .child(svg(`mods/ushi-naruse/icons/${icon}.svg`).size(15));
     const btn = (id, text, action) => div().id(id).flex_none().px(8).py(3).rounded(6).cursor_pointer().text_color(t.muted)
       .hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click(action).child(text);
-    return v_flex().flex_none().border_b(1).border_color(t.border).bg(t.chrome)
-      .child(h_flex().h(32).px(12).gap(8).items_center().text_size(tsz(12))
+    // ushi-naruse: folded into nested-tabs' row, only the search bar is left here.
+    const folded = this.folded(mine);
+    return v_flex().flex_none().when(!folded || Boolean(this.searching), (el) => el.border_b(1).border_color(t.border)).bg(t.chrome)
+      .when(!folded, (el) => el.child(h_flex().h(32).px(12).gap(8).items_center().text_size(tsz(12))
         .child(div().flex_none().font_semibold().child(AGENTS[kind] ?? "Terminal"))
         .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child([this.t?.title, this.term].filter(Boolean).join(" · ")))
         .child(div().id("search").flex_none().size(24).flex().items_center().justify_center().rounded(6).cursor_pointer()
@@ -2452,7 +2460,7 @@ export default class Chat extends View {
         .child(iconBtn("go-term", "terminal-side", termTip, Boolean(mine) && !hidden, (_e, cx) => this.toggleTerminal(cx)))
         // ushi-naruse: in a tab, not a dock subtab (dock-tabs' menu has its own).
         .when(!props()?.dockName, (el) => el.child(iconBtn("back-term", "terminal-window",
-          "Close this chat and continue in the terminal (the session keeps running)", false, (_e, cx) => this.backToTerminal(cx)))))
+          "Close this chat and continue in the terminal (the session keeps running)", false, (_e, cx) => this.backToTerminal(cx))))))
       .when(Boolean(this.searching) && (this.shown(), true), (el) => el.child(h_flex().id("search-bar").key_context("ChatSearch")
         .on_action("chat_search_close", (_e, cx) => this.closeSearch(cx))
         .h(38).px(12).gap(8).items_center().border_t(1).border_color(t.border).bg(t.background)
@@ -2460,6 +2468,38 @@ export default class Chat extends View {
         .child(div().flex_none().text_size(tsz(12)).text_color(t.dim).child(this.search.value().trim() ? `${this.matches ?? 0} match${this.matches === 1 ? "" : "es"}` : ""))
         .child(div().id("search-close").flex_none().px(6).py(2).rounded(5).cursor_pointer().text_color(t.muted)
           .hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click((_e, cx) => this.closeSearch(cx)).child("×"))));
+  }
+
+  // ushi-naruse: whether nested-tabs draws this chat's header in its pane's row.
+  folded(mine) {
+    if (props()?.dockName || !mine) return false;
+    const list = shared(FOLDED_KEY);
+    return Array.isArray(list) && list.includes(mine.pane);
+  }
+
+  // ushi-naruse: what the header says, for nested-tabs (HEADS_KEY). Called from render;
+  // writes only on a change, after the render, and drops panes this window no longer has.
+  publishHead(cx) {
+    const mine = this.dialog || props()?.dockName ? null : this.myPane();
+    if (!mine || !cx) return;
+    const { kind } = this.current();
+    const hidden = this.termHidden(mine);
+    const head = {
+      agent: AGENTS[kind] ?? "Terminal",
+      sub: [this.t?.title, this.term].filter(Boolean).join(" · "),
+      font: Math.round(chatFont()), fontSet: Boolean(shared(FONT_KEY)), termFont: Math.round(termFont()),
+      termOn: !hidden, searching: Boolean(this.searching),
+    };
+    const json = JSON.stringify([mine.pane, head]);
+    if (json === this.headJson) return;
+    this.headJson = json;
+    cx.timer.after(1, () => {
+      const live = new Set(panes().map((p) => p.pane));
+      const all = shared(HEADS_KEY) ?? {};
+      const next = Object.fromEntries(Object.entries(all).filter(([k]) => live.has(k) && k !== mine.pane));
+      next[mine.pane] = head;
+      setShared(HEADS_KEY, next);
+    });
   }
 
   // The permission mode, left of the model: a button whose menu
@@ -2827,6 +2867,7 @@ export default class Chat extends View {
       try { this.checkTimer?.cancel(); } catch {}
       this.checkTimer = cx.timer.every(2000, (cx) => this.check(cx));
     }
+    this.publishHead(cx);
     if (!this.dialog && !this.term) {
       return v_flex().id("root").size_full().bg(t.background).items_center().justify_center().text_color(t.dim)
         .child(`No agent here. Press ${shortcut("N")} for a new chat.`);
