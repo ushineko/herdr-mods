@@ -12,8 +12,10 @@ test("both agents installed: one entry each, Claude first, others left out", () 
   assert.deepEqual(got[1].run, ["codex", "--no-daemon"]);
 });
 
-test("Windows offers no chat", () => {
-  assert.deepEqual(chatEntries({ platform: "windows", python: true, agents: [claude, codex] }), []);
+test("Windows offers Claude Code's chat, with no python3", () => {
+  // Windows (spec 014): no python3 needed; Claude Code only, Codex isn't ported.
+  assert.deepEqual(chatEntries({ platform: "windows", python: false, agents: [claude, codex] }).map((e) => e.key), ["claude"]);
+  assert.deepEqual(chatEntries({ platform: null, python: true, agents: [claude] }), [], "unknown system");
 });
 
 test("no python3 on the machine: no chat", () => {

@@ -196,16 +196,16 @@ function fail(title, r) {
 async function chatOptions(on) {
   // The agent's machine decides, not this window's (spec 014).
   const platform = await platformOf(on, exec, window().platform);
-  if (!platform || platform === "windows") return [];
+  if (!platform) return [];
   let agents = [], python = false;
   try { agents = await knownAgents({ on }); } catch {}
   // Another machine's answer can miss agents outside its core's PATH (Homebrew on
   // macOS): its login shell is asked too, as nested-tabs' agentsOn does.
-  if (on && !hasChatAgent(agents)) {
+  if (on && !hasChatAgent(agents) && platform !== "windows") {
     const r = await exec("sh", ["-c", AGENT_LOOKUP], { on, timeout: 8000 }).catch(() => null);
     agents = withLoginAgents(agents, parseAgentLookup(r?.stdout));
   }
-  try { python = (await exec("sh", ["-c", "command -v python3"], { on, timeout: 5000 })).code === 0; } catch {}
+  if (platform !== "windows") try { python = (await exec("sh", ["-c", "command -v python3"], { on, timeout: 5000 })).code === 0; } catch {}
   return chatEntries({ platform, python, agents });
 }
 

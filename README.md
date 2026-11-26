@@ -87,8 +87,10 @@ when its chat closes, a hidden terminal comes back as a tab when its chat closes
 chat; the agents list opens it.
 
 Needs `python3` on the agent's machine (the side chat, info cards and the resume list
-talk to `claude -p` and `codex app-server` through it) and `claude` and/or `codex`.
-macOS and Linux; not offered on Windows. Changing the model or effort backs up
+talk to `claude -p` and `codex app-server` through it) and `claude` and/or `codex`;
+on Windows, PowerShell does that part instead (spec 014), for Claude Code only (the
+Codex bridge isn't ported yet). A window on any system can show a chat with an agent
+on any machine. Changing the model or effort backs up
 `~/.claude/settings.json` and puts it back about 2.4 s later (upstream behaviour).
 
 ## hayami-js
@@ -127,6 +129,25 @@ lives here; `install.sh` symlinks `bin/*` into `~/.local/bin` and `skills/*` int
 ```sh
 npm test    # ./run-tests.sh: ours + the vendored cria tests, under a throwaway TMPDIR
 ```
+
+## Requirements
+
+The Herdr app and herdr-core on each machine, and these programs where a mod uses
+them. Windows' commands go through PowerShell, which Windows always has.
+
+| Program | Used by | macOS | Linux (CachyOS/Arch) | Windows |
+|---|---|---|---|---|
+| node | `install.sh`, the tests | `brew install node` | `pacman -S nodejs` | `winget install OpenJS.NodeJS.LTS` |
+| bash, coreutils | `install.sh` | built in | built in | Git for Windows (Git Bash; run `install.sh --no-agent` there) |
+| git | `git`, `nav` (marks), the chat's @-mention list | built in (Xcode tools) | `pacman -S git` | Git for Windows |
+| python3 | the chat, on the agent's machine (side chat, info cards, resume list) | built in | `pacman -S python` | not needed: PowerShell |
+| mermaid-cli (`mmdc`) | Mermaid diagrams in the viewer and the chat | `brew install mermaid-cli` | `pacman -S mermaid-cli` (with Chromium) | `npm install -g @mermaid-js/mermaid-cli` (dotfiles: `windows/install.ps1 -Components mermaid-cli`) |
+| poppler (`pdftoppm`, `pdfinfo`) | PDFs in the viewer | not needed: PDFKit | `pacman -S poppler` | not needed: Windows' own |
+| wl-clipboard or xclip | the chat's copy and pasted screenshots | not needed: pbcopy, osascript | `pacman -S wl-clipboard` (Wayland) or `xclip` | not needed: PowerShell |
+| hayami service | `hayami` (usage under the dock) | see [hayami-js](#hayami-js) | see [hayami-js](#hayami-js) | see [hayami-js](#hayami-js) |
+
+A missing program shows as a note where it's needed ("Mermaid isn't installed
+(mermaid-cli)", "PDF previews need pdftoppm…"), not as an error.
 
 ## Install
 

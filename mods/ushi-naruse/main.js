@@ -19,7 +19,7 @@ import { contextMeter } from "./lib/chat-context.js";
 import { MERMAID_SH, MERMAID_WINDOWS, mermaidTheme, mermaidFailure } from "./lib/mermaid.js";
 import { powershell, win } from "./lib/powershell.js";
 import { plainText, quote, commandOf, menuFor, keepLineBreaks, joinLines, sentHistory, recallStep } from "./lib/chat-text.js";
-import { Tail, locate, agentKind, machineOf, subagentLog } from "./source.js";
+import { Tail, locate, agentKind, machineOf, subagentLog, onAgent } from "./source.js";
 import { catalog, launchArgv, modelName, switchModel } from "./models.js";
 import { emojify, PICKER, emojiMatches } from "./emoji.js";
 import { parsePrompt, choose, menuAtBottom } from "./prompt.js";
@@ -743,8 +743,11 @@ export default class Chat extends View {
       if (this.listing) return;
       this.listing = true;
       cx.spawn(async (cx) => {
-        const r = await exec("sh", ["-c", `cd "$1" 2>/dev/null || exit 0
-          { git ls-files -co --exclude-standard 2>/dev/null || find . -type f -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | sed 's|^./||'; } | head -20000`, "sh", folder], { on: machineOf(this.term) }).catch(() => ({ stdout: "" }));
+        const r = await onAgent(machineOf(this.term), `cd "$1" 2>/dev/null || exit 0
+          { git ls-files -co --exclude-standard 2>/dev/null || find . -type f -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | sed 's|^./||'; } | head -20000`,
+          // Windows: git's list, else a walk; paths with / as git gives them.
+          "Set-Location -LiteralPath $args[0]; $l = @(git ls-files -co --exclude-standard 2>$null); if ($LASTEXITCODE -ne 0 -or -not $l.Count) { $b = (Get-Location).Path.Length + 1; $l = @(Get-ChildItem -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notmatch '[\\\\/](node_modules|[.]git)[\\\\/]' } | ForEach-Object { $_.FullName.Substring($b).Replace([char]92, [char]47) }) }; $l | Select-Object -First 20000",
+          [folder]).catch(() => ({ stdout: "" }));
         const files = r.stdout.split("\n").filter(Boolean);
         const dirs = new Set();
         for (const f of files) { const parts = f.split("/"); for (let i = 1; i < parts.length; i++) dirs.add(parts.slice(0, i).join("/") + "/"); }
@@ -1027,7 +1030,8 @@ export default class Chat extends View {
     const edit = (file, title) => () => this.editFile(file, title);
     const ancestors = (f) => { const out = []; let d = f; while (d && d !== "/" && d.startsWith(H) && d !== H) { out.push(d); d = d.replace(/\/[^/]+$/, ""); } return out.reverse(); };
     const sizes = async (files) => {
-      const r = await exec("sh", ["-c", 'for f; do [ -f "$f" ] && printf "%s\\t%s\\n" "$f" "$(wc -c < "$f" | tr -d " ")"; done; true', "sh", ...files], { on });
+      const r = await onAgent(on, 'for f; do [ -f "$f" ] && printf "%s\\t%s\\n" "$f" "$(wc -c < "$f" | tr -d " ")"; done; true',
+        "foreach ($f in $args) { if ([IO.File]::Exists($f)) { $f + [char]9 + [IO.FileInfo]::new($f).Length } }", files);
       return Object.fromEntries(r.stdout.split("\n").filter(Boolean).map((l) => l.split("\t")));
     };
     const kb = (n) => (n > 1024 ? `${(n / 1024).toFixed(1)} KB` : `${n} bytes`);
@@ -1084,7 +1088,8 @@ export default class Chat extends View {
             e.buttons.push(["Browse plugins", say("/plugins")]);
           } else {
             const [st] = await control(folder, null, [{ subtype: "get_settings" }], { on });
-            const raw = await exec("sh", ["-c", 'cat "$HOME/.claude/plugins/installed_plugins.json" 2>/dev/null'], { on });
+            const raw = await onAgent(on, 'cat "$HOME/.claude/plugins/installed_plugins.json" 2>/dev/null',
+              "$f = Join-Path $env:USERPROFILE '.claude\\plugins\\installed_plugins.json'; if ([IO.File]::Exists($f)) { [IO.File]::ReadAllText($f) }", []);
             let installed = {};
             try { installed = JSON.parse(raw.stdout).plugins ?? {}; } catch {}
             const enabled = st?.effective?.enabledPlugins ?? {};
@@ -1484,7 +1489,7 @@ export default class Chat extends View {
     this.off = 0;
     this.error = null;
     const tail = new Tail(file, on);
-    const dir = file.slice(0, file.lastIndexOf("/"));
+    const dir = file.slice(0, Math.max(file.lastIndexOf("/"), file.lastIndexOf("\\")));
     this.beat = Date.now();
     cx.spawn(async (cx) => {
       while (gen === this.gen) {
@@ -1565,7 +1570,7 @@ export default class Chat extends View {
   }
 
   async readOutput(i, on) {
-    const r = await exec("tail", ["-n", "30", i.bg.output], { on });
+    const r = await onAgent(on, 'tail -n 30 "$1"', "Get-Content -LiteralPath $args[0] -Tail 30 -Encoding UTF8", [i.bg.output]);
     if (r.code === 0) this.outputs[i.id] = { lines: lastLines(r.stdout, 30), final: false };
   }
 

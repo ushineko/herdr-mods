@@ -26,6 +26,10 @@ Python (operator's choice, 2026-11-26).
   `python3` there is the Microsoft Store stub.
 - Found on Windows: `fs.writeFile` with binary data leaves an empty file, text is
   written correctly.
+- Found on Windows: `claude` and `mmdc` from npm resolve to their `.ps1` shims first;
+  the bridge takes the first `.exe`/`.cmd` (a `.ps1` can't be started as a process),
+  the Mermaid script runs whatever PowerShell finds, `.ps1` included.
+- Dependencies, per system, are listed in the README's Requirements.
 
 ## Requirements
 
@@ -61,6 +65,14 @@ Python (operator's choice, 2026-11-26).
   Show/Hide terminal.
 - [ ] R3: a chat with Claude Code running on win11-kvm: the conversation, live
   replies, the command menu and models, a side question.
+  - [x] The conversation, with a Mermaid diagram (operator, 2026-11-26): the session
+    lookup found `f23aa476…` (claude.exe, child of the pane's pwsh) and the chat
+    followed its log (591,690 bytes); `mermaid-40186f75….png` drawn by mmdc
+    (`npm install -g @mermaid-js/mermaid-cli`, now a dotfiles Windows module).
+  - [x] The PowerShell scripts run directly against it: the sessions list, the
+    bridge's `initialize` (commands came back), the log's size and a read from an
+    offset, `Get-Content -Tail`.
+  - [ ] Seen in the window: live replies, the / menu, the model picker, `/btw`.
 - [ ] R4: `npm test` on macOS, `./run-tests.sh` on Linux, `tools/test-windows.sh`;
   a chat on the Mac and on njv-cachyos still works.
 

@@ -31,7 +31,7 @@ export const options = (base) => optionsOn(where(base).on);
 export async function agentsOn(on) {
   let list = [], error = null;
   try { list = await knownAgents({ on }); } catch (e) { error = e; }
-  if (on && !hasChatAgent(list)) {
+  if (on && !hasChatAgent(list) && (await platformOn(on)) !== "windows") {
     const r = await exec("sh", ["-c", AGENT_LOOKUP], { on, timeout: 8000 }).catch(() => null);
     const found = parseAgentLookup(r?.stdout);
     if (Object.keys(found).length) return withLoginAgents(list, found);
@@ -44,10 +44,10 @@ export async function agentsOn(on) {
 export async function optionsOn(on) {
   // The agent's machine decides (spec 014), not this window's.
   const platform = await platformOn(on);
-  if (!platform || platform === "windows") return [];
+  if (!platform) return [];
   let agents = [], python = false;
   try { agents = await agentsOn(on); } catch {}
-  try { python = (await exec("sh", ["-c", "command -v python3"], { on, timeout: 5000 })).code === 0; } catch {}
+  if (platform !== "windows") try { python = (await exec("sh", ["-c", "command -v python3"], { on, timeout: 5000 })).code === 0; } catch {}
   return chatEntries({ platform, python, agents });
 }
 
@@ -136,8 +136,9 @@ export function hideBehindChat(addr) {
   setShared("ushi-naruse.hide", { terminal: addr, at: Date.now() });
 }
 
-// Whether the chat can run on a machine (null: this computer): not Windows (not yet,
-// spec 014 B), python3 there; the window itself may be on Windows (spec 014 A).
+// Whether the chat can run on a machine (null: this computer): python3 there on macOS
+// and Linux; Windows runs its helpers with PowerShell (spec 014). The window itself
+// may be on any system.
 // Checked once per machine in a run; undefined until known.
 const ready = new Map();
 
@@ -147,8 +148,8 @@ export async function check(addr) {
   const key = on ?? "";
   if (ready.has(key)) return ready.get(key);
   const platform = await platformOn(on);
-  let ok = Boolean(platform) && platform !== "windows";
-  if (ok) try { ok = (await exec("sh", ["-c", "command -v python3"], { on, timeout: 5000 })).code === 0; } catch { ok = false; }
+  let ok = Boolean(platform);
+  if (ok && platform !== "windows") try { ok = (await exec("sh", ["-c", "command -v python3"], { on, timeout: 5000 })).code === 0; } catch { ok = false; }
   ready.set(key, ok);
   return ok;
 }

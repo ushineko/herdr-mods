@@ -1,6 +1,7 @@
 // Models and effort levels for Claude Code and Codex: what can be picked,
 // how to start an agent with them, and how to switch a running one.
-import { exec, hc } from "herdr";
+import { hc } from "herdr";
+import { onAgent } from "./source.js";
 
 export const CLAUDE_MODELS = [
   { id: "claude-opus-5-5", name: "Opus 5.5", alias: "opus" },
@@ -10,8 +11,10 @@ export const CLAUDE_MODELS = [
 ];
 const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 
+// A file under the agent machine's home; "" when there's none. Windows: PowerShell
+// (herdr-mods, spec 014).
 const cat = async (path, on) =>
-  (await exec("sh", ["-c", 'cat "$HOME/$1" 2>/dev/null', "sh", path], { on })).stdout;
+  (await onAgent(on, 'cat "$HOME/$1" 2>/dev/null', "$f = Join-Path $env:USERPROFILE $args[0]; if ([IO.File]::Exists($f)) { [IO.File]::ReadAllText($f) }", [path])).stdout;
 
 // { models: [{ id, name, efforts }], model, effort }: the choices and the defaults.
 export async function catalog(kind, on) {
@@ -52,11 +55,13 @@ export function launchArgv(kind, model, effort, task) {
 export async function switchModel(term, kind, model, effort, on, sleep) {
   if (kind === "codex") return hc(["send", term, `/model ${model}${effort ? ` --reasoning=${effort}` : ""}`]);
   const f = '"$HOME/.claude/settings.json"';
-  await exec("sh", ["-c", `cp ${f} ${f}.chat-bak`], { on });
+  const settings = "$f = Join-Path $env:USERPROFILE '.claude\\settings.json'; ";
+  await onAgent(on, `cp ${f} ${f}.chat-bak`, settings + "Copy-Item -LiteralPath $f -Destination ($f + '.chat-bak') -Force", []);
   try {
     if (model) { await hc(["send", term, `/model ${model}`]); await sleep(1200); }
     if (effort) { await hc(["send", term, `/effort ${effort}`]); await sleep(1200); }
   } finally {
-    await exec("sh", ["-c", `cp ${f}.chat-bak ${f} && rm -f ${f}.chat-bak`], { on });
+    await onAgent(on, `cp ${f}.chat-bak ${f} && rm -f ${f}.chat-bak`,
+      settings + "Copy-Item -LiteralPath ($f + '.chat-bak') -Destination $f -Force; Remove-Item -LiteralPath ($f + '.chat-bak') -Force", []);
   }
 }

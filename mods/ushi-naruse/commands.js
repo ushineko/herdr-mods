@@ -1,6 +1,6 @@
 // The / menu: which commands an agent takes, as its own menu lists them.
-import { exec } from "herdr";
 import { claudeInfo, codexCalls } from "./sdk.js";
+import { onAgent } from "./source.js";
 
 // Claude Code's built-in commands, as its app describes them (2.1.311). The
 // ones it only runs outside the terminal come from \`claude -p\` below too.
@@ -177,7 +177,6 @@ function front(text) {
   return { desc: field("description"), hint: field("argument-hint") };
 }
 
-const sh = (script, args, on) => exec("sh", ["-c", script, "sh", ...args], { on });
 
 // What each command does in the chat, as in the Claude app: some are answered
 // here (side chat, pickers, cards); the rest go to the agent as typed.
@@ -255,7 +254,8 @@ const CODEX_HOST = {
 
 async function codexCommands(folder, on) {
   const [r, [models]] = await Promise.all([
-    sh('for f in "$HOME"/.codex/prompts/*.md; do [ -f "$f" ] && { printf "\\036%s\\n" "$(basename "$f" .md)"; head -n 20 "$f"; }; done; true', [], on),
+    onAgent(on, 'for f in "$HOME"/.codex/prompts/*.md; do [ -f "$f" ] && { printf "\\036%s\\n" "$(basename "$f" .md)"; head -n 20 "$f"; }; done; true',
+      "Get-ChildItem -LiteralPath (Join-Path $env:USERPROFILE '.codex\\prompts') -Filter *.md -ErrorAction SilentlyContinue | ForEach-Object { [string][char]30 + $_.BaseName; Get-Content -LiteralPath $_.FullName -TotalCount 20 -Encoding UTF8 }", []),
     codexCalls(folder, [["model/list", {}]], on).catch(() => [null]),
   ]);
   const list = CODEX.map((c) => {

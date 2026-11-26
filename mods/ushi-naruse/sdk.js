@@ -3,6 +3,76 @@
 // answers. With a session id it works on a read-only fork of that session,
 // so the agent in the terminal is never touched or interrupted.
 import { exec } from "herdr";
+import { powershell } from "./lib/powershell.js";
+import { controlInput, controlAnswers, projectFolder, parseSessions } from "./lib/chat-sdk.js";
+import { systemOf } from "./source.js";
+
+const ps = (script, args, on, timeout) => { const [p, a] = powershell(script, ...args); return exec(p, a, { on, timeout }); };
+
+// Windows (herdr-mods, spec 014): the same bridge in PowerShell, which only runs
+// claude and passes its lines back; lib/chat-sdk.js makes the input and reads the
+// answers. Values: folder, session, the input lines, how many requests, timeout,
+// settle, delay (seconds). claude is a program, or an npm shim run through cmd.
+const CONTROL_WINDOWS = String.raw`
+$folder, $sid, $lines, $n, $timeout, $settle, $delay = $args
+$n = [int]$n; $settle = [double]$settle
+$c = Get-Command claude -CommandType Application -All -ErrorAction SilentlyContinue | Where-Object { $_.Source -match '[.](exe|cmd|bat)$' } | Select-Object -First 1
+if (-not $c) { throw 'claude is not installed here' }
+$q = [string][char]34
+$flags = '-p --input-format stream-json --output-format stream-json --verbose --no-session-persistence'
+if ($sid) { $flags += ' --resume ' + $sid + ' --fork-session' }
+$si = New-Object Diagnostics.ProcessStartInfo
+if ($c.Source -match '[.](cmd|bat)$') { $si.FileName = $env:ComSpec; $si.Arguments = '/d /c ' + $q + $q + $c.Source + $q + ' ' + $flags + $q }
+else { $si.FileName = $c.Source; $si.Arguments = $flags }
+if ($folder) { $si.WorkingDirectory = $folder }
+$si.UseShellExecute = $false
+$si.RedirectStandardInput = $true
+$si.RedirectStandardOutput = $true
+$si.StandardOutputEncoding = New-Object Text.UTF8Encoding $false
+$p = [Diagnostics.Process]::Start($si)
+try {
+  $end = [DateTime]::Now.AddSeconds([double]$timeout)
+  Start-Sleep -Milliseconds ([int]([double]$delay * 1000))
+  $bytes = (New-Object Text.UTF8Encoding $false).GetBytes($lines)
+  $p.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length)
+  $p.StandardInput.BaseStream.Flush()
+  $seen = @{}; $done = $null; $task = $null
+  while ($true) {
+    $stop = if ($done) { $done.AddSeconds($settle) } else { $end }
+    $left = ($stop - [DateTime]::Now).TotalMilliseconds
+    if ($left -le 0) { break }
+    if (-not $task) { $task = $p.StandardOutput.ReadLineAsync() }
+    if (-not $task.Wait([int][Math]::Min($left, 2147483647))) { break }
+    $line = $task.Result; $task = $null
+    if ($null -eq $line) { break }
+    if ($line.Contains('commands_changed')) { $line }
+    elseif ($line.Contains('control_response')) {
+      $line
+      $m = [regex]::Match($line, 'request_id.{3}r(\d+)')
+      if ($m.Success) { $seen[$m.Groups[1].Value] = 1 }
+      if (-not $done -and $seen.Count -ge $n) { $done = [DateTime]::Now; if ($settle -le 0) { break } }
+    }
+  }
+} finally { try { $p.Kill() } catch {} }`;
+
+// Windows: each recent log of a folder, "<id>	<ms>" then the lines a title can
+// come from (lib/chat-sdk.js parseSessions picks it).
+const SESSIONS_WINDOWS = String.raw`
+$d = Join-Path (Join-Path $env:USERPROFILE '.claude\projects') $args[0]
+$rs = [string][char]30
+$q = [string][char]34
+$user = $q + 'type' + $q + ':' + $q + 'user' + $q
+Get-ChildItem -LiteralPath $d -Filter *.jsonl -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 60 | ForEach-Object {
+  $rs + $_.BaseName + [char]9 + [long](($_.LastWriteTimeUtc - [DateTime]'1970-01-01').TotalMilliseconds)
+  $users = 0
+  $r = New-Object IO.StreamReader((New-Object IO.FileStream($_.FullName, 'Open', 'Read', 'ReadWrite')), [Text.Encoding]::UTF8)
+  try {
+    while ($null -ne ($l = $r.ReadLine())) {
+      if ($l.Contains('aiTitle') -or $l.Contains('customTitle')) { $l }
+      elseif ($users -lt 8 -and $l.Contains($user)) { $users++; $l }
+    }
+  } finally { $r.Close() }
+}`;
 
 // Sends each request in argv[3] (a JSON array) and prints the answers, plus
 // the newest command list Claude announced: it adds plugins' and MCP servers'
@@ -43,6 +113,12 @@ import os; os._exit(0)
 `;
 
 export async function control(folder, session, requests, { on = null, timeout = 45, settle = 0, delay = 0, withCommands = false } = {}) {
+  if ((await systemOf(on)) === "windows") {
+    const r = await ps(CONTROL_WINDOWS, [folder ?? "", session ?? "", controlInput(requests), String(requests.length), String(timeout), String(settle), String(delay)],
+      on, (timeout + delay + settle + 15) * 1000).catch((e) => ({ stdout: "", stderr: String(e?.message ?? e) }));
+    const res = controlAnswers(r.stdout, requests.length, r.stderr?.trim() || "no answer");
+    return withCommands ? res : res.out;
+  }
   const r = await exec("python3", ["-c", PY, folder ?? "", session ?? "", JSON.stringify(requests), String(timeout), String(settle), String(delay)], { on });
   let res;
   try { res = JSON.parse(r.stdout.trim().split("\n").pop()); } catch { res = { out: requests.map(() => ({ error: r.stderr.trim() || "no answer" })), commands: null }; }
@@ -91,6 +167,10 @@ print(json.dumps(out))
 `;
 
 export async function listSessions(folder, on) {
+  if ((await systemOf(on)) === "windows") {
+    const r = await ps(SESSIONS_WINDOWS, [projectFolder(folder)], on, 60000);
+    return parseSessions(r.stdout);
+  }
   const r = await exec("python3", ["-c", SESSIONS, folder], { on });
   try { return JSON.parse(r.stdout); } catch { return []; }
 }
@@ -147,6 +227,8 @@ bail({"text": answer} if answer else {"error": err or "No answer"})
 `;
 
 const codexRun = async (folder, mode, arg, on) => {
+  // Not ported to Windows yet (spec 014: Codex isn't installed there).
+  if ((await systemOf(on)) === "windows") return { error: "Codex chats aren't supported on Windows yet" };
   const r = await exec("python3", ["-c", CODEX_PY, folder ?? "", mode, JSON.stringify(arg)], { on });
   try { return JSON.parse(r.stdout.trim().split("\n").pop()); } catch { return { error: r.stderr.trim() || "No answer" }; }
 };
