@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  reflowMessage,
   parseStatus, parseNumstat, parseWorktrees, within, worktreeOf, placeAgent, lockedBy,
   stageArgs, unstageArgs, unstageAllArgs, pushArgs, pullArgs, fetchArgs, commitArgs,
   parseLog, ago, gitKeyAction, WRITES, parseCommit, parseCommitFiles, indexWorktrees, visibleWorktrees,
@@ -354,4 +355,42 @@ test("removeArgs against git: --force discards changes; locked needs it twice", 
   assert.notEqual(spawnSync("git", removeArgs(repo, join(dir, "held"), { force: true })).status, 0);
   assert.equal(spawnSync("git", removeArgs(repo, join(dir, "held"), { force: true, locked: true })).status, 0);
   assert.equal(g(repo, "branch", "--list", "dirty", "held").toString().split("\n").filter(Boolean).length, 2);
+});
+
+test("reflowMessage: a wrapped paragraph becomes one line; blank lines separate", () => {
+  const b = reflowMessage("A chat pane's header draws\nthe chat's own header.\n\nThe tab bar is 32 px\n(was 42).");
+  assert.deepEqual(b, [{ kind: "para", text: "A chat pane's header draws the chat's own header." }, { kind: "para", text: "The tab bar is 32 px (was 42)." }]);
+});
+
+test("reflowMessage: list items keep their marker; their wrapped lines join the item", () => {
+  const b = reflowMessage("Changes:\n- first item\n  continues here\n- second\n1. numbered\n   more\n  * nested");
+  assert.deepEqual(b, [
+    { kind: "para", text: "Changes:" },
+    { kind: "item", marker: "•", text: "first item continues here", depth: 0 },
+    { kind: "item", marker: "•", text: "second", depth: 0 },
+    { kind: "item", marker: "1.", text: "numbered more", depth: 0 },
+    { kind: "item", marker: "•", text: "nested", depth: 1 },
+  ]);
+});
+
+test("reflowMessage: code, fences and trailers stay as written", () => {
+  const b = reflowMessage("Run it:\n\n    make test\n    make lint\n\n```\na  b\n\nc\n```\n\nCloses #41\nSigned-off-by: N <n@x>");
+  assert.deepEqual(b, [
+    { kind: "para", text: "Run it:" },
+    { kind: "pre", text: "    make test\n    make lint" },
+    { kind: "pre", text: "```\na  b\n\nc\n```" },
+    { kind: "line", text: "Closes #41" },
+    { kind: "line", text: "Signed-off-by: N <n@x>" },
+  ]);
+});
+
+test("reflowMessage: two trailing spaces keep the break; empty body is no blocks", () => {
+  assert.deepEqual(reflowMessage("one  \ntwo"), [{ kind: "para", text: "one" }, { kind: "para", text: "two" }]);
+  assert.deepEqual(reflowMessage(""), []);
+  assert.deepEqual(reflowMessage(undefined), []);
+});
+
+test("reflowMessage: a sentence that starts with a word and a colon is prose, not a trailer", () => {
+  assert.deepEqual(reflowMessage("Note: the heights live\nin each home."), [{ kind: "para", text: "Note: the heights live in each home." }]);
+  assert.deepEqual(reflowMessage("Co-Authored-By: A <a@b>"), [{ kind: "line", text: "Co-Authored-By: A <a@b>" }]);
 });

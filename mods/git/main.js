@@ -9,7 +9,7 @@ import {
   READ, parseStatus, parseNumstat, parseWorktrees, worktreeOf, placeAgent, lockedBy, within, WORKTREE_LABEL,
   indexWorktrees, visibleWorktrees, planCleanup, CLEANUP_SCAN_SH, parseCleanupScan, FOREIGN_SCAN_SH, parseForeignScan, DOCKER_CHOWN_SH, DOCKER_PREFLIGHT_SH, removeArgs,
   stageArgs, unstageArgs, stageAllArgs, unstageAllArgs, commitArgs, pullArgs, pushArgs, fetchArgs,
-  LOG_FORMAT, parseLog, ago, gitKeyAction, WRITES, COMMIT_FORMAT, parseCommit, parseCommitFiles,
+  LOG_FORMAT, parseLog, ago, gitKeyAction, WRITES, COMMIT_FORMAT, parseCommit, parseCommitFiles, reflowMessage,
 } from "./lib/git.js";
 import { openInViewer } from "./lib/open.js";
 import { editFile } from "./lib/edit-open.js";
@@ -24,6 +24,15 @@ const AGENT_POLL = 3000;
 const LOCAL_POLL_BUSY = 3000;
 const LOCAL_POLL_IDLE = 15000;
 const ROW = 24;
+// Text size: the panel is drawn around a 12.5 px body; A−/A+ (keys - and =, 0 back)
+// scale every text size and row height by the size chosen, shared by every git panel.
+const FONT_KEY = "git.fontSize";
+const FONT_BASE = 12.5, FONT_MIN = 9, FONT_MAX = 24;
+let Z = 1;
+const z = (n) => Math.round(n * Z * 10) / 10;
+const panelFont = () => Number(shared(FONT_KEY)) || FONT_BASE;
+// Every copy gets a palette command; only the first within a moment acts.
+let lastFontCommand = 0;
 const LONG = 120000; // pull, push, fetch
 const RECENT = 50;  // commits in the Recent pane (R8), and each Load more (R8d)
 const RECENT_FULL = "git.recentFull";
@@ -97,7 +106,12 @@ export default class Git extends View {
     if (checking()) return;
     cx.spawn(async (cx) => {
       for (;;) {
-        if ((await nextCommand()) !== "focus") continue;
+        const c = await nextCommand();
+        if (c.startsWith("font-")) {
+          if (Date.now() - lastFontCommand > 150) { lastFontCommand = Date.now(); this.setFont(c === "font-bigger" ? 1 : c === "font-smaller" ? -1 : 0); }
+          continue;
+        }
+        if (c !== "focus") continue;
         this.handle.focus();
         cx.timer.after(150, () => this.handle.focus());
       }
@@ -382,12 +396,33 @@ export default class Git extends View {
     return true;
   }
 
+  // The panel's text size, one step at a time (half a px below 12, else 1); 0 goes back.
+  setFont(step) {
+    if (!step) return setShared(FONT_KEY, null);
+    const now = panelFont();
+    const next = Math.max(FONT_MIN, Math.min(FONT_MAX, now + step * (now + step < 12 ? 0.5 : 1)));
+    setShared(FONT_KEY, next === FONT_BASE ? null : next);
+  }
+
+  // A commit message's body, reflowed (lib/git.js reflowMessage): paragraphs fill the
+  // width; list items hang from their marker; code and trailers stay as written.
+  messageBody(body, t) {
+    const mono = settings().font_family;
+    return v_flex().gap(z(6)).text_size(z(12.5)).text_color(t.muted).children(reflowMessage(body).map((b) => {
+      if (b.kind === "item") return h_flex().items_start().gap(z(6)).pl(z(4 + b.depth * 14))
+        .child(div().flex_none().min_w(z(12)).text_color(t.dim).child(b.marker)).child(div().flex_1().min_w(0).child(b.text));
+      if (b.kind === "pre") return div().px(z(8)).py(z(4)).rounded(6).bg(t.raised).font_family(mono).text_size(z(11.5)).child(b.text);
+      if (b.kind === "line") return div().text_color(t.dim).child(b.text);
+      return div().child(b.text);
+    }));
+  }
+
   renderCommit(t) {
     const c = this.commit, i = c.info;
-    const back = div().id("git-commit-back").px(8).h(24).flex().items_center().rounded(6).cursor_pointer().text_size(12)
+    const back = div().id("git-commit-back").px(8).h(z(24)).flex().items_center().rounded(6).cursor_pointer().text_size(z(12))
       .text_color(t.muted).hover((x) => x.bg(t.hover).text_color(t.foreground))
       .on_click((_e, cx) => { this.commit = null; cx.notify(); }).child("← Back");
-    const chip = (id, label, act, enabled = true) => div().id(id).px(6).h(20).flex().items_center().rounded(5).text_size(11)
+    const chip = (id, label, act, enabled = true) => div().id(id).px(6).h(z(20)).flex().items_center().rounded(5).text_size(z(11))
       .when(enabled, (el) => el.cursor_pointer().text_color(t.muted).bg(t.raised).hover((x) => x.bg(t.hover).text_color(t.foreground))
         .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
         .on_click((_e, cx) => { cx.stop_propagation(); act(cx); }))
@@ -397,21 +432,21 @@ export default class Git extends View {
     const head = h_flex().flex_none().px(10).py(6).gap(10).items_center().border_b(1).border_color(t.border)
       .child(back)
       .child(div().font_family(settings().font_family).text_color(t.ansi4).child((i?.hash ?? c.hash).slice(0, 10)))
-      .when(Boolean(i), (el) => el.child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.dim)
+      .when(Boolean(i), (el) => el.child(div().flex_1().min_w(0).truncate().text_size(z(12)).text_color(t.dim)
         .child(`${i.author} · ${new Date(i.time * 1000).toLocaleString()} · ${ago(i.time)} ago`)));
     if (c.loading) return v_flex().flex_1().min_h(0).child(head).child(div().p(12).text_color(t.dim).child("Reading the commit…"));
     if (c.error) return v_flex().flex_1().min_h(0).child(head).child(div().p(12).text_color(t.ansi1).child(c.error));
     const rows = c.files.map((f, k) => {
       const slash = f.path.lastIndexOf("/");
       const cur = k === c.cursor, gone = f.code === "D";
-      return h_flex().id(`git-cf-${k}`).h(26).px(10).mx(4).gap(8).items_center().rounded(6).cursor_pointer()
+      return h_flex().id(`git-cf-${k}`).h(z(26)).px(10).mx(4).gap(8).items_center().rounded(6).cursor_pointer()
         .when(cur, (el) => el.bg(t.selected)).hover((x) => x.bg(cur ? t.selected : t.hover))
         .on_click((_e, cx) => { c.cursor = k; this.commitFileAction("diff", f, cx); cx.notify(); })
-        .child(div().w(12).flex_none().font_semibold().text_size(11.5).text_color(codeColor[f.code] ?? t.muted).child(f.code))
-        .child(h_flex().flex_1().min_w(0).gap(4).text_size(12.5)
+        .child(div().w(12).flex_none().font_semibold().text_size(z(11.5)).text_color(codeColor[f.code] ?? t.muted).child(f.code))
+        .child(h_flex().flex_1().min_w(0).gap(4).text_size(z(12.5))
           .child(div().flex_shrink(1).min_w(0).max_w(240).truncate().child(slash < 0 ? f.path : f.path.slice(slash + 1)))
-          .when(slash >= 0, (el) => el.child(div().flex_shrink(4).min_w(0).truncate().text_size(11).text_color(t.dim).child(f.path.slice(0, slash)))))
-        .when(f.added != null, (el) => el.child(h_flex().flex_none().gap(4).text_size(11)
+          .when(slash >= 0, (el) => el.child(div().flex_shrink(4).min_w(0).truncate().text_size(z(11)).text_color(t.dim).child(f.path.slice(0, slash)))))
+        .when(f.added != null, (el) => el.child(h_flex().flex_none().gap(4).text_size(z(11))
           .child(div().text_color(t.ansi2).child(`+${f.added}`)).child(div().text_color(t.ansi1).child(`−${f.removed}`))))
         .child(h_flex().flex_none().gap(4)
           .child(chip(`git-cf-diff-${k}`, "diff", (cx) => this.commitFileAction("diff", f, cx)))
@@ -421,11 +456,11 @@ export default class Git extends View {
     return v_flex().flex_1().min_h(0).child(head)
       .child(v_flex().id("git-commit-body").flex_1().min_h(0).overflow_y_scrollbar().pb(8)
         .child(v_flex().px(12).pt(10).pb(6).gap(6)
-          .child(div().font_semibold().text_size(13.5).child(i.subject))
-          .when(Boolean(i.body), (el) => el.child(div().text_size(12.5).text_color(t.muted).child(i.body))))
-        .child(h_flex().h(22).px(10).mt(6).gap(6).items_center().text_size(10.5).font_semibold().text_color(t.dim)
+          .child(div().font_semibold().text_size(z(13.5)).child(i.subject))
+          .when(Boolean(i.body), (el) => el.child(this.messageBody(i.body, t))))
+        .child(h_flex().h(z(22)).px(10).mt(6).gap(6).items_center().text_size(z(10.5)).font_semibold().text_color(t.dim)
           .child(div().child("FILES")).child(div().child(String(c.files.length)))
-          .child(div().flex_1()).child(div().text_size(10.5).text_color(t.dim).child("enter diff · o view · e edit · esc back")))
+          .child(div().flex_1()).child(div().text_size(z(10.5)).text_color(t.dim).child("enter diff · o view · e edit · esc back")))
         .children(rows));
   }
 
@@ -475,6 +510,9 @@ export default class Git extends View {
       case "fetch": this.write("Fetch", fetchArgs(), cx, { long: true }); return true;
       case "refresh": this.refresh(cx); this.readPrograms(cx); return true;
       case "help": this.help = !this.help; cx.notify(); return true;
+      case "font-bigger": this.setFont(1); return true;
+      case "font-smaller": this.setFont(-1); return true;
+      case "font-reset": this.setFont(0); return true;
       case "follow": this.relock(cx); return true;
       default: return false;
     }
@@ -778,26 +816,26 @@ export default class Git extends View {
     const forceBlock = (p) => {
       const f = p.force;
       if (!f) return null;
-      if (!f.allowed) return div().text_size(11).text_color(t.dim).child(`Cannot be removed anyway: ${f.refused}`);
+      if (!f.allowed) return div().text_size(z(11)).text_color(t.dim).child(`Cannot be removed anyway: ${f.refused}`);
       if (this.confirmForce !== p.path) {
-        return h_flex().child(h_flex().id(`git-cu-force-${p.path}`).px(8).py(3).rounded(5).border_1().border_color(t.ansi1).text_size(11.5).text_color(t.ansi1)
+        return h_flex().child(h_flex().id(`git-cu-force-${p.path}`).px(8).py(3).rounded(5).border_1().border_color(t.ansi1).text_size(z(11.5)).text_color(t.ansi1)
           .when(idle, (el) => el.cursor_pointer().hover((x) => x.bg(tint(t.ansi1, "22"))).on_click((_e, cx) => { this.confirmForce = p.path; cx.notify(); }))
           .when(!idle, (el) => el.opacity(0.4))
           .child("⚠ Really remove…"));
       }
       const busy = this.forcing === p.path;
       return v_flex().gap(4).p(10).rounded(6).border_2().border_color(t.ansi1).bg(tint(t.ansi1, "1a"))
-        .child(div().text_size(12.5).font_bold().text_color(t.ansi1).child(`⚠ Discard this worktree${f.lost.length ? " and lose work" : ""}?`))
-        .children(f.lost.map((l) => div().text_size(12).font_semibold().text_color(t.ansi1).child(`✗ LOST: ${l}`)))
-        .children(f.kept.map((k) => div().text_size(12).text_color(t.muted).child(`• ${k}`)))
-        .when(f.locked, (el) => el.child(div().text_size(12).text_color(t.muted).child("• it is locked; the lock is overridden")))
-        .when(Boolean(f.chown), (el) => el.child(div().text_size(12).text_color(t.muted).child(`• files owned by ${f.chown} are handed back first (Docker; default Docker only)`)))
-        .children(f.shells.map((sh) => div().text_size(11.5).text_color(t.muted).child(`• shell ${sh.address} moves to ${p.parent}`)))
-        .child(div().text_size(11.5).text_color(t.dim).child(`Runs: git worktree remove ${f.locked ? "--force --force" : "--force"} — the folder is deleted and cannot be restored.`))
+        .child(div().text_size(z(12.5)).font_bold().text_color(t.ansi1).child(`⚠ Discard this worktree${f.lost.length ? " and lose work" : ""}?`))
+        .children(f.lost.map((l) => div().text_size(z(12)).font_semibold().text_color(t.ansi1).child(`✗ LOST: ${l}`)))
+        .children(f.kept.map((k) => div().text_size(z(12)).text_color(t.muted).child(`• ${k}`)))
+        .when(f.locked, (el) => el.child(div().text_size(z(12)).text_color(t.muted).child("• it is locked; the lock is overridden")))
+        .when(Boolean(f.chown), (el) => el.child(div().text_size(z(12)).text_color(t.muted).child(`• files owned by ${f.chown} are handed back first (Docker; default Docker only)`)))
+        .children(f.shells.map((sh) => div().text_size(z(11.5)).text_color(t.muted).child(`• shell ${sh.address} moves to ${p.parent}`)))
+        .child(div().text_size(z(11.5)).text_color(t.dim).child(`Runs: git worktree remove ${f.locked ? "--force --force" : "--force"} — the folder is deleted and cannot be restored.`))
         .child(h_flex().pt(4).gap(8).justify_end()
-          .child(div().id(`git-cu-force-no-${p.path}`).px(10).py(4).rounded(6).border_1().border_color(t.input).bg(t.raised).text_size(12)
+          .child(div().id(`git-cu-force-no-${p.path}`).px(10).py(4).rounded(6).border_1().border_color(t.input).bg(t.raised).text_size(z(12))
             .when(!busy, (el) => el.cursor_pointer().on_click((_e, cx) => { this.confirmForce = null; cx.notify(); })).when(busy, (el) => el.opacity(0.4)).child("Keep it"))
-          .child(div().id(`git-cu-force-yes-${p.path}`).px(10).py(4).rounded(6).bg(t.ansi1).text_size(12).font_semibold().text_color("#ffffff")
+          .child(div().id(`git-cu-force-yes-${p.path}`).px(10).py(4).rounded(6).bg(t.ansi1).text_size(z(12)).font_semibold().text_color("#ffffff")
             .when(!busy && !this.running && !this.fixing, (el) => el.cursor_pointer().hover((x) => x.opacity(0.88)).on_click((_e, cx) => {
               this.forcing = p.path;
               cx.notify();
@@ -812,12 +850,12 @@ export default class Git extends View {
       cx.spawn(async (cx) => { try { await this.fixOwnership(cx, paths); } finally { this.fixing = null; cx.notify(); } });
     };
     const owned = plan.filter((p) => p.owner);
-    const linkBtn = (id, label, act) => div().id(id).flex_none().px(8).py(4).rounded(5).border_1().border_color(t.border).text_size(11.5)
+    const linkBtn = (id, label, act) => div().id(id).flex_none().px(8).py(4).rounded(5).border_1().border_color(t.border).text_size(z(11.5))
       .when(idle, (el) => el.cursor_pointer().hover((x) => x.bg(t.hover)).on_click(act)).when(!idle, (el) => el.opacity(0.4)).child(label);
     const go = plan.filter((p) => p.eligible), skip = plan.filter((p) => !p.eligible);
     const picked = go.filter((p) => this.chosen.has(p.path));
     const close = () => closeOverlay(props().overlay);
-    const button = (id, label, primary, enabled, act) => h_flex().id(id).h(32).px(14).items_center().rounded(8).text_size(12.5)
+    const button = (id, label, primary, enabled, act) => h_flex().id(id).h(z(32)).px(14).items_center().rounded(8).text_size(z(12.5))
       .border_1().border_color(primary ? t.ansi1 : t.input).bg(primary ? t.ansi1 : t.raised)
       .text_color(primary ? t.background : t.foreground).when(enabled, (el) => el.cursor_pointer().hover((s) => s.opacity(0.88)).on_click(act))
       .when(!enabled, (el) => el.opacity(0.4)).child(label);
@@ -828,7 +866,7 @@ export default class Git extends View {
       cx.spawn(async (cx) => { try { await this.runCleanup(cx); } finally { this.running = false; this.done = true; cx.notify(); } });
     };
     const lastLine = (p) => p.last
-      ? h_flex().gap(6).min_w(0).text_size(11.5).text_color(t.dim)
+      ? h_flex().gap(6).min_w(0).text_size(z(11.5)).text_color(t.dim)
         .child(div().flex_none().font_family(settings().font_family).text_color(t.ansi4).child(p.last.hash.slice(0, 8)))
         .child(div().min_w(0).truncate().child(p.last.subject))
         .child(div().flex_none().child(`${ago(p.last.time)} ago`))
@@ -843,7 +881,7 @@ export default class Git extends View {
       const on = this.chosen.has(p.path);
       return div().flex_none().size(20).mt(1).rounded(5).border_2()
         .border_color(on ? t.ansi2 : t.muted).when(on, (el) => el.bg(t.ansi2))
-        .flex().items_center().justify_center().text_size(13).font_bold().text_color("#ffffff")
+        .flex().items_center().justify_center().text_size(z(13)).font_bold().text_color("#ffffff")
         .child(on ? "✓" : "");
     };
     const card = (p, going) => h_flex().id(`git-cu-card-${p.path}`).flex_none().items_start().gap(10).p(8).rounded(7).border_1().bg(t.background)
@@ -855,45 +893,45 @@ export default class Git extends View {
       .child(v_flex().flex_1().min_w(0).gap(3)
       // The branch on its own line, whole (long names wrap); the path under it.
       .child(h_flex().gap(8).items_start()
-        .child(div().flex_1().min_w(0).text_size(12.5).font_semibold().child(p.branch ?? "(detached)"))
-        .when(going, (el) => el.child(div().flex_none().px(6).rounded(4).text_size(11).font_semibold()
+        .child(div().flex_1().min_w(0).text_size(z(12.5)).font_semibold().child(p.branch ?? "(detached)"))
+        .when(going, (el) => el.child(div().flex_none().px(6).rounded(4).text_size(z(11)).font_semibold()
           .when(this.chosen.has(p.path), (x) => x.bg(t.ansi2).text_color("#ffffff").child("will be removed"))
           .when(!this.chosen.has(p.path), (x) => x.bg(t.raised).text_color(t.muted).child("skipped")))))
-      .child(div().min_w(0).truncate().text_size(11.5).text_color(t.dim).child(p.path))
-      .child(div().text_size(12).text_color(going ? t.ansi2 : t.blocked).child(going ? `safe: ${p.why}` : `kept: ${p.reason}`))
+      .child(div().min_w(0).truncate().text_size(z(11.5)).text_color(t.dim).child(p.path))
+      .child(div().text_size(z(12)).text_color(going ? t.ansi2 : t.blocked).child(going ? `safe: ${p.why}` : `kept: ${p.reason}`))
       // Another user's files: the command that clears it, copyable.
       .when(!going && Boolean(p.fix), (el) => el.child(h_flex().gap(8).items_center()
-        .child(div().flex_1().min_w(0).px(8).py(4).rounded(5).bg(t.raised).font_family(settings().font_family).text_size(11.5).child(p.fix))
+        .child(div().flex_1().min_w(0).px(8).py(4).rounded(5).bg(t.raised).font_family(settings().font_family).text_size(z(11.5)).child(p.fix))
         .child(linkBtn(`git-cu-copy-${p.path}`, "Copy", (_e, cx) => { cx.write_to_clipboard(p.fix); notify({ title: "Command copied", body: p.fix, level: "success", timeout: 2000 }); }))
-        .when(Boolean(p.owner), (row) => row.child(h_flex().id(`git-cu-fix-${p.path}`).flex_none().px(8).py(4).rounded(5).text_size(11.5).bg(t.accent).text_color(t.background)
+        .when(Boolean(p.owner), (row) => row.child(h_flex().id(`git-cu-fix-${p.path}`).flex_none().px(8).py(4).rounded(5).text_size(z(11.5)).bg(t.accent).text_color(t.background)
           .tooltip(`Runs, on ${props().cleanup.on ?? "this computer"}:\ndocker run --rm --pull never --network none --mount type=bind,source=${p.path},target=/w alpine chown -R <you> /w`)
           .when(idle, (el) => el.cursor_pointer().hover((x) => x.opacity(0.88)).on_click(fix([p.path]))).when(!idle, (el) => el.opacity(0.4))
           .child(this.fixing?.path === p.path ? "Fixing…" : "Fix ownership")))))
       .when(Boolean(p.last), (el) => el.child(lastLine(p)))
       .when(!going && !this.done, (el) => el.child(forceBlock(p)))
       .when(going && p.shells.length > 0, (el) => el.children(p.shells.map((sh) =>
-        div().text_size(11.5).text_color(t.muted).child(`shell ${sh.address} moves to ${p.parent}`)))));
+        div().text_size(z(11.5)).text_color(t.muted).child(`shell ${sh.address} moves to ${p.parent}`)))));
     return v_flex().id("git-cleanup").track_focus(this.handle).size_full().p(18).gap(10).bg(t.popover).text_color(t.foreground)
       .on_key_down((e, cx) => {
         if (e.key === "escape" && this.confirmForce && !this.forcing) { this.confirmForce = null; cx.notify(); cx.stop_propagation(); }
         else if (e.key === "escape" && !this.running && !this.fixing && !this.forcing) { close(); cx.stop_propagation(); }
         else if (e.key === "enter") { if (this.done) close(); else remove(e, cx); cx.stop_propagation(); }
       })
-      .child(div().flex_none().text_size(15).font_semibold().child(go.length ? `Remove ${picked.length} of ${go.length} worktree${go.length === 1 ? "" : "s"}?` : "Nothing to clean up"))
-      .child(div().flex_none().text_size(12).text_color(t.muted).child(`Repository ${props().cleanup.root} · on ${props().cleanup.on ?? "this computer"} · ${plan.length} worktree${plan.length === 1 ? "" : "s"} checked`))
-      .when(Boolean(this.fixing), (el) => el.child(div().flex_none().text_size(12).text_color(t.accent)
+      .child(div().flex_none().text_size(z(15)).font_semibold().child(go.length ? `Remove ${picked.length} of ${go.length} worktree${go.length === 1 ? "" : "s"}?` : "Nothing to clean up"))
+      .child(div().flex_none().text_size(z(12)).text_color(t.muted).child(`Repository ${props().cleanup.root} · on ${props().cleanup.on ?? "this computer"} · ${plan.length} worktree${plan.length === 1 ? "" : "s"} checked`))
+      .when(Boolean(this.fixing), (el) => el.child(div().flex_none().text_size(z(12)).text_color(t.accent)
         .child(this.fixing.phase ? `Fix ownership: ${this.fixing.phase}…` : this.fixing.path ? `Fixing ownership ${this.fixing.n} of ${this.fixing.of} (docker chown): ${this.fixing.path}` : "Checking file owners again…")))
-      .child(div().flex_none().text_size(11.5).text_color(t.dim).child("Only worktrees with every change committed and pushed (as of the last fetch), not locked, and not in use. Their branches are kept."))
+      .child(div().flex_none().text_size(z(11.5)).text_color(t.dim).child("Only worktrees with every change committed and pushed (as of the last fetch), not locked, and not in use. Their branches are kept."))
       // Once Remove starts its results take the list's place, so the buttons stay in view.
       .when(this.running || this.done, (el) => el.child(v_flex().id("git-cleanup-results").flex_1().min_h(0).overflow_y_scrollbar().gap(2)
-        .child(div().flex_none().text_size(10.5).font_semibold().text_color(t.dim).child(this.running ? "REMOVING…" : "RESULT"))
-        .children((this.results ?? []).map((r) => div().flex_none().text_size(12).text_color(r.ok ? t.ansi2 : t.ansi1).child(`${r.ok ? "✓" : "✗"} ${r.text}`)))))
+        .child(div().flex_none().text_size(z(10.5)).font_semibold().text_color(t.dim).child(this.running ? "REMOVING…" : "RESULT"))
+        .children((this.results ?? []).map((r) => div().flex_none().text_size(z(12)).text_color(r.ok ? t.ansi2 : t.ansi1).child(`${r.ok ? "✓" : "✗"} ${r.text}`)))))
       .when(!this.running && !this.done, (el) => el.child(v_flex().id("git-cleanup-list").flex_1().min_h(0).overflow_y_scrollbar().gap(4)
         .when(go.length > 0, (el) => el.child(h_flex().flex_none().pt(4).gap(10).items_center()
-            .child(div().text_size(10.5).font_semibold().text_color(t.dim).child(`CAN BE REMOVED (${go.length}) — ticked ones go: folder deleted, branch kept`))
+            .child(div().text_size(z(10.5)).font_semibold().text_color(t.dim).child(`CAN BE REMOVED (${go.length}) — ticked ones go: folder deleted, branch kept`))
             .when(go.length > 1 && !this.running && !this.done, (row) => row
-              .child(div().id("git-cu-all").text_size(11).text_color(t.accent).cursor_pointer().on_click((_e, cx) => { for (const p of go) this.chosen.add(p.path); cx.notify(); }).child("all"))
-              .child(div().id("git-cu-none").text_size(11).text_color(t.accent).cursor_pointer().on_click((_e, cx) => { this.chosen.clear(); cx.notify(); }).child("none"))))
+              .child(div().id("git-cu-all").text_size(z(11)).text_color(t.accent).cursor_pointer().on_click((_e, cx) => { for (const p of go) this.chosen.add(p.path); cx.notify(); }).child("all"))
+              .child(div().id("git-cu-none").text_size(z(11)).text_color(t.accent).cursor_pointer().on_click((_e, cx) => { this.chosen.clear(); cx.notify(); }).child("none"))))
           .children(go.map((p) => card(p, true))))
         // Kept ones: in full for a single worktree; for "Clean up…" a summary by reason
         // (what will be acted on comes first), expandable.
@@ -904,15 +942,15 @@ export default class Git extends View {
           for (const p of skip) { const k = p.reason.replace(/^\d+ /, "").replace(/^in use: .*/, "in use").replace(/^agent in use: .*/, "agent in use").replace(/^contains files owned by (\S+).*/, "with files owned by $1"); byReason[k] = (byReason[k] ?? 0) + 1; }
           const summary = Object.entries(byReason).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} ${k}`).join(" · ");
           return el.child(h_flex().flex_none().pt(10).gap(8).items_center()
-              .child(div().text_size(10.5).font_semibold().text_color(t.dim).child(`KEPT (${skip.length})`))
-              .when(!single, (row) => row.child(div().id("git-cleanup-kept").text_size(11).text_color(t.accent).cursor_pointer()
+              .child(div().text_size(z(10.5)).font_semibold().text_color(t.dim).child(`KEPT (${skip.length})`))
+              .when(!single, (row) => row.child(div().id("git-cleanup-kept").text_size(z(11)).text_color(t.accent).cursor_pointer()
                 .on_click((_e, cx) => { this.showKept = !this.showKept; cx.notify(); }).child(open ? "hide" : "show")))
               .when(owned.length > 1, (row) => row.child(linkBtn("git-cu-fix-all", `Fix ownership of all ${owned.length}`, fix(owned.map((p) => p.path))))))
-            .when(!single, (x) => x.child(div().flex_none().text_size(11.5).text_color(t.muted).child(summary)))
+            .when(!single, (x) => x.child(div().flex_none().text_size(z(11.5)).text_color(t.muted).child(summary)))
             .when(open, (x) => x.children(skip.map((p) => card(p, false))));
         })))
       .when(!this.running && !this.done && Boolean(this.results?.length), (el) => el.child(v_flex().id("git-cleanup-notes").flex_none().max_h(110).overflow_y_scrollbar().gap(2).pt(6).border_t(1).border_color(t.border)
-        .children(this.results.map((r) => div().flex_none().text_size(12).text_color(r.ok ? t.ansi2 : t.ansi1).child(`${r.ok ? "✓" : "✗"} ${r.text}`)))))
+        .children(this.results.map((r) => div().flex_none().text_size(z(12)).text_color(r.ok ? t.ansi2 : t.ansi1).child(`${r.ok ? "✓" : "✗"} ${r.text}`)))))
       .child(h_flex().flex_none().pt(6).gap(8).justify_end()
         .when(!this.done, (el) => el
           .child(button("git-cleanup-cancel", "Close", false, !this.running && !this.fixing && !this.forcing, () => close()))
@@ -948,7 +986,7 @@ export default class Git extends View {
     const real = items.map((it, k) => (it.sep ? -1 : k)).filter((k) => k >= 0);
     if (!real.includes(this.at)) this.at = real[0] ?? 0;
     const choose = (it, cx) => { if (!it || it.sep) return; it.act(cx); closeOverlay(props().overlay); };
-    return v_flex().id("git-wtmenu").track_focus(this.handle).w_full().min_h(0).p(5).bg(t.popover).text_color(t.foreground).text_size(12.8)
+    return v_flex().id("git-wtmenu").track_focus(this.handle).w_full().min_h(0).p(5).bg(t.popover).text_color(t.foreground).text_size(z(12.8))
       .on_key_down((e, cx) => {
         const pos = real.indexOf(this.at);
         if (e.key === "down") this.at = real[(pos + 1) % real.length];
@@ -960,7 +998,7 @@ export default class Git extends View {
       })
       .children(items.map((it, k) => it.sep
         ? div().mx(7).my(4).h(1).bg(t.border)
-        : h_flex().id(`git-mi-${k}`).h(30).px(9).rounded(6).items_center().cursor_pointer()
+        : h_flex().id(`git-mi-${k}`).h(z(30)).px(9).rounded(6).items_center().cursor_pointer()
             .when(k === this.at, (el) => el.bg(t.selected)).hover((x) => x.bg(t.hover))
             .on_click((_e, cx) => choose(it, cx))
             .child(div().flex_1().truncate().child(it.label))));
@@ -984,12 +1022,13 @@ export default class Git extends View {
   }
 
   render(cx) {
+    Z = panelFont() / FONT_BASE;
     try {
       return this.renderAll(cx);
     } catch (e) {
       if (String(e) !== String(this.lastRenderError)) { this.lastRenderError = e; logError("render", e); }
       const t = theme();
-      return v_flex().size_full().p(12).gap(6).bg(t.background).text_color(t.ansi1).text_size(12)
+      return v_flex().size_full().p(12).gap(6).bg(t.background).text_color(t.ansi1).text_size(z(12))
         .child(div().font_semibold().child("git panel error (logged to ~/.cache/herdr-mods/git-errors.log)"))
         .child(div().text_color(t.muted).child(String(e?.message ?? e)));
     }
@@ -1033,13 +1072,13 @@ export default class Git extends View {
 
     const topRow = h_flex().gap(8).items_center()
         .child(followLight)
-        .child(div().px(7).h(20).flex().items_center().rounded(10).border_1().border_color(t.border).text_size(11).text_color(t.muted).child(this.loc?.on ?? "local"))
+        .child(div().px(7).h(z(20)).flex().items_center().rounded(10).border_1().border_color(t.border).text_size(z(11)).text_color(t.muted).child(this.loc?.on ?? "local"))
         .child(div().flex_1().min_w(0).truncate().font_semibold().child(this.root ? base(this.root) : ""))
-        .when(Boolean(lock), (el) => el.child(div().id("git-lock").px(6).h(20).flex().items_center().rounded(10).bg(t.raised).text_size(11).text_color(t.working)
+        .when(Boolean(lock), (el) => el.child(div().id("git-lock").px(6).h(z(20)).flex().items_center().rounded(10).bg(t.raised).text_size(z(11)).text_color(t.working)
           .tooltip(`Locked: ${lock.name} is working in this worktree`).child("🔒 locked")))
         .when(Boolean(this.busy) || Boolean(this.loading), (el) => el.child(div().size(8).rounded(4).bg(t.accent).loop("opacity", { from: 0.2, to: 1, period: 700 })));
-    const branchRow = b && h_flex().gap(8).items_center().text_size(12)
-        .child(h_flex().gap(5).items_center().px(7).h(20).rounded(10).bg(t.raised)
+    const branchRow = b && h_flex().gap(8).items_center().text_size(z(12))
+        .child(h_flex().gap(5).items_center().px(7).h(z(20)).rounded(10).bg(t.raised)
           .child(div().text_color(t.muted).child("⎇"))
           .child(div().max_w(200).truncate().child(b.head ?? `detached ${String(b.oid ?? "").slice(0, 7)}`)))
         .child(b.upstream
@@ -1047,12 +1086,12 @@ export default class Git extends View {
           : div().text_color(t.dim).child("no upstream"))
         .when(Boolean(this.busy), (el) => el.child(div().text_color(t.muted).child(`${this.busy}…`)));
     const header = wide
-      ? h_flex().flex_none().h(34).px(10).gap(14).items_center().border_b(1).border_color(t.border)
+      ? h_flex().flex_none().h(z(34)).px(10).gap(14).items_center().border_b(1).border_color(t.border)
         .when(Boolean(branchRow), (el) => el.child(branchRow)).child(topRow.flex_1().min_w(0))
       : v_flex().flex_none().px(10).pt(8).pb(6).gap(6).border_b(1).border_color(t.border)
         .child(topRow).when(Boolean(branchRow), (el) => el.child(branchRow));
 
-    const section = (title, count, extra) => h_flex().h(22).px(10).mt(6).gap(6).items_center().text_size(10.5).font_semibold().text_color(t.dim)
+    const section = (title, count, extra) => h_flex().h(z(22)).px(10).mt(6).gap(6).items_center().text_size(z(10.5)).font_semibold().text_color(t.dim)
       .child(div().child(title.toUpperCase())).child(div().child(String(count))).when(Boolean(extra), (el) => el.child(extra));
 
     const wtRow = (w, i) => {
@@ -1062,7 +1101,7 @@ export default class Git extends View {
       const ag = placed[w.path] ?? [];
       const rel = w.main ? "main" : within(w.path, this.root) ? w.path.slice(this.root.length + 1) : base(w.path);
       const n = this.counts[w.path];
-      return h_flex().id(`git-wt-${i}`).h(26).px(10).gap(8).items_center().rounded(6).mx(4).cursor_pointer()
+      return h_flex().id(`git-wt-${i}`).h(z(26)).px(10).gap(8).items_center().rounded(6).mx(4).cursor_pointer()
         .when(shown, (el) => el.bg(t.selected)).when(cur && !shown, (el) => el.bg(t.hover)).hover((x) => x.bg(shown ? t.selected : t.hover))
         // A right-click is the clean-up; a click right after it is the same press, not
         // "show this worktree" (which would turn following off).
@@ -1076,9 +1115,9 @@ export default class Git extends View {
         .child(div().flex_none().w(10).text_color(t.accent).child(here ? "●" : ""))
         // The branch takes the row's room (long names); the folder gives way first.
         .child(div().flex_shrink(1).min_w(60).truncate().font_medium().child(w.branch ?? `detached ${String(w.head ?? "").slice(0, 7)}`))
-        .child(div().flex_1().min_w(0).flex_shrink(4).truncate().text_size(11).text_color(t.dim).child(rel))
+        .child(div().flex_1().min_w(0).flex_shrink(4).truncate().text_size(z(11)).text_color(t.dim).child(rel))
         .children(ag.map(agentLight))
-        .child(div().w(28).text_right().text_size(11).text_color(n ? t.blocked : t.dim).child(n == null ? "" : n ? String(n) : "✓"));
+        .child(div().w(28).text_right().text_size(z(11)).text_color(n ? t.blocked : t.dim).child(n == null ? "" : n ? String(n) : "✓"));
     };
 
     const codeColor = { M: t.blocked, A: t.ansi2, D: t.ansi1, R: t.ansi4, C: t.ansi4, T: t.blocked, U: t.ansi1, "?": t.dim };
@@ -1087,14 +1126,14 @@ export default class Git extends View {
       const p = file.path.replace(/\/$/, "");
       const slash = p.lastIndexOf("/");
       const ns = (group === "Staged" ? this.numstat.staged : this.numstat.unstaged)[file.path];
-      return h_flex().id(`git-file-${i}`).h(ROW).px(10).mx(4).gap(8).items_center().rounded(6).cursor_pointer()
+      return h_flex().id(`git-file-${i}`).h(z(ROW)).px(10).mx(4).gap(8).items_center().rounded(6).cursor_pointer()
         .when(cur, (el) => el.bg(t.selected)).hover((x) => x.bg(cur ? t.selected : t.hover))
         .on_click((_e, cx) => { this.cursor = i; this.zone = "changes"; this.openDiff({ group, file }, cx); cx.notify(); })
-        .child(div().w(12).flex_none().font_semibold().text_size(11.5).text_color(codeColor[file.code] ?? t.muted).child(file.code))
-        .child(h_flex().flex_1().min_w(0).gap(4).text_size(12.5)
+        .child(div().w(12).flex_none().font_semibold().text_size(z(11.5)).text_color(codeColor[file.code] ?? t.muted).child(file.code))
+        .child(h_flex().flex_1().min_w(0).gap(4).text_size(z(12.5))
           .child(div().flex_shrink(1).min_w(0).max_w(220).truncate().child(slash < 0 ? p : p.slice(slash + 1)))
-          .when(slash >= 0, (el) => el.child(div().flex_shrink(4).min_w(0).truncate().text_size(11).text_color(t.dim).child(p.slice(0, slash)))))
-        .when(Boolean(ns) && ns.added != null, (el) => el.child(h_flex().flex_none().gap(4).text_size(11)
+          .when(slash >= 0, (el) => el.child(div().flex_shrink(4).min_w(0).truncate().text_size(z(11)).text_color(t.dim).child(p.slice(0, slash)))))
+        .when(Boolean(ns) && ns.added != null, (el) => el.child(h_flex().flex_none().gap(4).text_size(z(11))
           .child(div().text_color(t.ansi2).child(`+${ns.added}`)).child(div().text_color(t.ansi1).child(`−${ns.removed}`))));
     };
 
@@ -1103,48 +1142,48 @@ export default class Git extends View {
       .child(div().text_color(t.dim).child(this.collapsed[group] ? "▸" : "▾"));
 
     let body;
-    if (this.error) body = div().p(12).text_size(12).text_color(t.ansi1).child(this.error);
-    else if (!this.loc) body = div().p(12).text_size(12).text_color(t.dim).child("Focus a terminal in a repository");
-    else if (this.root === null) body = div().p(12).text_size(12).text_color(t.dim).child("Not a git repository");
-    else if (!s) body = div().p(12).text_size(12).text_color(t.dim).child("Reading…");
+    if (this.error) body = div().p(12).text_size(z(12)).text_color(t.ansi1).child(this.error);
+    else if (!this.loc) body = div().p(12).text_size(z(12)).text_color(t.dim).child("Focus a terminal in a repository");
+    else if (this.root === null) body = div().p(12).text_size(z(12)).text_color(t.dim).child("Not a git repository");
+    else if (!s) body = div().p(12).text_size(z(12)).text_color(t.dim).child("Reading…");
     else if (this.commit && !this.help) body = this.renderCommit(t);
     else if (this.help) {
       const keys = [["j / k", "move"], ["space", "stage / unstage"], ["a", "stage all / unstage all"], ["c", "commit"], ["p", "pull (fast-forward only)"], ["P", "push"], ["f", "fetch"],
-        ["enter", "open the diff"], ["o", "open the file"], ["w", "worktrees"], ["r", "refresh"], ["F", "follow the terminal"], ["?", "close this"],
+        ["enter", "open the diff"], ["o", "open the file"], ["w", "worktrees"], ["r", "refresh"], ["F", "follow the terminal"], ["- / =", "smaller / larger text (0: back)"], ["?", "close this"],
         ["click a commit", "its details and files; there: enter diff, o view, e edit, esc back"]];
-      body = v_flex().p(12).gap(4).text_size(12.5).children(keys.map(([k, what]) => h_flex().gap(10)
+      body = v_flex().p(12).gap(4).text_size(z(12.5)).children(keys.map(([k, what]) => h_flex().gap(10)
         .child(div().w(70).text_color(t.accent).child(k)).child(div().text_color(t.muted).child(what))))
-        .child(div().pt(8).text_size(11.5).text_color(t.dim).child("Writes are locked while an agent works in this worktree."));
+        .child(div().pt(8).text_size(z(11.5)).text_color(t.dim).child("Writes are locked while an agent works in this worktree."));
     } else {
       const groups = [["Conflicts", s.conflicts], ["Staged", s.staged], ["Unstaged", s.unstaged], ["Untracked", s.untracked]].filter(([, f]) => f.length);
       let idx = 0;
       const changeBlocks = groups.flatMap(([g, files]) => [groupHeader(g, files), ...(this.collapsed[g] ? [] : files.map((file) => fileRow({ group: g, file }, idx++)))]);
       const strip = visibleWorktrees(this.worktrees, { shown: this.shown, here: hereWt, agents: placed, counts: this.counts, cap: WT_CAP, all: this.allWorktrees });
       const more = this.worktrees.length > WT_CAP
-        ? [div().id("git-wt-more").mx(14).my(2).text_size(11.5).text_color(t.accent).cursor_pointer()
+        ? [div().id("git-wt-more").mx(14).my(2).text_size(z(11.5)).text_color(t.accent).cursor_pointer()
           .on_click((_e, cx) => { this.allWorktrees = !this.allWorktrees; this.refresh(cx); cx.notify(); })
           .child(this.allWorktrees ? "show fewer" : `show all ${this.worktrees.length} (${strip.hidden} more)`)]
         : [];
       const cleanAll = this.worktrees.length > 1
-        ? div().id("git-wt-clean").ml(4).px(6).h(18).flex().items_center().rounded(5).bg(t.raised).text_color(t.muted).cursor_pointer()
+        ? div().id("git-wt-clean").ml(4).px(6).h(z(18)).flex().items_center().rounded(5).bg(t.raised).text_color(t.muted).cursor_pointer()
           .hover((x) => x.bg(t.hover).text_color(t.foreground)).tooltip("Remove worktrees that are fully committed and pushed (asks first)")
           .on_click((_e, cx) => this.planWorktreeCleanup(this.worktrees.filter((w) => !w.main).map((w) => w.path), cx)).child("Clean up…")
         : null;
       const worktreeBlock = this.worktrees.length ? [section("Worktrees", this.worktrees.length, cleanAll), ...strip.rows.map(wtRow), ...more] : [];
       const changesBlock = [
-        ...(changeBlocks.length ? changeBlocks : [div().px(14).py(10).text_size(12).text_color(t.dim).child("Nothing to commit · working tree clean")]),
-        ...(this.committing ? [div().px(10).pt(8).child(Input.new(this.message).h(30).px(8).rounded(6).border_1().border_color(t.accent).bg(t.background).text_size(12.5))] : []),
+        ...(changeBlocks.length ? changeBlocks : [div().px(14).py(10).text_size(z(12)).text_color(t.dim).child("Nothing to commit · working tree clean")]),
+        ...(this.committing ? [div().px(10).pt(8).child(Input.new(this.message).h(z(30)).px(8).rounded(6).border_1().border_color(t.accent).bg(t.background).text_size(z(12.5)))] : []),
       ];
       // Recent (R8): expand to fill the panel or collapse (R8b), each commit's author
       // (R8c), and the next batch at the end (R8d).
-      const fullToggle = div().id("git-recent-full").ml(4).px(6).h(18).flex().items_center().rounded(5).bg(t.raised).text_color(t.muted).cursor_pointer()
+      const fullToggle = div().id("git-recent-full").ml(4).px(6).h(z(18)).flex().items_center().rounded(5).bg(t.raised).text_color(t.muted).cursor_pointer()
         .hover((x) => x.bg(t.hover).text_color(t.foreground)).tooltip(this.recentFull ? "Show worktrees and changes again" : "Fill the panel with the commit list")
         .on_click((_e, cx) => this.toggleRecentFull(cx)).child(this.recentFull ? "collapse" : "expand");
       const loadMore = this.logMore
-        ? [div().id("git-log-more").mx(14).my(4).text_size(11.5).text_color(t.accent).cursor_pointer().hover((x) => x.underline())
+        ? [div().id("git-log-more").mx(14).my(4).text_size(z(11.5)).text_color(t.accent).cursor_pointer().hover((x) => x.underline())
           .on_click((_e, cx) => { this.logLimit += RECENT; this.refresh(cx); }).child(`Load ${RECENT} more`)]
         : [];
-      const recentBlock = this.log.length ? [section("Recent", this.log.length, fullToggle), ...this.log.map((c, i) => h_flex().id(`git-log-${i}`).h(22).px(10).mx(4).gap(8).items_center().rounded(6).text_size(11.5).text_color(t.dim)
+      const recentBlock = this.log.length ? [section("Recent", this.log.length, fullToggle), ...this.log.map((c, i) => h_flex().id(`git-log-${i}`).h(z(22)).px(10).mx(4).gap(8).items_center().rounded(6).text_size(z(11.5)).text_color(t.dim)
         .cursor_pointer().hover((x) => x.bg(t.hover)).tooltip("Details, files and diffs")
         .on_click((_e, cx) => this.openCommit(c.hash, cx))
         .child(div().w(64).flex_none().truncate().font_family(settings().font_family).text_color(t.ansi4).child(c.hash.slice(0, 8))).child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(c.subject))
@@ -1173,8 +1212,16 @@ export default class Git extends View {
             .child(pane("git-sec-recent", recentBlock).h(sz.recentH).flex_none()));
     }
 
-    const footer = h_flex().h(26).flex_none().px(10).gap(10).items_center().border_t(1).border_color(t.border).text_size(10.5).text_color(t.dim)
+    const footer = h_flex().h(z(26)).flex_none().px(10).gap(10).items_center().border_t(1).border_color(t.border).text_size(z(10.5)).text_color(t.dim)
       .child(div().flex_1().truncate().child(lock ? "locked while the agent works" : "space stage · c commit · p pull · P push · f fetch"))
+      .child(h_flex().flex_none().gap(z(2)).items_center()
+        .child(div().id("git-font-down").px(z(4)).rounded(4).cursor_pointer().hover((x) => x.bg(t.hover).text_color(t.foreground))
+          .tooltip("Smaller text (-)").on_click(() => this.setFont(-1)).child("A−"))
+        .child(div().id("git-font-size").px(z(2)).cursor_pointer().text_color(shared(FONT_KEY) ? t.foreground : t.dim)
+          .tooltip(shared(FONT_KEY) ? `Text ${panelFont()} px: click for the default (${FONT_BASE})` : `Default text size (${FONT_BASE} px)`)
+          .on_click(() => this.setFont(0)).child(String(panelFont())))
+        .child(div().id("git-font-up").px(z(4)).rounded(4).cursor_pointer().hover((x) => x.bg(t.hover).text_color(t.foreground))
+          .tooltip("Larger text (=)").on_click(() => this.setFont(1)).child("A+")))
       .child(div().id("git-help").cursor_pointer().text_color(t.muted).on_click((_e, cx) => { this.help = !this.help; cx.notify(); }).child("? keys"));
 
     return v_flex().id("git").track_focus(this.handle)
@@ -1189,7 +1236,7 @@ export default class Git extends View {
         const action = gitKeyAction(e);
         if (action && this.act(action, cx)) cx.stop_propagation();
       })
-      .size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(13)
+      .size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(z(13))
       .child(header).child(body).child(footer);
   }
 }

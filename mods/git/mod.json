@@ -19,6 +19,21 @@
         "mod": "git"
       },
       "words": "lazygit changes worktrees"
+    },
+    {
+      "title": "Git: larger text",
+      "command": "git.font-bigger",
+      "words": "git font size text bigger zoom"
+    },
+    {
+      "title": "Git: smaller text",
+      "command": "git.font-smaller",
+      "words": "git font size text smaller zoom"
+    },
+    {
+      "title": "Git: default text size",
+      "command": "git.font-reset",
+      "words": "git font size text reset"
     }
   ]
 }
