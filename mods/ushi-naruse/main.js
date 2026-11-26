@@ -15,6 +15,7 @@ import { Buffer } from "buffer";
 import { createHash } from "crypto";
 import { Transcript, summarize } from "./parse.js";
 import { subagentProgress, stopMessage, lastLines, elapsed } from "./lib/chat-tasks.js";
+import { contextMeter } from "./lib/chat-context.js";
 import { plainText, quote, commandOf, menuFor, keepLineBreaks, joinLines, sentHistory, recallStep } from "./lib/chat-text.js";
 import { Tail, locate, agentKind, machineOf, subagentLog } from "./source.js";
 import { catalog, launchArgv, modelName, switchModel } from "./models.js";
@@ -167,6 +168,12 @@ export default class Chat extends View {
     if (shared("chat.bind")) setShared("chat.bind", null); // left by an earlier version
     this.gen = 0;
     this.t = null;
+    // Element ids of replies first drawn live (spec 008 R15): entry key -> "streaming-N".
+    // A logged reply keeps the id its live copy had, so it isn't drawn anew; each new
+    // live reply gets the next N, so two rows never share one.
+    this.liveIds = {};
+    this.streamN = 0;
+    this.liveShown = false;
     this.limit = PAGE;
     this.open = new Set();
     // ushi-naruse (spec 009): subagent logs being followed and scripts' latest output,
@@ -376,10 +383,20 @@ export default class Chat extends View {
         // bring one back (the page would jump). New reply text replaces it.
         const fresh = text && !this.logged(text);
         const run = now?.kind === "run" ? now : fresh ? null : this.running;
-        if (text !== this.stream || JSON.stringify(run) !== JSON.stringify(this.running)) { this.stream = text; this.running = run; cx.notify(); }
+        // ushi-naruse: a reply the log doesn't have yet stays while a command runs under
+        // it (the screen moves on before the log is written).
+        const shown = text ?? (this.stream && !this.logged(this.stream) ? this.stream : null);
+        if (shown !== this.stream || JSON.stringify(run) !== JSON.stringify(this.running)) {
+          this.streamShown(); // a reply now logged takes over its live copy's id
+          this.stream = shown; this.running = run; cx.notify();
+        }
         await exec("sh", ["-c", "sleep 0.35"]);
       }
       if (this.streamLoop === loop) this.streamLoop = null;
+      // ushi-naruse: the last reply stays until the log has it (a few seconds at most).
+      for (let i = 0; i < 15 && !this.streamLoop && this.stream && !this.logged(this.stream); i++) await exec("sh", ["-c", "sleep 0.35"]);
+      if (this.streamLoop) return;
+      this.streamShown();
       this.stream = null;
       this.streamRaw = null;
       this.running = null;
@@ -490,16 +507,26 @@ export default class Chat extends View {
     return null;
   }
 
-  // The streamed reply, unless the log already has it.
+  // The streamed reply, unless the log already has it. Safe to call more than once a
+  // frame. ushi-naruse: the logged reply that replaces a live copy takes over its
+  // element id for good (a new element starts with no height for a frame, and the
+  // conversation jumped); the next live reply gets a new id.
   streamShown() {
     if (!this.stream) return null;
     const got = this.logged(this.stream);
-    // ushi-naruse: the logged reply that replaces the live copy keeps its element id
-    // ("streaming") until a new live reply shows: a new element starts with no height
-    // for a frame, and the conversation (and the pinned message, R15) jumped.
-    if (got) { this.handover = got.key; return null; }
-    this.handover = null;
+    if (got) {
+      if (this.liveShown && !(got.key in this.liveIds)) { this.liveIds[got.key] = `streaming-${this.streamN}`; this.streamN += 1; }
+      this.liveShown = false;
+      return null;
+    }
+    this.liveShown = true;
     return this.stream;
+  }
+
+  // An entry as drawn: a reply first shown live keeps that element id.
+  drawnAs(e) {
+    const id = this.liveIds[e.key];
+    return id ? { ...e, key: id } : e;
   }
 
   // How often each command was sent here: the menu puts those first.
@@ -1349,6 +1376,8 @@ export default class Chat extends View {
     const gen = ++this.gen;
     this.file = file;
     this.t = new Transcript(kind);
+    this.liveIds = {};
+    this.liveShown = false;
     this.limit = PAGE;
     this.off = 0;
     this.error = null;
@@ -2348,6 +2377,15 @@ export default class Chat extends View {
       .content(menu);
   }
 
+  // How full the session's context window is, beside the model: tokens used by
+  // the latest reply of the log, and the model's window (the log's when it has one).
+  contextGauge(t) {
+    const m = contextMeter(this.t?.context, this.t?.model ?? this.current().model);
+    if (!m) return div();
+    const color = m.level === "full" ? t.ansi1 : m.level === "high" ? t.blocked : t.dim;
+    return div().px(6).text_size(tsz(11.5)).text_color(color).child(m.percent == null ? m.text : `${m.text} context`);
+  }
+
   // The model and effort of the running session: a button in the message bar
   // whose menu opens upward.
   modelMenu(term, t) {
@@ -2389,6 +2427,9 @@ export default class Chat extends View {
     }
     const { start, ents } = this.shown();
     const shown = ents.slice(start);
+    // The live reply, decided before the rows are drawn: it settles which reply holds
+    // which element id this frame.
+    const live = this.streamShown();
     if (this.seek) this.seekRow(shown);
     let lastUser = -1;
     for (let i = shown.length - 1; i >= 0; i--) if (shown[i].kind === "user" && !shown[i].command) { lastUser = i; break; }
@@ -2419,10 +2460,10 @@ export default class Chat extends View {
       .children(head.map((e, n) => (n === lastUser
         ? div().id(`last-user-${e.key}`).w_full().on_size_change((size) => { this.lastUserH = size.height; this.heights[e.key] = size.height; })
           .child(this.entry(e, t, n === shown.length - 1))
-        : this.measured(e, this.entry(e, t, n === shown.length - 1)))))
+        : this.measured(e, this.entry(this.drawnAs(e), t, n === shown.length - 1)))))
       .child(v_flex().id("after-last-user").w_full().gap(16).on_size_change((size) => { this.afterH = size.height; })
-        .children(tail.map((e, n) => this.measured(e, this.entry(e.key === this.handover ? { ...e, key: "streaming" } : e, t, head.length + n === shown.length - 1))))
-        .when(Boolean(this.streamShown()), (el) => el.child(this.entry({ kind: "assistant", text: this.streamShown(), key: "streaming" }, t, true)))
+        .children(tail.map((e, n) => this.measured(e, this.entry(this.drawnAs(e), t, head.length + n === shown.length - 1))))
+        .when(Boolean(live), (el) => el.child(this.entry({ kind: "assistant", text: live, key: `streaming-${this.streamN}` }, t, true)))
         .when(Boolean(this.running), (el) => el.child(this.runningView(t)))
         .children(this.pending.map((p, i) => this.queued(p, i, t))))
 ;
@@ -2544,7 +2585,7 @@ export default class Chat extends View {
         .child(icon("attach", "+", (_e, cx) => this.pickFiles(cx)))
         .child(icon("emoji", "☺", (_e, cx) => { this.showEmoji = !this.showEmoji; cx.notify(); }, this.showEmoji))
         .child(div().flex_1())
-        .when(!this.dialog && Boolean(this.term), (el) => el.child(this.modeMenu(term, t)).child(this.modelMenu(term, t)))
+        .when(!this.dialog && Boolean(this.term), (el) => el.child(this.modeMenu(term, t)).child(this.contextGauge(t)).child(this.modelMenu(term, t)))
         .child(div().id("send").flex_none().size(32).rounded_full().flex().items_center().justify_center().cursor_pointer()
           .text_size(tsz(stop ? 12 : 16)).font_semibold()
           .bg(stop ? t.accent : typed || this.dialog ? t.solid : t.raised)
