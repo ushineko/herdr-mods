@@ -1,15 +1,56 @@
 {
   "place": "none",
-  "lib": ["chat-entries.js"],
+  "lib": [
+    "chat-entries.js",
+    "machine-color.js"
+  ],
   "title": "Dock tab strip (subtabs inside a window dock)",
   "palette": [
-    { "title": "Dock: new tab", "command": "dock-tabs.add", "words": "dock subtab new" },
-    { "title": "Dock: new chat (Claude Code, else Codex)", "command": "dock-tabs.chat", "words": "dock subtab chat claude codex cow" },
-    { "title": "Dock: next tab", "command": "dock-tabs.next", "words": "dock subtab next" },
-    { "title": "Dock: previous tab", "command": "dock-tabs.prev", "words": "dock subtab previous" },
-    { "title": "Dock: close tab", "command": "dock-tabs.close", "words": "dock subtab close" },
-    { "title": "Dock: restart missing tools", "command": "dock-tabs.refresh", "words": "dock yazi lazygit restart missing" },
-    { "title": "Dock: toggle right", "command": "layout.toggle", "args": { "id": "dock-right" }, "words": "dock yazi lazygit right" },
-    { "title": "Dock: toggle bottom", "command": "layout.toggle", "args": { "id": "dock-bottom" }, "words": "dock yazi lazygit bottom portrait" }
+    {
+      "title": "Dock: new tab",
+      "command": "dock-tabs.add",
+      "words": "dock subtab new"
+    },
+    {
+      "title": "Dock: new chat (Claude Code, else Codex)",
+      "command": "dock-tabs.chat",
+      "words": "dock subtab chat claude codex cow"
+    },
+    {
+      "title": "Dock: next tab",
+      "command": "dock-tabs.next",
+      "words": "dock subtab next"
+    },
+    {
+      "title": "Dock: previous tab",
+      "command": "dock-tabs.prev",
+      "words": "dock subtab previous"
+    },
+    {
+      "title": "Dock: close tab",
+      "command": "dock-tabs.close",
+      "words": "dock subtab close"
+    },
+    {
+      "title": "Dock: restart missing tools",
+      "command": "dock-tabs.refresh",
+      "words": "dock yazi lazygit restart missing"
+    },
+    {
+      "title": "Dock: toggle right",
+      "command": "layout.toggle",
+      "args": {
+        "id": "dock-right"
+      },
+      "words": "dock yazi lazygit right"
+    },
+    {
+      "title": "Dock: toggle bottom",
+      "command": "layout.toggle",
+      "args": {
+        "id": "dock-bottom"
+      },
+      "words": "dock yazi lazygit bottom portrait"
+    }
   ]
 }

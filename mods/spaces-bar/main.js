@@ -20,10 +20,17 @@
 
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, v_flex, ScrollHandle } from "gpui-base";
-import { spaces, run, theme, props, openOverlay, closeOverlay, hc, window as win } from "herdr";
+import { spaces, terminals, run, theme, props, openOverlay, closeOverlay, hc, window as win } from "herdr";
 import { allAgents, worst, focusAgent, ORDER, RANK } from "./agents.js";
+import { machineColor } from "./lib/machine-color.js";
+import { inboxSections, inboxBadge, inboxRow } from "./lib/inbox.js";
+
+// A machine's colour among the machines this window shows (lib/machine-color.js).
+const colorOf = (machine) => machineColor(machine, spaces().map((s) => s.machine));
 
 const ICON = (n) => `mods/spaces-bar/${n}.svg`;
+// Text on a machine's filled chip: dark, as every machine colour is light.
+const ON_COLOR = "#0b0d10";
 const GLYPH = { blocked: "✕", done: "✓", idle: "○" };
 
 // A machine's dropdown: row and header heights, panel widths.
@@ -59,7 +66,7 @@ function programIcon(p, color) {
 
 export default class SpacesBar extends View {
   init(_props, cx) {
-    if (props()?.picker || props()?.machines || props()?.group) {
+    if (props()?.picker || props()?.machines || props()?.group || props()?.inbox) {
       this.at = 0;
       this.handle = cx.focus_handle();
       this.handle.focus();
@@ -143,21 +150,23 @@ export default class SpacesBar extends View {
       .when(Boolean(roll), (el) => el.child(roll));
   }
 
-  // The bar's chips in order: a local space each, one per other machine
-  // (where its first space is). [{ space, index } | { machine, spaces }]
+  // The bar's chips in order: this computer's spaces first, a chip each, then one
+  // per other machine (in the order their first spaces come), so local and remote
+  // are two zones. [{ space, index } | { machine, spaces }]
   items(list) {
-    const out = [], seen = new Map();
+    const local = [], groups = [], seen = new Map();
     list.forEach((s, i) => {
-      if (!s.machine) { out.push({ space: s, index: i }); return; }
+      if (!s.machine) { local.push({ space: s, index: i }); return; }
       let g = seen.get(s.machine);
-      if (!g) { g = { machine: s.machine, spaces: [] }; seen.set(s.machine, g); out.push(g); }
+      if (!g) { g = { machine: s.machine, spaces: [] }; seen.set(s.machine, g); groups.push(g); }
       g.spaces.push(s);
     });
-    return out;
+    return [...local, ...groups];
   }
 
   groupChip(t, g, agents) {
     const shown = g.spaces.find((s) => s.active);
+    const c = colorOf(g.machine) ?? t.accent;
     const ids = new Set(g.spaces.map((s) => s.id));
     const mine = agents.filter((a) => ids.has(a.space));
     const state = worst(mine) ?? worst(g.spaces.map((s) => ({ status: s.status })));
@@ -172,20 +181,19 @@ export default class SpacesBar extends View {
       .border_1()
       .cursor_pointer()
       .text_size(13)
-      .bg(t.accent + (shown ? "3d" : "1f"))
-      .border_color(shown ? t.accent + "80" : "#00000000")
-      .text_color(shown ? t.foreground : t.muted)
-      .hover((x) => x.bg(t.accent + "33"))
+      // The machine's own colour: a tint, or filled while one of its spaces is shown.
+      .when(Boolean(shown), (el) => el.bg(c + "e6").border_color(c).text_color(ON_COLOR).font_semibold())
+      .when(!shown, (el) => el.bg(c + "1f").border_color(c + "40").text_color(t.muted).hover((x) => x.bg(c + "38").text_color(t.foreground)))
       .tooltip(`${g.machine}: ${g.spaces.length} space${g.spaces.length > 1 ? "s" : ""}`)
       .on_click(() => openOverlay({
         mod: "spaces-bar", kind: "popup", frame: "none", width: 640,
         height: groupHeight(g.spaces, agents), props: { group: g.machine },
       }))
-      .child(svg(ICON("server")).size(12).flex_none().text_color(t.accent))
+      .child(svg(ICON("server")).size(12).flex_none().text_color(shown ? ON_COLOR : c))
       .when(Boolean(state), (el) => el.child(glyph(t, state)))
       .child(div().flex_none().max_w(260).truncate().child(shown ? `${g.machine}: ${shown.name}` : g.machine))
       .when(!shown, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(String(g.spaces.length))))
-      .child(div().flex_none().text_size(10).text_color(t.dim).child("▾"));
+      .child(div().flex_none().text_size(10).text_color(shown ? ON_COLOR : t.dim).child("▾"));
   }
 
   onWheel(e, count) {
@@ -232,6 +240,8 @@ export default class SpacesBar extends View {
         })
         .on_click(() => run("space.new", {}))
         .child(svg(ICON("plus")).size(15)))
+      // The inbox next to +, close to the spaces and tabs (operator, 2026-11-26).
+      .child(this.inboxButton(t, agents))
       .child(h_flex()
         .id("sb-strip")
         .flex_1()
@@ -242,9 +252,113 @@ export default class SpacesBar extends View {
         .overflow_x_scroll()
         .track_scroll(this.scroll)
         .on_scroll_wheel((e) => this.onWheel(e, items.length))
-        .children(items.map((it) => it.space
-          ? this.chip(t, it.space, it.index, agents.filter((a) => a.space === it.space.id))
-          : this.groupChip(t, it, agents))));
+        // Two zones: this computer's spaces (a monitor before the first, when there are
+        // other machines too), then a divider and the other machines. The marks ride
+        // with a chip, so the strip's children stay one per item (scroll_to_item).
+        .children(items.map((it, k) => {
+          const zoned = items.some((x) => !x.space) && items.some((x) => x.space);
+          if (it.space) {
+            const el = this.chip(t, it.space, it.index, agents.filter((a) => a.space === it.space.id));
+            return zoned && k === 0
+              ? h_flex().flex_none().gap(4).items_center().child(svg(ICON("monitor")).size(12).flex_none().text_color(t.dim)).child(el)
+              : el;
+          }
+          const el = this.groupChip(t, it, agents);
+          return zoned && !items[k - 1]?.machine
+            ? h_flex().flex_none().gap(8).items_center().child(div().w(1).h(18).ml(5).bg(t.border)).child(el)
+            : el;
+        })));
+  }
+
+  // ---- inbox ------------------------------------------------------------------------
+  // The app's Agents sidebar in short, for layouts without it: a button at the left
+  // of the bar, after +, a red count while agents wait for input, else a dot while some
+  // finished unseen; its dropdown lists Needs you, Done and Working on every machine.
+
+  inboxButton(t, agents) {
+    const badge = inboxBadge(agents);
+    const tip = badge?.kind === "needs" ? `${badge.count} agent${badge.count > 1 ? "s" : ""} waiting for you`
+      : badge ? `${badge.count} agent${badge.count > 1 ? "s" : ""} finished` : "Inbox: nothing needs you";
+    return own(div())
+      .id("sb-inbox")
+      .flex_none()
+      .relative()
+      .p(6)
+      .rounded(8)
+      .cursor_pointer()
+      .text_color(badge?.kind === "needs" ? t.foreground : t.dim)
+      .hover((x) => x.bg(t.hover).text_color(t.foreground))
+      .tooltip(tip)
+      .on_click(() => openOverlay({ mod: "spaces-bar", kind: "popup", width: 560, props: { inbox: true } }))
+      .child(svg(ICON("inbox")).size(16))
+      .when(badge?.kind === "needs", (el) => el.child(div().absolute().top(0).right(-2).min_w(16).h(16).px(4).rounded_full()
+        .bg(t.blocked).text_color("#ffffff").text_size(10.5).font_bold().flex().items_center().justify_center().child(String(badge.count))))
+      .when(badge?.kind === "done", (el) => el.child(div().absolute().top(3).right(2).size(8).rounded_full().bg(t.done ?? t.accent)));
+  }
+
+  // Each agent with what its row says (lib/inbox.js inboxRow): the conversation, the
+  // project, what it's doing or asking.
+  inboxRows() {
+    const byId = new Map(spaces().map((s) => [s.id, s]));
+    const terms = new Map(terminals().map((x) => [x.address, x]));
+    return inboxSections(allAgents().map((a) => ({
+      ...a, ...inboxRow(a, terms.get(a.address)), spaceName: byId.get(a.space)?.name, machine: byId.get(a.space)?.machine ?? null,
+    })));
+  }
+
+  renderInbox() {
+    const t = theme();
+    const sections = this.inboxRows();
+    const flat = sections.flatMap((s) => s.agents);
+    if (this.at >= flat.length) this.at = Math.max(0, flat.length - 1);
+    let k = -1;
+    return v_flex()
+      .id("sb-inbox-list")
+      .track_focus(this.handle)
+      .w_full()
+      .min_h(0)
+      .p(5)
+      .bg(t.popover)
+      .text_size(12.8)
+      .on_key_down((e, cx) => {
+        const n = Math.max(1, flat.length);
+        if (e.key === "down") this.at = (this.at + 1) % n;
+        else if (e.key === "up") this.at = (this.at - 1 + n) % n;
+        else if (e.key === "enter") this.choose(flat[this.at]);
+        else if (e.key === "escape") closeOverlay(props().overlay);
+        else return;
+        cx.notify();
+      })
+      .when(!flat.length, (el) => el.child(div().px(8).py(8).text_size(12).text_color(t.dim).child("Nothing needs you: no agent is waiting, finished or working.")))
+      .children(sections.map((sec) => v_flex()
+        .child(div().px(8).pt(6).pb(3).text_size(11).font_semibold().text_color(sec.status === "blocked" ? t.blocked : t.dim).child(sec.title.toUpperCase()))
+        .children(sec.agents.map((a) => {
+          const i = ++k;
+          const mc = a.machine ? machineColor(a.machine, spaces().map((s) => s.machine)) : null;
+          const tag = (text, color, bg) => div().flex_none().max_w(150).truncate().px(6).rounded(5).bg(bg).text_color(color).text_size(11).child(text);
+          // Two lines: the conversation, its project and machine; then what it's doing
+          // or asking (in the attention colour while it waits for you).
+          return h_flex()
+            .id(`sb-inbox-${i}`)
+            .px(8)
+            .py(6)
+            .gap(8)
+            .rounded(7)
+            .items_start()
+            .text_color(t.foreground)
+            .when(i === this.at, (el) => el.bg(t.selected))
+            .hover((x) => x.bg(t.hover))
+            .on_click(() => this.choose(a))
+            .child(div().pt(2).child(glyph(t, a.status)))
+            .when(Boolean(programIcon(a, t.foreground)), (el) => el.child(div().pt(2).child(programIcon(a, t.foreground))))
+            .child(v_flex().flex_1().min_w(0).gap(2)
+              .child(h_flex().gap(6).items_center()
+                .child(div().flex_1().min_w(0).truncate().font_medium().child(a.title))
+                .when(Boolean(a.project), (el) => el.child(tag(a.project, t.muted, t.raised)))
+                .when(Boolean(a.machine), (el) => el.child(tag(a.machine, mc, mc + "26"))))
+              .child(div().truncate().text_size(11.5).text_color(a.status === "blocked" ? t.blocked : t.dim)
+                .child(a.doing || a.spaceName || "")));
+        }))));
   }
 
   // ---- agent picker -------------------------------------------------------------
@@ -396,8 +510,8 @@ export default class SpacesBar extends View {
         .w(SPACES_W)
         .flex_none()
         .child(h_flex().px(8).h(HEAD).gap(6).items_center().text_size(11.5).text_color(t.dim)
-          .child(svg(ICON("server")).size(11).flex_none())
-          .child(div().truncate().child(props().group)))
+          .child(svg(ICON("server")).size(11).flex_none().text_color(colorOf(props().group) ?? t.dim))
+          .child(div().truncate().text_color(colorOf(props().group) ?? t.dim).child(props().group)))
         .children(list.map((s, k) => {
           const a = ranked(s);
           const state = worst(a) ?? s.status;
@@ -405,7 +519,7 @@ export default class SpacesBar extends View {
             .on_hover((h, cx) => { if (h && this.hover !== k) { this.hover = k; this.at = 0; this.side = false; cx.notify(); } })
             .on_click(() => this.pickSpace(s))
             .child(div().w(14).flex_none().when(Boolean(glyph(t, state)), (x) => x.child(glyph(t, state))))
-            .child(div().flex_1().truncate().when(s.active, (x) => x.text_color(t.accent)).child(s.name))
+            .child(div().flex_1().truncate().when(s.active, (x) => x.text_color(colorOf(s.machine) ?? t.accent)).child(s.name))
             .when(a.length > 0, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(`${a.length} agent${a.length > 1 ? "s" : ""}`)))
             .child(div().flex_none().text_size(10).text_color(a.length ? t.dim : "#00000000").child("▸"));
         })))
@@ -427,6 +541,7 @@ export default class SpacesBar extends View {
   }
 
   render() {
+    if (props()?.inbox) return this.renderInbox();
     if (props()?.group) return this.renderGroup();
     if (props()?.machines) return this.renderMachines();
     return props()?.picker ? this.renderPicker() : this.renderBar();

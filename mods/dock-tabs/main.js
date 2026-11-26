@@ -26,6 +26,7 @@ import {
   openOverlay, closeOverlay, knownAgents, checking, props, nextCommand, spaces, machines,
 } from "herdr";
 import { chatEntries, newChatId, ID_LABEL, AGENT_LOOKUP, parseAgentLookup, withLoginAgents, hasChatAgent, platformOf } from "./lib/chat-entries.js";
+import { machineColor } from "./lib/machine-color.js";
 
 const ICON = (n) => `mods/dock-tabs/${n}.svg`;
 const DOCKS = ["dock-right", "dock-bottom"];
@@ -420,9 +421,11 @@ export default class DockTabs extends View {
     const list = tabs(dock, machine);
     const active = activeOf(dock);
     const offline = machine && machines().find((m) => m.name === machine)?.layout === "unavailable";
+    // The machine's own colour, as in the spaces bar (lib/machine-color.js).
+    const mc = machine ? machineColor(machine, spaces().map((x) => x.machine)) ?? t.accent : null;
     return h_flex().id(`dt-strip-${dock}`).size_full().pl(5).pr(6).gap(6).items_center().border_b(1).border_color(t.border)
       .when(Boolean(machine), (el) => el.child(h_flex().flex_none().gap(4).px(6).h(20).items_center().rounded(5)
-        .bg(t.accent + "2e").text_color(t.accent).text_size(11.5).child(machine)))
+        .bg(mc + "33").text_color(mc).text_size(11.5).child(machine)))
       .child(h_flex().id(`dt-chips-${dock}`).flex_1().min_w(0).h_full().gap(3).items_center().overflow_hidden()
         .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); this.menu("new"); })
         .when(Boolean(offline), (el) => el.child(div().truncate().text_size(12.5).text_color(t.dim)

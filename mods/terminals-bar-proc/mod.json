@@ -2,7 +2,8 @@
   "place": "none",
   "lib": [
     "chat-entries.js",
-    "location.js"
+    "location.js",
+    "machine-color.js"
   ],
   "title": "Terminals tabs",
   "cloned_from": {

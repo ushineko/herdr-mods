@@ -1,4 +1,8 @@
 {
   "place": "none",
-  "title": "Horizontal spaces bar (port of the herdr TUI fork's spaces bar)"
+  "title": "Horizontal spaces bar (port of the herdr TUI fork's spaces bar)",
+  "lib": [
+    "machine-color.js",
+    "inbox.js"
+  ]
 }

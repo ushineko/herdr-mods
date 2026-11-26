@@ -3,6 +3,7 @@
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, ScrollHandle } from "gpui-base";
 import { spaces, panes, terminals, run, theme, openOverlay, layout, window as win } from "herdr";
+import { machineColor } from "./lib/machine-color.js";
 import { closeTab } from "./keep.js";
 import { spaceFolder } from "./lib/location.js";
 
@@ -143,6 +144,8 @@ export default class TerminalsBar extends View {
   render() {
     const t = theme();
     const space = spaces().find((p) => p.active);
+    // A remote space's machine colour (lib/machine-color.js), as on its spaces-bar chip.
+    const mc = space?.machine ? machineColor(space.machine, spaces().map((x) => x.machine)) ?? t.accent : null;
     if (!space) return div();
     const all = panes();
     const w = win() ?? {};
@@ -262,8 +265,11 @@ export default class TerminalsBar extends View {
             .gap(7)
             .items_center()
             .rounded_full()
-            .bg(t.accent + "2e")
-            .text_color(t.accent)
+            // The machine's own colour, as on its chip in the spaces bar.
+            .bg(mc + "33")
+            .border_1()
+            .border_color(mc + "66")
+            .text_color(mc)
             .text_size(13)
             .tooltip(`Terminals in this space run on ${space.machine}`)
             .child(svg("mods/terminals-bar-proc/server.svg").size(14))
