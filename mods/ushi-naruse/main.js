@@ -1488,7 +1488,7 @@ export default class Chat extends View {
 
   // Whether Claude Code still holds this message in its queue (its log says).
   inQueue(p) {
-    return (this.t?.queue ?? []).some((q) => (p.text ? q.includes(p.text.slice(0, 60)) : q !== ""));
+    return (this.t?.queued() ?? []).some((q) => (p.text ? q.includes(p.text.slice(0, 60)) : q !== ""));
   }
 
   // Claude Code's own queue keys. A queued message steers by itself: Claude
@@ -1500,7 +1500,7 @@ export default class Chat extends View {
   }
 
   editQueued() {
-    const taken = (this.t?.queue ?? []).filter(Boolean);
+    const taken = (this.t?.queued() ?? []).filter(Boolean);
     const lines = taken.join("\n").split("\n").length;
     hc(["keys", this.term, "up", ...Array(lines).fill(["ctrl+u", "backspace"]).flat()]);
     this.pending = this.pending.filter((x) => !this.inQueue(x));

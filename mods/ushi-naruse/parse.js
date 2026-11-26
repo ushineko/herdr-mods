@@ -68,6 +68,12 @@ export class Transcript {
     this.tasks = new Map();
   }
 
+  // ushi-naruse: the person's messages in Claude Code's queue; task notifications
+  // pass through it too, and stay in `queue` so dequeues keep their order.
+  queued() {
+    return this.queue.filter((q) => !parseNotification(q));
+  }
+
   // ushi-naruse: background tasks still running, oldest first (spec 009).
   background() {
     return this.entries.filter((e) => e.kind === "tools")
@@ -201,10 +207,12 @@ export class Transcript {
     const at = Date.parse(d.timestamp ?? "");
     if (!Number.isNaN(at)) this.now = at;
     // ushi-naruse: Claude Code's own reports on background work, as a message or,
-    // mid-turn, as a queued attachment.
-    if (d.origin?.kind === "task-notification" || d.attachment?.origin?.kind === "task-notification") {
-      const c = d.attachment?.prompt ?? d.message?.content;
-      return this.notify(typeof c === "string" ? c : toText(c));
+    // mid-turn, as a queued attachment (logged without an origin, e.g. a kill).
+    const report = d.attachment?.type === "queued_command" ? d.attachment.prompt
+      : d.origin?.kind === "task-notification" ? d.message?.content : null;
+    if (report != null) {
+      const text = typeof report === "string" ? report : toText(report);
+      if (parseNotification(text)) return this.notify(text);
     }
     if (d.type === "queue-operation") {
       const text = typeof d.content === "string" ? d.content : "";
