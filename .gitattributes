@@ -1,0 +1,6 @@
+# LF everywhere, Windows included: install.sh and the bin/ scripts run under bash,
+# which a CRLF checkout (core.autocrlf=true, Git for Windows' default) breaks.
+* text=auto eol=lf
+*.png binary
+*.svg text eol=lf
+*.csv -text

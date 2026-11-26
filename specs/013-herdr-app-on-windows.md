@@ -35,6 +35,14 @@ that macOS and Linux did not.
   work`) and `njv-mbp-m1`, named as on the Mac.
 - **Git Bash** (Git for Windows) has bash, coreutils and node, but no `rsync`, and
   `python3` is the Microsoft Store stub. `install.sh` used both.
+- **The checkout:** `~\git\herdr-mods` on Windows. Git for Windows defaults to
+  `core.autocrlf=true`, which checked files out with CRLF and broke `install.sh`
+  under bash; `.gitattributes` now fixes LF for the repository (CSV samples
+  excepted). Windows' OpenSSH reaches GitHub with the agent's key, but run from a
+  non-interactive SSH session it hangs once git talks over its stdin; the first
+  clone came from a bundle made on njv-cachyos, with `origin` set to GitHub.
+- **Mod checks need the desktop:** `herdr-app check` opens a window, so over SSH it
+  runs through a one-off scheduled task in the desktop session (interactive).
 
 ## Requirements
 
@@ -70,10 +78,13 @@ that macOS and Linux did not.
   session and the app opens.
 - [x] R3: `hc machine ls` on Windows: `njv-cachyos-default`, `njv-cachyos-work`
   (session work), `njv-mbp-m1`, all connected.
-- [ ] R4: `install.sh` without rsync and python3; unit-free check: a second run
-  installs nothing; a changed file reinstalls only that mod; on macOS, Linux and
-  Windows.
-- [ ] R5: `herdr-app check` passes for every mod on Windows.
+- [x] R4: `install.sh` without rsync and python3 (2d59c9b): the real homes
+  unchanged and a second run installing nothing on macOS, Linux and Windows; a fresh
+  home gets all 13 mods; a changed file reinstalls only that mod (macOS). Windows:
+  first install 25 s under Git Bash.
+- [x] R5: `herdr-app check` passes for every mod on Windows, run in the desktop
+  session (in an SSH session it fails: "cannot open windows while headless");
+  `herdr-app status` shows no errors.
 - [ ] R6: config in place on Windows and in dotfiles.
 - [ ] R7: each mod looked at in the Windows window; the tools list written here.
 
