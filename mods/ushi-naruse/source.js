@@ -45,6 +45,14 @@ find "$HOME/.codex/sessions" -name 'rollout-*.jsonl' -mtime -2 2>/dev/null | xar
   head -c 20000 "$f" | grep -q "\\"cwd\\":\\"$2\\"" && { echo "$f"; break; }
 done`;
 
+// ushi-naruse (spec 009): the log of the subagent a tool call started, found by the
+// meta file Claude Code writes beside it ({ "toolUseId": … }).
+export async function subagentLog(dir, toolUseId, on) {
+  const r = await sh('grep -lF "\\"toolUseId\\":\\"$2\\"" "$1"/*.meta.json 2>/dev/null | head -1', [dir, toolUseId], on);
+  const meta = r.stdout.trim();
+  return meta ? meta.replace(/\.meta\.json$/, ".jsonl") : null;
+}
+
 export async function locate(term, kind) {
   const pid = term?.foreground?.pid;
   if (!pid) return null;

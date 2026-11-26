@@ -2,6 +2,7 @@
 // { kind: "user" | "assistant" | "tools" | "note", key, text, images, items }.
 // Images come out as { data (base64) | path, ext } for the view to cache.
 import { unwrapPastes } from "./lib/chat-text.js";
+import { launchOf, stoppedBy, parseNotification, ended } from "./lib/chat-tasks.js";
 
 const MAX_RESULT = 6000;
 
@@ -61,6 +62,31 @@ export class Transcript {
     // Tokens the session used, per model, from its replies (each counted once).
     this.tokens = {};
     this.counted = new Set();
+    // ushi-naruse: when the line being read was written (its "timestamp"), and
+    // background rows by task id.
+    this.now = null;
+    this.tasks = new Map();
+  }
+
+  // ushi-naruse: background tasks still running, oldest first (spec 009).
+  background() {
+    return this.entries.filter((e) => e.kind === "tools")
+      .flatMap((e) => e.items.filter((i) => i.bg?.status === "running").map((item) => ({ item, key: e.key })));
+  }
+
+  // ushi-naruse: a task notification ends (or updates) the background row it names.
+  notify(text) {
+    const n = parseNotification(text);
+    const item = n?.toolUseId ? this.tools.get(n.toolUseId) : null;
+    if (!item) return;
+    item.bg ??= { kind: item.name === "Agent" || item.name === "Task" ? "agent" : "shell", task: n.task, output: null, started: item.at };
+    item.bg.status = ended(n.status) ? n.status : "running";
+    item.bg.summary = n.summary;
+    item.bg.note = n.note;
+    item.bg.output ??= n.outputFile;
+    item.bg.ended = this.now;
+    if (n.result != null) item.result = n.result.length > MAX_RESULT ? n.result.slice(0, MAX_RESULT) + "\n…" : n.result;
+    item.error = n.status === "failed" || n.status === "error";
   }
 
   push(entry) {
@@ -74,6 +100,7 @@ export class Transcript {
   note(text) { if (text) this.push({ kind: "note", text }); }
 
   user(text, images = []) {
+    if (parseNotification(text)) return this.notify(text);
     // ushi-naruse: pasted text without the tags Claude Code wraps it in.
     text = unwrapPastes(text ?? "").replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, "").trim();
     // Slash commands and their output, as Claude Code records them.
@@ -132,7 +159,7 @@ export class Transcript {
     let group = this.last();
     if (group?.kind !== "tools") group = this.push({ kind: "tools", items: [] });
     // ushi-naruse: the input too, for the right-click menu's Copy command.
-    const item = { id, name, summary: summarize(input), input, result: null, error: false, images: [] };
+    const item = { id, name, summary: summarize(input), input, result: null, error: false, images: [], at: this.now };
     group.items.push(item);
     if (id) this.tools.set(id, item);
   }
@@ -146,6 +173,18 @@ export class Transcript {
       if (p?.type === "input_image") { const img = fromDataUrl(p.image_url); if (img) item.images.push(img); }
     }
     const text = stripAnsi(toText(content));
+    // ushi-naruse: a background launch's result is only Claude Code's own note
+    // ("Async agent launched…"): the row runs until its task notification.
+    const launch = launchOf(item.name, text);
+    if (launch) {
+      item.bg = { ...launch, status: "running", started: item.at ?? this.now, summary: null, ended: null };
+      item.result = "";
+      this.tasks.set(launch.task, item);
+      return;
+    }
+    // A stop by Claude itself reports nothing more: its row ends here.
+    const stopped = this.tasks.get(stoppedBy(item.name, item.input, text, error));
+    if (stopped?.bg?.status === "running") Object.assign(stopped.bg, { status: "stopped", summary: "Stopped by Claude", ended: this.now });
     item.result = text.length > MAX_RESULT ? text.slice(0, MAX_RESULT) + "\n…" : text;
     item.error = Boolean(error);
   }
@@ -159,6 +198,14 @@ export class Transcript {
 
   claude(d) {
     if (d.isSidechain) return;
+    const at = Date.parse(d.timestamp ?? "");
+    if (!Number.isNaN(at)) this.now = at;
+    // ushi-naruse: Claude Code's own reports on background work, as a message or,
+    // mid-turn, as a queued attachment.
+    if (d.origin?.kind === "task-notification" || d.attachment?.origin?.kind === "task-notification") {
+      const c = d.attachment?.prompt ?? d.message?.content;
+      return this.notify(typeof c === "string" ? c : toText(c));
+    }
     if (d.type === "queue-operation") {
       const text = typeof d.content === "string" ? d.content : "";
       if (d.operation === "enqueue") this.queue.push(text);

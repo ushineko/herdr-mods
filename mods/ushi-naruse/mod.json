@@ -35,6 +35,7 @@
     "height": 0.85
   },
   "lib": [
-    "chat-text.js"
+    "chat-text.js",
+    "chat-tasks.js"
   ]
 }

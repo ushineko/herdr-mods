@@ -13,9 +13,10 @@ import {
 import * as fs from "fs/promises";
 import { Buffer } from "buffer";
 import { createHash } from "crypto";
-import { Transcript } from "./parse.js";
+import { Transcript, summarize } from "./parse.js";
+import { subagentProgress, lastLines, elapsed } from "./lib/chat-tasks.js";
 import { plainText, quote, commandOf, menuFor, keepLineBreaks, joinLines } from "./lib/chat-text.js";
-import { Tail, locate, agentKind, machineOf } from "./source.js";
+import { Tail, locate, agentKind, machineOf, subagentLog } from "./source.js";
 import { catalog, launchArgv, modelName, switchModel } from "./models.js";
 import { emojify, PICKER, emojiMatches } from "./emoji.js";
 import { parsePrompt, choose, menuAtBottom } from "./prompt.js";
@@ -168,6 +169,12 @@ export default class Chat extends View {
     this.t = null;
     this.limit = PAGE;
     this.open = new Set();
+    // ushi-naruse (spec 009): subagent logs being followed and scripts' latest output,
+    // by tool call id; row heights, to scroll to a row (the background strip).
+    this.subs = {};
+    this.outputs = {};
+    this.heights = {};
+    this.seek = null;
     this.images = {};
     this.attach = [];
     this.pending = []; // sent, not yet in the log: { text, files, users } (users: user messages the log had then)
@@ -1339,15 +1346,115 @@ export default class Chat extends View {
           this.error = String(e?.message ?? e);
           cx.notify();
         }
+        // ushi-naruse (spec 009): subagents' and scripts' progress, every 2 s while any runs.
+        const busy = await this.readTasks(on).catch(() => false);
+        if (gen !== this.gen) return;
+        if (busy) cx.notify();
         if (on) await sleep(cx, 1500);
         else {
           const w = (this.watches[dir] ??= watchFolder(dir).catch(() => sleep(cx, 3000)).finally(() => {
             if (this.watches[dir] === w) delete this.watches[dir];
           }));
-          await Promise.race([w, sleep(cx, 15000)]);
+          await Promise.race([w, sleep(cx, busy ? 2000 : 15000)]);
         }
       }
     });
+  }
+
+  // ushi-naruse (spec 009): reads what running subagents and background scripts have
+  // done (their logs and output files, on the agent's machine), and a finished
+  // script's output once its row is opened. True while anything runs.
+  async readTasks(on) {
+    const t = this.t;
+    if (!t || t.kind !== "claude" || !this.file) return false;
+    const dir = this.file.replace(/\.jsonl$/, "") + "/subagents";
+    const working = this.terminal()?.status === "working";
+    let busy = false;
+    for (const e of t.entries) {
+      if (e.kind !== "tools") continue;
+      for (const i of e.items) {
+        const agent = i.name === "Agent" || i.name === "Task";
+        if (agent && (i.bg ? i.bg.status === "running" : i.result === null && working)) {
+          busy = true;
+          await this.followSubagent(i, dir, on);
+        }
+        if (i.bg?.kind !== "shell" || !i.bg.output) continue;
+        if (i.bg.status === "running") {
+          busy = true;
+          await this.readOutput(i, on);
+        } else if (this.open.has(e.key) && !this.outputs[i.id]?.final) {
+          await this.readOutput(i, on);
+          if (this.outputs[i.id]) this.outputs[i.id].final = true;
+        }
+      }
+    }
+    return busy;
+  }
+
+  async followSubagent(i, dir, on) {
+    let s = this.subs[i.id];
+    if (!s) {
+      const file = i.bg?.task ? `${dir}/agent-${i.bg.task}.jsonl` : await subagentLog(dir, i.id, on);
+      if (!file) return;
+      s = this.subs[i.id] = { tail: new Tail(file, on), tools: 0, last: null };
+    }
+    try {
+      const p = subagentProgress(await s.tail.read(), summarize);
+      s.tools += p.tools;
+      if (p.last) s.last = p.last;
+    } catch { /* not written yet: next time */ }
+  }
+
+  async readOutput(i, on) {
+    const r = await exec("tail", ["-n", "30", i.bg.output], { on });
+    if (r.code === 0) this.outputs[i.id] = { lines: lastLines(r.stdout, 30), final: false };
+  }
+
+  // What a running row says it is doing: a subagent's tool count and latest step,
+  // a script's last line of output.
+  progressOf(i) {
+    if (i.bg && i.bg.status !== "running") return null;
+    const s = this.subs[i.id];
+    if (s && (i.bg || i.result === null)) {
+      const step = s.last ? ` · ${s.last.name}${s.last.summary ? " " + s.last.summary : ""}` : "";
+      return `${s.tools} tool use${s.tools === 1 ? "" : "s"}${step}`;
+    }
+    const out = this.outputs[i.id]?.lines;
+    return i.bg?.kind === "shell" && out?.length ? out[out.length - 1] : null;
+  }
+
+  // ushi-naruse (spec 009): what runs in the background, above the message box.
+  backgroundStrip(t) {
+    if (!this.t || this.terminal()?.state !== "live") return null;
+    const list = this.t.background();
+    if (!list.length) return null;
+    const now = Date.now();
+    return h_flex().w_full().justify_center().child(h_flex().w_full().max_w(COLUMN).px(6).gap(6).items_center()
+      .text_size(tsz(12)).text_color(t.muted)
+      .child(div().flex_none().text_color(t.dim).child(`Background ${list.length}`))
+      .children(list.slice(0, 3).map(({ item, key }) => h_flex().id(`bg-${item.id}`).min_w(0).gap(6).px(8).py(3).rounded(8)
+        .bg(t.surface).cursor_pointer().hover((s) => s.bg(t.hover))
+        .tooltip("Show it in the chat")
+        .on_click((_e, cx) => { this.open.add(key); this.seek = key; cx.notify(); })
+        .child(div().flex_none().text_color(t.working).frames(SPINNER, 90))
+        .child(div().flex_none().text_color(t.dim).child(item.bg.kind === "agent" ? "agent" : "script"))
+        .child(div().min_w(0).truncate().child(item.summary || item.name))
+        .child(div().flex_none().text_color(t.dim).child(elapsed(now - (item.bg.started ?? now))))))
+      .when(list.length > 3, (el) => el.child(div().flex_none().text_color(t.dim).child(`+${list.length - 3} more`))));
+  }
+
+  // Scrolls so the row `key` (shown, and measured) starts at the top of the view.
+  seekRow(shown) {
+    const i = shown.findIndex((e) => e.key === this.seek);
+    if (i < 0 || this.heights[this.seek] == null || !this.viewH) return;
+    const z = Number(settings()?.zoom) || 1;
+    const after = shown.slice(i + 1);
+    if (after.some((e) => this.heights[e.key] == null)) return;
+    // From the content's bottom to the row's top: padding, the rows below with their gaps, it.
+    const below = 18 * z + after.reduce((n, e) => n + this.heights[e.key] + 16 * z, 0) + this.heights[this.seek];
+    this.off = Math.max(0, (below - this.viewH) / z + 8);
+    this.clamp();
+    this.seek = null;
   }
 
   // A space this chat started is named after the conversation.
@@ -1866,6 +1973,11 @@ export default class Chat extends View {
     return TextView.markdown(id, keepLineBreaks(text)).selectable(true).on_selection_change((sel) => { this.selection = sel?.text || null; });
   }
 
+  // A row whose height is kept (spec 009: scrolling to a row).
+  measured(e, el) {
+    return div().id(`h-${e.key}`).w_full().on_size_change((size) => { this.heights[e.key] = size.height; }).child(el);
+  }
+
   entry(e, t, last) {
     if (e.kind === "user") {
       // A width of its own: with only a max width, the text inside shrinks to
@@ -2019,8 +2131,13 @@ export default class Chat extends View {
     const names = [...new Set(e.items.map((i) => i.name))];
     const one = e.items.length === 1 ? e.items[0] : null;
     const label = one ? `${one.name}${one.summary ? " · " + one.summary : ""}` : `${e.items.length} tool calls · ${names.join(", ")}`;
-    const running = last && e.items.some((i) => i.result === null) && this.terminal()?.status === "working";
+    // ushi-naruse (spec 009): background work runs until Claude Code reports it ended,
+    // busy terminal or not.
+    const background = e.items.some((i) => i.bg?.status === "running");
+    const running = background || (last && e.items.some((i) => i.result === null && !i.bg) && this.terminal()?.status === "working");
     const failed = e.items.some((i) => i.error);
+    const progress = this.progressOf(one ?? e.items.find((i) => i.bg?.status === "running") ?? {});
+    const over = one?.bg && one.bg.status !== "running" ? one.bg : null;
     const thumbs = e.items.flatMap((i) => i.images);
     return v_flex().w_full().gap(6)
       .child(h_flex().id(`tg-${e.key}`).gap(6).items_center().cursor_pointer().text_size(tsz(TOOL_TEXT)).text_color(t.dim)
@@ -2028,23 +2145,32 @@ export default class Chat extends View {
         .hover((s) => s.text_color(t.muted))
         .on_click((_ev, cx) => { open ? this.open.delete(e.key) : this.open.add(e.key); cx.notify(); })
         .child(div().w(10).flex_none().child(open ? "▾" : "▸"))
-        .child(div().flex_1().min_w(0).truncate().child(label))
+        .child(div().flex_shrink_1().min_w(0).truncate().child(label))
+        .when(e.items.some((i) => i.bg), (el) => el.child(div().flex_none().px(5).rounded(4).border_1().border_color(t.border).text_color(t.dim).child("background")))
+        .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(progress ?? ""))
+        .when(Boolean(over) && !failed, (el) => el.child(div().flex_none().text_color(over.status === "completed" ? t.dim : t.blocked)
+          .child(`${over.status === "completed" ? "done" : over.status}${over.ended && over.started ? " · " + elapsed(over.ended - over.started) : ""}`)))
         .when(running, (el) => el.child(div().flex_none().text_color(t.working).frames(SPINNER, 90)))
-        .when(failed, (el) => el.child(div().flex_none().text_color(t.blocked).child("error"))))
+        .when(failed, (el) => el.child(div().flex_none().text_color(t.blocked).child(one?.bg ? one.bg.status : "error"))))
       .when(!open && thumbs.length > 0, (el) => el.child(h_flex().pl(16).gap(6).children(thumbs.map((i) => this.img(i.ref, t, 160, 110)))))
       .when(open, (el) => el.children(e.items.map((i, n) => this.tool(e.key, n, i, t))));
   }
 
   tool(key, n, i, t) {
-    const result = (i.result ?? "").split("\n");
+    // ushi-naruse (spec 009): a background script shows its output file's last lines.
+    const out = i.bg?.kind === "shell" && !i.result ? this.outputs[i.id]?.lines?.join("\n") : null;
+    const result = (out ?? i.result ?? "").split("\n");
+    const progress = this.progressOf(i);
     const clipped = result.length > 30 ? [...result.slice(0, 30), `… ${result.length - 30} more lines`] : result;
     return v_flex().id(`tool-${key}-${n}`).pl(16).gap(4)
       .on_mouse_down("right", (ev, cx) => this.openMenu(ev, { kind: "tool", item: i }, cx))
       .child(h_flex().gap(6).text_size(tsz(TOOL_TEXT))
         .child(div().flex_none().font_semibold().text_color(t.muted).child(i.name))
         .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(i.summary)))
+      .when(Boolean(i.bg?.summary || progress), (el) => el.child(div().text_size(tsz(TOOL_TEXT)).text_color(i.bg?.status && !["running", "completed"].includes(i.bg.status) ? t.blocked : t.dim)
+        .child(progress ?? i.bg.summary)))
       .when(i.images.length > 0, (el) => el.child(h_flex().flex_wrap().gap(6).children(i.images.map((im) => this.img(im.ref, t, 280, 200)))))
-      .when(i.result !== null && i.result.trim() !== "", (el) => el.child(
+      .when(result.join("").trim() !== "", (el) => el.child(
         // ushi-naruse: plain monospace lines, since a Markdown code block keeps its own (larger) size.
         v_flex().px(10).py(8).rounded(6).border_1().border_color(i.error ? t.blocked : t.border).bg(t.surface)
           .text_size(tsz(TOOL_OUTPUT)).text_color(t.muted)
@@ -2210,8 +2336,15 @@ export default class Chat extends View {
 
   body(t) {
     this.settle();
+    // ushi-naruse (spec 009): a row asked for from the background strip, older than
+    // what's shown, is shown first.
+    if (this.seek) {
+      const all = this.shown().ents, at = all.findIndex((e) => e.key === this.seek);
+      if (at >= 0 && at < all.length - this.limit) this.limit = all.length - at;
+    }
     const { start, ents } = this.shown();
     const shown = ents.slice(start);
+    if (this.seek) this.seekRow(shown);
     let lastUser = -1;
     for (let i = shown.length - 1; i >= 0; i--) if (shown[i].kind === "user" && !shown[i].command) { lastUser = i; break; }
     const head = shown.slice(0, lastUser + 1), tail = shown.slice(lastUser + 1);
@@ -2239,11 +2372,11 @@ export default class Chat extends View {
       // ushi-naruse (R15): your last message, and everything after it, are measured so
       // the message can be pinned at the top once it scrolls past it.
       .children(head.map((e, n) => (n === lastUser
-        ? div().id(`last-user-${e.key}`).w_full().on_size_change((size) => { this.lastUserH = size.height; })
+        ? div().id(`last-user-${e.key}`).w_full().on_size_change((size) => { this.lastUserH = size.height; this.heights[e.key] = size.height; })
           .child(this.entry(e, t, n === shown.length - 1))
-        : this.entry(e, t, n === shown.length - 1))))
+        : this.measured(e, this.entry(e, t, n === shown.length - 1)))))
       .child(v_flex().id("after-last-user").w_full().gap(16).on_size_change((size) => { this.afterH = size.height; })
-        .children(tail.map((e, n) => this.entry(e.key === this.handover ? { ...e, key: "streaming" } : e, t, head.length + n === shown.length - 1)))
+        .children(tail.map((e, n) => this.measured(e, this.entry(e.key === this.handover ? { ...e, key: "streaming" } : e, t, head.length + n === shown.length - 1))))
         .when(Boolean(this.streamShown()), (el) => el.child(this.entry({ kind: "assistant", text: this.streamShown(), key: "streaming" }, t, true)))
         .when(Boolean(this.running), (el) => el.child(this.runningView(t)))
         .children(this.pending.map((p, i) => this.queued(p, i, t))))
@@ -2374,7 +2507,9 @@ export default class Chat extends View {
           .tooltip(stop ? "Stop" : this.dialog ? "Start" : "Send")
           .on_click((_e, cx) => (stop ? hc(["interrupt", this.term]) : this.send(cx)))
           .child(stop ? "■" : "↑")));
+    const strip = this.backgroundStrip(t);
     return v_flex().flex_none().bg(t.background).px(16).pb(14).gap(8)
+      .when(Boolean(strip), (el) => el.child(strip))
       .when(working, (el) => el.child(h_flex().w_full().justify_center().child(h_flex().w_full().max_w(COLUMN).px(6).gap(8).items_center().text_size(tsz(12)).text_color(t.muted)
         .child(div().flex_none().text_color(t.working).frames(SPINNER, 90))
         .child(div().flex_1().min_w(0).truncate().child(term.report?.msg || "Working…")))))
