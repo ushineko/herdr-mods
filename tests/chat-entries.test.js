@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chatEntries, strayChats, orphanedHidden, toSettle, toRename, localId, agentsToKeep, visibleNeighbour, parseAgentLookup, withLoginAgents } from "../lib/chat-entries.js";
+import { chatEntries, strayChats, orphanedHidden, toSettle, toRename, localId, agentsToKeep, visibleNeighbour, parseAgentLookup, withLoginAgents, platformFrom, platformOf } from "../lib/chat-entries.js";
 
 const claude = { key: "claude", name: "Claude Code", installed: true, run: ["claude"] };
 const codex = { key: "codex", name: "Codex", installed: true, run: ["codex", "--no-daemon"] };
@@ -150,4 +150,23 @@ test("withLoginAgents: a missing or uninstalled agent the login shell found beco
   const ok = [{ key: "claude", name: "Claude Code", installed: true, run: ["claude", "--x"] }];
   assert.deepEqual(withLoginAgents(ok, { claude: "/other/claude" }), ok, "one the app found stays as it is");
   assert.deepEqual(withLoginAgents([], {}), []);
+});
+
+test("platformFrom: uname tells macOS and Linux; PowerShell answering means Windows", () => {
+  assert.equal(platformFrom({ code: 0, stdout: "Darwin\n" }, null), "macos");
+  assert.equal(platformFrom({ code: 0, stdout: "Linux\n" }, null), "linux");
+  assert.equal(platformFrom(null, { code: 0, stdout: "win\r\n" }), "windows");
+  assert.equal(platformFrom({ code: 127, stdout: "" }, { code: 0, stdout: "win" }), "windows");
+  assert.equal(platformFrom(null, null), null, "neither answered: unknown");
+  assert.equal(platformFrom({ code: 0, stdout: "" }, null), null);
+});
+
+test("platformOf: this computer is the window's; another is probed once", async () => {
+  const calls = [];
+  const exec = async (cmd, args, { on }) => { calls.push(`${on}:${cmd}`); if (cmd === "sh") throw new Error("not installed"); return { code: 0, stdout: "win\r\n" }; };
+  assert.equal(await platformOf(null, exec, "windows"), "windows");
+  assert.equal(calls.length, 0);
+  assert.equal(await platformOf("win-box", exec, "linux"), "windows");
+  assert.equal(await platformOf("win-box", exec, "linux"), "windows");
+  assert.deepEqual(calls, ["win-box:sh", "win-box:powershell"], "asked once");
 });

@@ -97,3 +97,9 @@ test("lib's MERMAID_SH is the viewer's script, unchanged", async () => {
   const { MERMAID_SH } = await import("../lib/mermaid.js");
   assert.equal(MERMAID_SH, programs("linux").mermaid("d", "k", "dark", "s")[1][1]);
 });
+
+test("lib's MERMAID_WINDOWS, run with lib/powershell.js, is the viewer's Windows command", async () => {
+  const { MERMAID_WINDOWS } = await import("../lib/mermaid.js");
+  const { powershell, win } = await import("../lib/powershell.js");
+  assert.deepEqual(powershell(MERMAID_WINDOWS, win("C:/d/x"), "k1", "dark", "graph TD"), programs("windows").mermaid("C:/d/x", "k1", "dark", "graph TD"));
+});

@@ -25,7 +25,7 @@ import {
   layout, terminals, focused, run, hc, exec, home, theme, shared, setShared, notify, window,
   openOverlay, closeOverlay, knownAgents, checking, props, nextCommand, spaces, machines,
 } from "herdr";
-import { chatEntries, newChatId, ID_LABEL, AGENT_LOOKUP, parseAgentLookup, withLoginAgents, hasChatAgent } from "./lib/chat-entries.js";
+import { chatEntries, newChatId, ID_LABEL, AGENT_LOOKUP, parseAgentLookup, withLoginAgents, hasChatAgent, platformOf } from "./lib/chat-entries.js";
 
 const ICON = (n) => `mods/dock-tabs/${n}.svg`;
 const DOCKS = ["dock-right", "dock-bottom"];
@@ -194,8 +194,9 @@ function fail(title, r) {
 // The "New … chat" entries for machine `on` (null: this computer); [] where the
 // chat can't run (spec 008). nested-tabs/chat.js has the same check.
 async function chatOptions(on) {
-  const platform = window().platform;
-  if (platform === "windows") return [];
+  // The agent's machine decides, not this window's (spec 014).
+  const platform = await platformOf(on, exec, window().platform);
+  if (!platform || platform === "windows") return [];
   let agents = [], python = false;
   try { agents = await knownAgents({ on }); } catch {}
   // Another machine's answer can miss agents outside its core's PATH (Homebrew on

@@ -1,12 +1,26 @@
-// What the chat needs from the desktop it runs on, for macOS and Linux:
-// the clipboard, the file picker, opening a file, and an image's size.
-// Each tries the macOS tool first, then the Linux ones (Wayland, then X11).
-import { exec } from "herdr";
+// What the chat needs from the desktop it runs on: the clipboard, the file picker,
+// opening a file, and an image's size. macOS and Linux: each tries the macOS tool
+// first, then the Linux ones (Wayland, then X11). Windows (herdr-mods, spec 014):
+// PowerShell, through lib/powershell.js.
+import { exec, window, appHome } from "herdr";
+import * as fs from "fs/promises";
+import { powershell, win } from "./lib/powershell.js";
+import { imageSizeOf } from "./lib/image-size.js";
 
 const sh = (script, ...args) => exec("sh", ["-c", script, "sh", ...args]);
+const windows = () => { try { return window()?.platform === "windows"; } catch { return false; } };
+const ps = (script, ...values) => { const [program, args] = powershell(script, ...values); return exec(program, args); };
 
 // Puts text on the clipboard; false when no clipboard tool is installed.
 export async function copyText(text) {
+  // Windows: the text goes through a file, as a command line holds only 32 K.
+  if (windows()) {
+    const file = `${appHome()}/data/ushi-naruse/clip-${Date.now()}.txt`;
+    try { await fs.writeFile(file, String(text)); } catch { return false; }
+    const r = await ps("$f = $args[0]; Set-Clipboard -Value ([IO.File]::ReadAllText($f)); Remove-Item -LiteralPath $f -Force", win(file)).catch(() => null);
+    await fs.unlink(file).catch(() => {});
+    return r?.code === 0;
+  }
   const r = await sh(`
     if command -v pbcopy >/dev/null 2>&1; then printf "%s" "$1" | pbcopy
     elif [ -n "$WAYLAND_DISPLAY" ] && command -v wl-copy >/dev/null 2>&1; then printf "%s" "$1" | wl-copy
@@ -21,6 +35,13 @@ export async function copyText(text) {
 // Saves an image on the clipboard to `path` as PNG: true, false when there's
 // none, or "missing" when this desktop has no tool to read it.
 export async function pasteImage(path) {
+  if (windows()) {
+    const r = await ps(`Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+$i = [Windows.Forms.Clipboard]::GetImage()
+if (-not $i) { exit 2 }
+$i.Save($args[0], [Drawing.Imaging.ImageFormat]::Png)`, win(path)).catch(() => null);
+    return r?.code === 0;
+  }
   const r = await sh(`
     if command -v osascript >/dev/null 2>&1; then
       osascript -e "set f to open for access (POSIX file \\"$1\\") with write permission" \\
@@ -34,12 +55,22 @@ export async function pasteImage(path) {
 
 // Opens a file in the desktop's default app (an image in Preview, say).
 export function openFile(path) {
+  if (windows()) return ps("Invoke-Item -LiteralPath $args[0]", win(path));
   return sh(`if command -v open >/dev/null 2>&1 && [ "$(uname)" = Darwin ]; then open "$1"; else xdg-open "$1" >/dev/null 2>&1 & fi`, path);
 }
 
 // The system's file picker, several files at once: their paths, [] when
 // cancelled, or null when this desktop has no picker the chat can use.
 export async function pickFiles(prompt = "Attach to your message") {
+  if (windows()) {
+    const r = await ps(`Add-Type -AssemblyName System.Windows.Forms
+$d = New-Object Windows.Forms.OpenFileDialog
+$d.Multiselect = $true
+$d.Title = $args[0]
+if ($d.ShowDialog() -eq [Windows.Forms.DialogResult]::OK) { $d.FileNames -join [char]10 }`, prompt).catch(() => null);
+    if (!r || r.code !== 0) return null;
+    return r.stdout.split("\n").map((l) => l.trim()).filter(Boolean);
+  }
   const r = await sh(`
     if command -v osascript >/dev/null 2>&1; then
       osascript -e "set fs to choose file with prompt \\"$1\\" with multiple selections allowed" \\
@@ -54,32 +85,9 @@ export async function pickFiles(prompt = "Attach to your message") {
   return r.stdout.split("\n").map((l) => l.trim()).filter(Boolean);
 }
 
-// An image's pixel size from its header (PNG, JPEG, GIF, WebP), with nothing
-// to install: { w, h }, or null.
-const SIZE = `
-import struct, sys
-try: b = open(sys.argv[1], "rb").read(262144)
-except OSError: sys.exit(1)
-def out(w, h): print(w, h); sys.exit(0)
-if b[:8] == b"\\x89PNG\\r\\n\\x1a\\n": out(*struct.unpack(">II", b[16:24]))
-if b[:6] in (b"GIF87a", b"GIF89a"): out(*struct.unpack("<HH", b[6:10]))
-if b[:4] == b"RIFF" and b[8:12] == b"WEBP":
-    k = b[12:16]
-    if k == b"VP8 ": w, h = struct.unpack("<HH", b[26:30]); out(w & 0x3fff, h & 0x3fff)
-    if k == b"VP8L": v = int.from_bytes(b[21:25], "little"); out((v & 0x3fff) + 1, ((v >> 14) & 0x3fff) + 1)
-    if k == b"VP8X": out(int.from_bytes(b[24:27], "little") + 1, int.from_bytes(b[27:30], "little") + 1)
-if b[:2] == b"\\xff\\xd8":
-    i = 2
-    while i + 9 < len(b):
-        if b[i] != 0xFF: i += 1; continue
-        m = b[i + 1]
-        if 0xC0 <= m <= 0xCF and m not in (0xC4, 0xC8, 0xCC): h, w = struct.unpack(">HH", b[i + 5:i + 9]); out(w, h)
-        i += 2 + struct.unpack(">H", b[i + 2:i + 4])[0]
-sys.exit(1)
-`;
-
+// An image's pixel size from its header (PNG, JPEG, GIF, WebP), read here with no
+// other program (herdr-mods, spec 014: python3 isn't on Windows): { w, h }, or null.
+// The chat asks only for images in its cache, under the app home.
 export async function imageSize(path) {
-  const r = await exec("python3", ["-c", SIZE, path]);
-  const [w, h] = r.stdout.trim().split(" ").map(Number);
-  return w > 0 && h > 0 ? { w, h } : null;
+  try { return imageSizeOf(await fs.readFile(path)); } catch { return null; }
 }

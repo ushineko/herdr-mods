@@ -7,12 +7,15 @@
 // chat's tab while it's away. The chat and its pane header each keep a copy
 // of this file (a mod can't import another's): change both together.
 
-import { exec, hc } from "herdr";
+import { exec, hc, home, window } from "herdr";
 
 // An app command through the CLI, awaited: run() from a mod returns nothing
 // and doesn't keep calls in order.
+// Windows (herdr-mods, spec 014): the app's own installer folder, no sh.
 export async function herdr(command, args) {
-  const r = await exec("sh", ["-c", 'H=$(command -v herdr-app || echo "$HOME/.local/bin/herdr-app"); exec "$H" do "$1" "$2"', "sh", command, JSON.stringify(args)]);
+  const r = windows()
+    ? await exec(`${home()}\\AppData\\Local\\Programs\\herdr-app\\herdr-app.exe`, ["do", command, JSON.stringify(args)])
+    : await exec("sh", ["-c", 'H=$(command -v herdr-app || echo "$HOME/.local/bin/herdr-app"); exec "$H" do "$1" "$2"', "sh", command, JSON.stringify(args)]);
   let out = null;
   try { out = JSON.parse(r.stdout); } catch {}
   if (r.code !== 0 || !out || out.error) throw new Error(out?.error ?? (r.stderr.trim() || `${command} failed`));
@@ -21,7 +24,15 @@ export async function herdr(command, args) {
 
 const local = (id) => String(id).split("/").pop();
 const machine = (address) => (address.includes("/") ? address.split("/")[0] : null);
-const pause = (s) => exec("sh", ["-c", `sleep ${s}`]);
+const windows = () => { try { return window()?.platform === "windows"; } catch { return false; } };
+// How long to wait between looks: the caller's cx.sleep when it passes one (herdr-mods,
+// spec 014), else the system's sleep.
+let sleeper = null;
+const pause = (s) => (sleeper ? sleeper(s * 1000)
+  : windows() ? exec("powershell", ["-NoProfile", "-Command", `Start-Sleep -Milliseconds ${Math.round(s * 1000)}`])
+  : exec("sh", ["-c", `sleep ${s}`]));
+/** Sets how this file waits: `(ms) => cx.sleep(ms)` from the caller's task. */
+export function waitWith(fn) { sleeper = fn; }
 
 async function labels(address) {
   const r = await hc(["get", address, "--json"]);

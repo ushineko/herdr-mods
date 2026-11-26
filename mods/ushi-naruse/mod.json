@@ -43,6 +43,8 @@
     "chat-text.js",
     "chat-tasks.js",
     "chat-context.js",
-    "mermaid.js"
+    "mermaid.js",
+    "powershell.js",
+    "image-size.js"
   ]
 }

@@ -6,14 +6,19 @@
 // it ends when the chat (or its tab) is closed (sweep).
 
 import { knownAgents, exec, hc, panes, spaces, terminals, run, window, notify, setShared } from "herdr";
-import { chatEntries, strayChats, orphanedHidden, toSettle, toRename, localId, newChatId, ID_LABEL, visibleNeighbour, CHAT_LABEL, HIDDEN_LABEL, OWNER_LABEL, AGENT_LOOKUP, parseAgentLookup, withLoginAgents, hasChatAgent } from "./lib/chat-entries.js";
+import { chatEntries, strayChats, orphanedHidden, toSettle, toRename, localId, newChatId, ID_LABEL, visibleNeighbour, CHAT_LABEL, HIDDEN_LABEL, OWNER_LABEL, AGENT_LOOKUP, parseAgentLookup, withLoginAgents, hasChatAgent, platformOf } from "./lib/chat-entries.js";
 
 const where = (base) => {
   const i = base.indexOf("/");
   return i < 0 ? { on: null, id: base } : { on: base.slice(0, i), id: base.slice(i + 1) };
 };
-// The chat is POSIX-only, so sh is always there when this runs.
-const pause = () => exec("sh", ["-c", "sleep 0.1"]);
+// A short wait, with this computer's own sleep (spec 014: the window may be Windows).
+const pause = () => (window().platform === "windows"
+  ? exec("powershell", ["-NoProfile", "-Command", "Start-Sleep -Milliseconds 100"])
+  : exec("sh", ["-c", "sleep 0.1"]));
+
+// The system the agent's machine runs (lib/chat-entries.js platformOf).
+const platformOn = (on) => platformOf(on, exec, window().platform);
 
 /** The "New … chat" entries for the machine `base` runs on; [] where the chat can't run. */
 export const options = (base) => optionsOn(where(base).on);
@@ -37,8 +42,9 @@ export async function agentsOn(on) {
 
 /** The "New … chat" entries for machine `on` (null: this computer). */
 export async function optionsOn(on) {
-  const platform = window().platform;
-  if (platform === "windows") return [];
+  // The agent's machine decides (spec 014), not this window's.
+  const platform = await platformOn(on);
+  if (!platform || platform === "windows") return [];
   let agents = [], python = false;
   try { agents = await agentsOn(on); } catch {}
   try { python = (await exec("sh", ["-c", "command -v python3"], { on, timeout: 5000 })).code === 0; } catch {}
@@ -130,8 +136,9 @@ export function hideBehindChat(addr) {
   setShared("ushi-naruse.hide", { terminal: addr, at: Date.now() });
 }
 
-// Whether the chat can run on a machine (null: this computer): not Windows, python3
-// there. Checked once per machine in a run; undefined until known.
+// Whether the chat can run on a machine (null: this computer): not Windows (not yet,
+// spec 014 B), python3 there; the window itself may be on Windows (spec 014 A).
+// Checked once per machine in a run; undefined until known.
 const ready = new Map();
 
 /** Checks, once per machine, whether the chat can run where terminal `addr` runs. */
@@ -139,7 +146,8 @@ export async function check(addr) {
   const { on } = where(addr);
   const key = on ?? "";
   if (ready.has(key)) return ready.get(key);
-  let ok = window().platform !== "windows";
+  const platform = await platformOn(on);
+  let ok = Boolean(platform) && platform !== "windows";
   if (ok) try { ok = (await exec("sh", ["-c", "command -v python3"], { on, timeout: 5000 })).code === 0; } catch { ok = false; }
   ready.set(key, ok);
   return ok;

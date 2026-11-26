@@ -16,7 +16,8 @@ import { createHash } from "crypto";
 import { Transcript, summarize } from "./parse.js";
 import { subagentProgress, stopMessage, lastLines, elapsed } from "./lib/chat-tasks.js";
 import { contextMeter } from "./lib/chat-context.js";
-import { MERMAID_SH, mermaidTheme, mermaidFailure } from "./lib/mermaid.js";
+import { MERMAID_SH, MERMAID_WINDOWS, mermaidTheme, mermaidFailure } from "./lib/mermaid.js";
+import { powershell, win } from "./lib/powershell.js";
 import { plainText, quote, commandOf, menuFor, keepLineBreaks, joinLines, sentHistory, recallStep } from "./lib/chat-text.js";
 import { Tail, locate, agentKind, machineOf, subagentLog } from "./source.js";
 import { catalog, launchArgv, modelName, switchModel } from "./models.js";
@@ -26,7 +27,7 @@ import { loadCommands, matchCommands } from "./commands.js";
 import { askSide, sessionOf, control, listSessions, askCodexSide, codexCalls } from "./sdk.js";
 import { copyText, pasteImage, openFile, pickFiles, imageSize } from "./platform.js";
 import { live, textFromRaw } from "./stream.js";
-import { herdr, chatTab, away, hide, show, adopt } from "./backstage.js";
+import { herdr, chatTab, away, hide, show, adopt, waitWith } from "./backstage.js";
 
 const ASK_FIRST = "Answer the question above first.";
 
@@ -71,17 +72,17 @@ const activeSpace = () => spaces().find((s) => s.active) ?? null;
 // Makes a space running the agent, opens a chat pane beside its terminal and
 // zooms the chat over it. One shell run, because showing the new space closes
 // the New chat dialog, and a closed dialog's unfinished tasks are cancelled.
-const NEW_SPACE = `
-H=$(command -v herdr-app || echo "$HOME/.local/bin/herdr-app")
-out=$("$H" do space.new "$1") || { echo "$out" >&2; exit 1; }
-term=$(printf '%s\n' "$out" | sed -n 's/.*"terminal": *"\\([^"]*\\)".*/\\1/p')
-[ -n "$term" ] || { echo "$out" >&2; exit 1; }
-"$H" do pane.focus "{\\"terminal\\":\\"$term\\"}" >/dev/null
-props=$(printf '%s' "$2" | sed "s|__TERM__|$term|")
-split=$("$H" do pane.split "{\\"direction\\":\\"right\\",\\"mod\\":\\"ushi-naruse\\",\\"props\\":$props}") || { echo "$split" >&2; exit 1; }
-pane=$(printf '%s\n' "$split" | sed -n 's/.*"pane": *"\\([^"]*\\)".*/\\1/p')
-[ -n "$pane" ] && "$H" do pane.zoom "{\\"pane\\":\\"$pane\\"}" >/dev/null
-echo "$term"`;
+// ushi-naruse: a new chat's space: the agent's terminal, the chat split beside it
+// and zoomed. Through the app's CLI (backstage.herdr), in order, on every system.
+async function newSpace(spec, chatProps) {
+  const out = await herdr("space.new", spec);
+  const term = out?.terminal;
+  if (!term) throw new Error("Couldn't start the chat: no terminal");
+  await herdr("pane.focus", { terminal: term });
+  const split = await herdr("pane.split", { direction: "right", mod: "ushi-naruse", props: { ...chatProps, terminal: term } });
+  if (split?.pane) await herdr("pane.zoom", { pane: split.pane }).catch(() => {});
+  return term;
+}
 
 
 // Claude Code's permission modes, in its shift+tab order, and how its footer names them.
@@ -102,6 +103,28 @@ const CODEX_MODES = [
 const modesOf = (kind) => (kind === "codex" ? CODEX_MODES : MODES);
 // Shortcuts: ⌘ on macOS, Ctrl on Linux and Windows.
 const MAC = (() => { try { return appWindow().platform === "macos"; } catch { return true; } })();
+// ushi-naruse (spec 014): this window's own commands on Windows, where there's no sh.
+const WINDOWS = (() => { try { return appWindow().platform === "windows"; } catch { return false; } })();
+const ps = (script, ...values) => { const [program, args] = powershell(script, ...values); return exec(program, args, { timeout: 30000 }); };
+// Copies a file or folder on this computer; true when it worked.
+async function copyPath(src, dst) {
+  const r = WINDOWS
+    ? await ps("Copy-Item -LiteralPath $args[0] -Destination $args[1] -Recurse -Force", win(src), win(dst)).catch(() => null)
+    : await exec("cp", ["-R", src, dst]).catch(() => null);
+  return r?.code === 0;
+}
+// Writes base64 `data` to `path` as bytes. On Windows (spec 014) a binary
+// fs.writeFile left an empty file: the base64 goes as text and PowerShell decodes it.
+async function writeBase64(path, data) {
+  if (!WINDOWS) return fs.writeFile(path, Buffer.from(data, "base64"));
+  const b64 = `${path}.b64`;
+  await fs.writeFile(b64, data);
+  const r = await ps("$o = $args[0]; $t = $o + '.b64'; [IO.File]::WriteAllBytes($o, [Convert]::FromBase64String([IO.File]::ReadAllText($t))); Remove-Item -LiteralPath $t -Force", win(path)).catch(() => null);
+  await fs.unlink(b64).catch(() => {});
+  if (r?.code !== 0) throw new Error("couldn't write the image");
+}
+// The last part of a path, either separator.
+const baseName = (p) => String(p).split(/[\\/]/).pop();
 const shortcut = (key) => (MAC ? `⌘${key}` : `Ctrl+${key}`);
 const modeOf = (screen) => /accept edits on/i.test(screen) ? "acceptEdits" : /plan mode on/i.test(screen) ? "plan"
   : /auto mode on/i.test(screen) ? "auto" : /bypass permissions on/i.test(screen) ? "bypassPermissions" : "default";
@@ -261,7 +284,8 @@ export default class Chat extends View {
 
     cx.spawn(async (cx) => {
       await fs.mkdir(`${appHome()}/${CACHE}`, { recursive: true }).catch(() => {});
-      await exec("find", [`${appHome()}/${CACHE}`, "-mtime", "+7", "-type", "f", "-delete"]).catch(() => {});
+      if (WINDOWS) await ps("Get-ChildItem -LiteralPath $args[0] -File -Recurse | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-7) } | Remove-Item -Force", win(`${appHome()}/${CACHE}`)).catch(() => {});
+      else await exec("find", [`${appHome()}/${CACHE}`, "-mtime", "+7", "-type", "f", "-delete"]).catch(() => {});
     });
     cx.spawn(async (cx) => {
       for (;;) {
@@ -296,7 +320,8 @@ export default class Chat extends View {
   // data/ushi-naruse/trace-<chat>.log (the last 4000 lines).
   traceCheck() {
     const dir = `${appHome()}/${CACHE}`;
-    exec("test", ["-e", `${dir}/trace-on`]).then((r) => { this.tracing = r.code === 0; }).catch(() => {});
+    (WINDOWS ? fs.exists(`${dir}/trace-on`) : exec("test", ["-e", `${dir}/trace-on`]).then((r) => r.code === 0))
+      .then((on) => { this.tracing = on; }).catch(() => {});
     if (!this.traceDirty) return;
     this.traceDirty = false;
     const name = String(this.termId ?? this.term ?? "chat").replace(/[^\w-]/g, "_");
@@ -445,11 +470,11 @@ export default class Chat extends View {
           this.streamShown(); // a reply now logged takes over its live copy's id
           this.stream = shown; this.running = run; cx.notify();
         }
-        await exec("sh", ["-c", "sleep 0.35"]);
+        await cx.sleep(350);
       }
       if (this.streamLoop === loop) this.streamLoop = null;
       // ushi-naruse: the last reply stays until the log has it (a few seconds at most).
-      for (let i = 0; i < 15 && !this.streamLoop && this.stream && !this.logged(this.stream); i++) await exec("sh", ["-c", "sleep 0.35"]);
+      for (let i = 0; i < 15 && !this.streamLoop && this.stream && !this.logged(this.stream); i++) await cx.sleep(350);
       if (this.streamLoop) return;
       this.streamShown();
       this.stream = null;
@@ -465,7 +490,7 @@ export default class Chat extends View {
       if (!(await copyText(text))) return notify({ title: "No clipboard tool", body: "Install wl-clipboard or xclip to copy", level: "warning", timeout: 4000 });
       this.copied = id;
       cx.notify();
-      await exec("sh", ["-c", "sleep 1.5"]);
+      await cx.sleep(1500);
       if (this.copied === id) { this.copied = null; cx.notify(); }
     });
   }
@@ -490,7 +515,7 @@ export default class Chat extends View {
     cx.spawn(async (cx) => {
       const r = await hc(["send", con.terminal, shellCommands(code)]);
       if (r.code !== 0) this.error = `Couldn't run it in ${con.terminal}: ${r.stderr.trim() || "hc send failed"}`;
-      await exec("sh", ["-c", "sleep 1.5"]);
+      await cx.sleep(1500);
       if (this.ran === id) this.ran = null;
       cx.notify();
     });
@@ -955,7 +980,7 @@ export default class Chat extends View {
     const kind = this.current().kind;
     this.mode = { id: mode.id, logged: this.t?.mode };
     cx.spawn(async (cx) => {
-      const sleep = (s) => exec("sh", ["-c", `sleep ${s}`]);
+      const sleep = (s) => cx.sleep(s * 1000);
       if (kind === "codex") {
         await hc(["send", this.term, "/permissions"]);
         for (let i = 0; i < 15; i++) {
@@ -1217,7 +1242,7 @@ export default class Chat extends View {
     this.panel = panel;
     cx.spawn(async (cx) => {
       while (this.panel === panel) {
-        await exec("sh", ["-c", "sleep 0.4"]);
+        await cx.sleep(400);
         if (this.panel !== panel) break;
         const r = await hc(["read", this.term, "--lines", "40"]).catch(() => null);
         const screen = r?.stdout ?? "";
@@ -1827,7 +1852,9 @@ export default class Chat extends View {
     if ((this.diagrams ??= {})[key]) return;
     this.diagrams[key] = { drawing: true };
     cx.spawn(async (cx) => {
-      const r = await exec("sh", ["-c", MERMAID_SH, "mermaid", `${appHome()}/${CACHE}`, key, look, source], { timeout: 30000 })
+      const [program, args] = WINDOWS ? powershell(MERMAID_WINDOWS, win(`${appHome()}/${CACHE}`), key, look, source)
+        : ["sh", ["-c", MERMAID_SH, "mermaid", `${appHome()}/${CACHE}`, key, look, source]];
+      const r = await exec(program, args, { timeout: 30000 })
         .catch((e) => ({ code: 1, stdout: "", stderr: "", error: String(e?.message ?? e) }));
       if (r.code !== 0) this.diagrams[key] = { failed: mermaidFailure(r) };
       else {
@@ -1847,8 +1874,8 @@ export default class Chat extends View {
       try {
         const ext = img.ext ?? (img.path.split(".").pop() || "png").toLowerCase();
         const rel = `${CACHE}/${img.ref}.${ext}`, abs = `${appHome()}/${rel}`;
-        if (img.data) await fs.writeFile(abs, Buffer.from(img.data, "base64"));
-        else if ((await exec("cp", [img.path, abs])).code !== 0) throw new Error("copy failed");
+        if (img.data) await writeBase64(abs, img.data);
+        else if (!(await copyPath(img.path, abs))) throw new Error("copy failed");
         const { w, h } = (await imageSize(abs)) ?? { w: 320, h: 240 };
         this.images[img.ref] = { rel, abs, w, h };
       } catch {
@@ -1930,9 +1957,7 @@ export default class Chat extends View {
         setShared("chat.recent", [{ folder, machine }, ...recent].slice(0, 6));
         setShared("chat.kind", kind);
         const spec = { folder, machine: machine ?? "", argv: launchArgv(kind, model, effort), ...(task ? { task } : {}) };
-        const chatProps = { terminal: "__TERM__", started: true, model, effort };
-        const r = await exec("sh", ["-c", NEW_SPACE, "sh", JSON.stringify(spec), JSON.stringify(chatProps)]);
-        if (r.code !== 0) throw new Error(r.stderr.trim() || "Couldn't start the chat");
+        await newSpace(spec, { started: true, model, effort });
         closeOverlay(props().overlay);
       } catch (e) {
         this.error = String(e?.message ?? e);
@@ -2108,13 +2133,14 @@ export default class Chat extends View {
     this.moving = true;
     const here = () => panes().some((p) => p.terminal === this.term && p.tab === own.tab);
     cx.spawn(async (cx) => {
+      waitWith((ms) => cx.sleep(ms));
       try {
         await hc(["label", this.term, "hm.chat=", "chat.tab=", "ushi.chat="]);
         if (!here()) {
           const space = spaces().find((s) => s.tabs?.some((x) => x.id === own.tab))?.id;
           if (!space) throw new Error("the chat's space is gone");
           await adopt(this.term, space, own.tab);
-          for (let i = 0; i < 100 && !here(); i++) await exec("sh", ["-c", "sleep 0.1"]);
+          for (let i = 0; i < 100 && !here(); i++) await cx.sleep(100);
           // Never close the chat before the terminal has a pane here: the chat may be the
           // tab's last pane, and closing that tab would end the session (#12, njv-cachyos).
           if (!here()) throw new Error(`its terminal (${this.term}) has no pane in this tab yet; the chat stays open so the session is kept. Try again, or Show terminal`);
@@ -2142,6 +2168,7 @@ export default class Chat extends View {
     if (this.moving) return;
     this.moving = true;
     cx.spawn(async (cx) => {
+      waitWith((ms) => cx.sleep(ms));
       try { await hide(this.terminal(), mine.tab); } catch (e) { this.error = `Couldn't hide the terminal: ${e?.message ?? e}`; }
       this.moving = false;
       cx.notify();
@@ -2163,13 +2190,14 @@ export default class Chat extends View {
     // One after another through the CLI: a swap sent before the zoom lands
     // does nothing. The swap is a no-op when the terminal is already right.
     cx.spawn(async (cx) => {
+      waitWith((ms) => cx.sleep(ms));
       try {
         if (mine.zoomed) await herdr("pane.zoom", { pane: mine.pane });
         if (away(this.terminal())) await show(this.terminal());
         let tp = null;
         for (let i = 0; i < 30 && !tp; i++) {
           tp = panes().find((p) => p.terminal === this.term && p.tab === mine.tab);
-          if (!tp) await exec("sh", ["-c", "sleep 0.1"]);
+          if (!tp) await cx.sleep(100);
         }
         if (tp) {
           await herdr("pane.focus", { pane: tp.pane });
@@ -2187,10 +2215,10 @@ export default class Chat extends View {
     this.input.focus();
     cx.spawn(async (cx) => {
       for (const src of paths) {
-        const name = src.split("/").pop();
+        const name = baseName(src);
         const path = `${appHome()}/${CACHE}/files/${Date.now()}-${name}`;
         await fs.mkdir(`${appHome()}/${CACHE}/files`, { recursive: true }).catch(() => {});
-        if ((await exec("cp", ["-R", src, path])).code !== 0) { this.error = `Couldn't attach ${name}`; continue; }
+        if (!(await copyPath(src, path))) { this.error = `Couldn't attach ${name}`; continue; }
         const a = { path, name, image: IMAGE_EXT.test(name) ? { path } : null };
         if (a.image) this.cache(a.image, cx);
         this.attach.push(a);
