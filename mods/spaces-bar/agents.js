@@ -37,8 +37,12 @@ export function allAgents() {
   // The label holds the pane id without its machine part (one form for every window).
   const local = (id) => String(id ?? "").slice(String(id ?? "").lastIndexOf("/") + 1);
   const byLocal = new Map(panes().filter((p) => p.mod === "ushi-naruse").map((p) => [local(p.pane), p]));
+  // A label naming a pane that's gone (the app restored the chat under a new id) falls
+  // back to the chat in the tab the hidden terminal's chat.tab label names.
+  const chatIn = (tab) => tab ? panes().find((p) => p.mod === "ushi-naruse" && local(p.tab) === local(tab)) : null;
   for (const t of terminals()) {
-    const chat = t.labels?.["ushi.chat"] ? byLocal.get(local(t.labels["ushi.chat"])) : null;
+    const chat = (t.labels?.["ushi.chat"] ? byLocal.get(local(t.labels["ushi.chat"])) : null)
+      ?? (t.labels?.["ushi.chat"] ? chatIn(t.labels?.["chat.tab"]) : null);
     if (!chat || t.state !== "live") continue;
     const info = tabInfo.get(chat.tab) ?? {};
     const was = out.get(t.address);

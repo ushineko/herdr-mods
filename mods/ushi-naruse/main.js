@@ -284,6 +284,19 @@ export default class Chat extends View {
       || panes().find((p) => p.pane === this.pane && p.mod === "ushi-naruse") || null;
   }
 
+  // ushi-naruse: keeps the agent's ushi.chat label on this chat's pane. The app can
+  // restore a pane under a new id; a label naming the old one made the agents list
+  // open the hidden terminal's tab, which flashed up until the chat sent it back.
+  // A cleared label (Back to terminal, the chat closing) is left alone.
+  fixOwner(term, mine) {
+    const local = (id) => String(id ?? "").slice(String(id ?? "").lastIndexOf("/") + 1);
+    const named = term?.labels?.["ushi.chat"];
+    if (!named || !mine || term.state !== "live" || local(named) === local(mine.pane)) return;
+    if (Date.now() - (this.ownerFixed ?? 0) < 10000) return;
+    this.ownerFixed = Date.now();
+    hc(["label", this.term, `ushi.chat=${local(mine.pane)}`]).catch(() => {});
+  }
+
   // Whether the focused pane is this chat (every copy gets each command).
   focusedMine() {
     return Boolean(this.ownPane()?.focused);
@@ -1293,6 +1306,7 @@ export default class Chat extends View {
     const term = this.terminal();
     const mine = this.myPane();
     if (mine) this.pane = mine.pane;
+    this.fixOwner(term, mine);
     this.keepAway();
     if (this.hideAtStart && mine && term?.state === "live") {
       this.hideAtStart = false;
