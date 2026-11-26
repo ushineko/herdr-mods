@@ -1575,7 +1575,7 @@ export default class Chat extends View {
     const opens = known > 0 || /\b(still running|shells?|background)\b/i.test(msg);
     return h_flex().id("working-line").w_full().max_w(COLUMN).px(6).gap(8).items_center().text_size(tsz(12)).text_color(t.muted)
       .when(opens, (el) => el.cursor_pointer().rounded(6).hover((s) => s.bg(t.hover).text_color(t.foreground))
-        .tooltip("Show what runs in the background").on_click((_e, cx) => { this.shells = true; cx.notify(); }))
+        .tooltip("Show what runs in the background").on_click((_e, cx) => { this.shells = true; this.sdOff = 0; cx.notify(); }))
       .child(div().flex_none().text_color(t.working).frames(SPINNER, 90))
       .child(div().flex_1().min_w(0).truncate().child(msg))
       .when(opens, (el) => el.child(div().flex_none().text_color(t.dim).child("details")));
@@ -1588,6 +1588,10 @@ export default class Chat extends View {
     const now = Date.now();
     const mono = settings().font_family;
     const close = (cx) => { this.shells = false; cx.notify(); };
+    const copy = (text, cx) => cx.spawn(async () => {
+      if (!(await copyText(text))) return notify({ title: "No clipboard tool", body: "Install wl-clipboard or xclip to copy", level: "warning", timeout: 4000 });
+      notify({ title: "Copied", timeout: 1200 });
+    });
     const button = (id, label, tip, action, danger) => div().id(id).flex_none().px(10).py(4).rounded(6).cursor_pointer()
       .border_1().border_color(t.border).text_size(tsz(12)).text_color(t.muted).tooltip(tip)
       .hover((s) => s.bg(t.hover).text_color(danger ? t.blocked : t.foreground)).on_click(action).child(label);
@@ -1597,14 +1601,15 @@ export default class Chat extends View {
       const command = shell ? commandOf(item.input) : item.input?.prompt ?? "";
       const out = shell ? this.outputs[item.id]?.lines ?? [] : [];
       const progress = shell ? null : this.progressOf(item);
-      return v_flex().gap(6).p(12).rounded(10).border_1().border_color(t.border).bg(t.background)
+      return v_flex().flex_none().gap(6).p(12).rounded(10).border_1().border_color(t.border).bg(t.background)
         .child(h_flex().gap(8).items_center()
           .child(div().flex_none().text_color(t.working).frames(SPINNER, 90))
           .child(div().flex_none().px(6).rounded(4).bg(t.raised).text_size(tsz(11)).text_color(t.dim).child(shell ? "shell" : "agent"))
           .child(div().flex_1().min_w(0).truncate().font_semibold().child(item.summary || item.name))
           .child(div().flex_none().text_size(tsz(11.5)).text_color(t.dim).child(stopping ? "stopping…" : elapsed(now - (item.bg.started ?? now)))))
-        .when(Boolean(command), (el) => el.child(div().px(10).py(6).rounded(6).bg(t.surface).text_size(tsz(11.5)).text_color(t.foreground)
-          .when(Boolean(mono), (d) => d.font_family(mono)).child(command.length > 1200 ? command.slice(0, 1200) + "…" : command)))
+        // A long command scrolls in its own box.
+        .when(Boolean(command), (el) => el.child(div().id(`sd-cmd-${item.id}`).max_h(140).overflow_y_scrollbar().px(10).py(6).rounded(6).bg(t.surface)
+          .text_size(tsz(11.5)).text_color(t.foreground).when(Boolean(mono), (d) => d.font_family(mono)).child(command)))
         .when(Boolean(progress), (el) => el.child(div().text_size(tsz(12)).text_color(t.dim).child(progress)))
         .when(shell, (el) => el.child(v_flex().px(10).py(6).rounded(6).bg(t.surface).text_size(tsz(11)).text_color(t.muted)
           .when(Boolean(mono), (d) => d.font_family(mono))
@@ -1613,28 +1618,43 @@ export default class Chat extends View {
         .child(h_flex().gap(8).items_center()
           .child(div().flex_1().min_w(0).truncate().text_size(tsz(11)).text_color(t.dim)
             .child([item.bg.task && `task ${item.bg.task}`, item.bg.output].filter(Boolean).join(" · ")))
+          .when(Boolean(command), (el) => el.child(button(`sd-copy-${item.id}`, "Copy", shell ? "Copy the command" : "Copy the agent's prompt",
+            (_e, cx) => copy(command, cx))))
           .child(button(`sd-show-${item.id}`, "Show in chat", "Close this and open its row in the chat",
             (_e, cx) => { this.open.add(key); this.seek = key; close(cx); }))
           .when(!stopping, (el) => el.child(button(`sd-stop-${item.id}`, "Stop", "Asks Claude to stop it",
             (_e, cx) => { this.stopTask(item, cx); cx.notify(); }, true))));
     };
     const msg = this.terminal()?.report?.msg;
-    // The list scrolls within 80 % of the chat's height, less the title row.
-    const maxH = 0.8 * (this.rootSize?.height ?? 800) / (Number(settings()?.zoom) || 1) - 48;
+    // The list scrolls within 80 % of the chat's height, less the title row. It scrolls
+    // itself, as the chat does (an offset and the wheel): sizes come zoomed, drawing
+    // zooms again, so they are divided by the zoom.
+    const z = Number(settings()?.zoom) || 1;
+    const maxH = Math.max(160, 0.8 * (this.rootSize?.height ?? 800) / z - 48);
+    const contentH = this.sdContentH ?? maxH * z;
+    const viewH = Math.min(contentH / z, maxH);
+    const room = Math.max(0, contentH - viewH * z);
+    this.sdOff = Math.max(0, Math.min(this.sdOff ?? 0, room));
     return div().id("shells-backdrop").absolute().top(0).left(0).right(0).bottom(0).bg("#00000088")
-      .flex().items_center().justify_center()
+      .flex().flex_col().items_center().justify_center().p(32)
       .on_mouse_down("left", (_e, cx) => close(cx))
-      .child(v_flex().id("shells-dialog").w_full().max_w(760).mx(24).rounded(12)
+      .child(v_flex().id("shells-dialog").w_full().max_w(760).rounded(12)
         .border_1().border_color(t.border).bg(t.popover).text_color(t.foreground).text_size(tsz(13)).shadow_lg()
         .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
         .child(h_flex().flex_none().px(16).py(10).gap(8).items_center().border_b(1).border_color(t.border)
           .child(div().flex_1().font_semibold().child(`Running in the background${list.length ? ` (${list.length})` : ""}`))
           .child(div().id("shells-close").flex_none().px(6).py(2).rounded(5).cursor_pointer().text_color(t.muted)
             .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Close (Esc)").on_click((_e, cx) => close(cx)).child("×")))
-        .child(v_flex().id("shells-list").max_h(Math.max(160, maxH)).overflow_y_scrollbar().p(12).gap(10)
-          .when(!list.length, (el) => el.child(div().text_size(tsz(12.5)).text_color(t.dim)
-            .child(`${msg ? `Claude Code says "${msg}", but` : "Nothing runs in the background that"} this chat doesn't know of it: it wasn't started by a tool call in this conversation's log.`)))
-          .children(list.map(row))));
+        .child(div().id("shells-list").relative().w_full().h(viewH).overflow_hidden()
+          .on_scroll_wheel((e, cx) => { this.sdOff = Math.max(0, Math.min((this.sdOff ?? 0) - e.delta.y, room)); cx.stop_propagation(); cx.notify(); })
+          .child(v_flex().id("shells-content").absolute().top(-this.sdOff / z).left(0).right(0).p(12).gap(10)
+            .on_size_change((size, cx) => { if (size.height !== this.sdContentH) { this.sdContentH = size.height; cx.notify(); } })
+            .when(!list.length, (el) => el.child(div().text_size(tsz(12.5)).text_color(t.dim)
+              .child(`${msg ? `Claude Code says "${msg}", but` : "Nothing runs in the background that"} this chat doesn't know of it: it wasn't started by a tool call in this conversation's log.`)))
+            .children(list.map(row)))
+          // Its scrollbar: where the view is in the list, and how much of it shows.
+          .when(room > 0, (el) => el.child(div().absolute().right(3).w(5).rounded(3).bg(t.muted).opacity(0.5)
+            .top((this.sdOff / contentH) * viewH).h(Math.max(24, (viewH * viewH * z) / contentH))))));
   }
 
   // ushi-naruse (spec 009): what runs in the background, above the message box.
@@ -1647,7 +1667,7 @@ export default class Chat extends View {
       .text_size(tsz(12)).text_color(t.muted)
       .child(div().id("bg-details").flex_none().px(4).rounded(6).cursor_pointer().text_color(t.dim)
         .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Details of what runs in the background")
-        .on_click((_e, cx) => { this.shells = true; cx.notify(); }).child(`Background ${list.length}`))
+        .on_click((_e, cx) => { this.shells = true; this.sdOff = 0; cx.notify(); }).child(`Background ${list.length}`))
       .children(list.slice(0, 3).map(({ item, key }) => h_flex().min_w(0).items_center().rounded(8).bg(t.surface)
         .child(h_flex().id(`bg-${item.id}`).min_w(0).gap(6).pl(8).pr(4).py(3).rounded(8).cursor_pointer().hover((s) => s.bg(t.hover))
           .tooltip("Show it in the chat")
