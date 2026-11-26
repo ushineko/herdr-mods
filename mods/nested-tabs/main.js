@@ -390,11 +390,12 @@ export default class NestedTabs extends View {
   // The tab bar's + (right-click): a new top-level tab in the shown space, as a shell,
   // an agent, or a chat (spec 008). A chat starts in the focused terminal's folder there.
   topItems() {
-    const { space, on } = props() ?? {};
+    const { space, on, folder } = props() ?? {};
+    // The folder the tab bar read when + was clicked (this popup has the focus now).
     const f = focused();
-    const cwd = (f?.space === space && panes().find((p) => p.pane === f.pane)?.cwd) || spaces().find((s) => s.id === space)?.folder || null;
+    const cwd = folder || (f?.space === space && panes().find((p) => p.pane === f.pane)?.cwd) || spaces().find((s) => s.id === space)?.folder || null;
     return [
-      { label: "New tab", icon: "terminal", act: () => run("tab.new", { space }) },
+      { label: "New tab", icon: "terminal", act: () => run("tab.new", { space, ...(cwd ? { folder: cwd } : {}) }) },
       ...this.agents.map((a) => ({ label: `New ${a.name} tab`, icon: "terminal", act: () => run("tab.new", { space, argv: a.run, ...(cwd ? { folder: cwd } : {}) }) })),
       ...this.chats.map((c) => ({ label: c.label, icon: "layers", act: () => Chat.openIn(space, on ?? null, cwd, c.run.join(" "), c.label.replace(/^New /, "")) })),
       ...(this.agentNote ? [{ note: this.agentNote }] : []),

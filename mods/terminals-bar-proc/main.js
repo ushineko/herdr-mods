@@ -4,6 +4,7 @@ import { View, div, svg, image } from "gpui-kit";
 import { h_flex, ScrollHandle } from "gpui-base";
 import { spaces, panes, terminals, run, theme, openOverlay, layout, window as win } from "herdr";
 import { closeTab } from "./keep.js";
+import { spaceFolder } from "./lib/location.js";
 
 const C = {
   tray: "#1d1f22",
@@ -224,8 +225,11 @@ export default class TerminalsBar extends View {
       // (The space picker pill is gone: the spaces bar above shows every space.)
       // New tab, at the left end (operator, 2026-11-25), ahead of the tabs.
       // Right-click: New tab, an agent, or a chat (nested-tabs' menu, "top" mode).
-      .child(div().flex_none().pl(8).child(iconButton("tm-new", "plus", () => run("tab.new", { space: space.id }),
-        () => openOverlay({ mod: "nested-tabs", kind: "popup", width: 260, props: { menu: "top", space: space.id, on: space.machine ?? null } }))))
+      // The new tab starts where the shown tab works (its program's folder, a chat's agent's).
+      .child(div().flex_none().pl(8).child(iconButton("tm-new", "plus", () => {
+        const folder = spaceFolder(space.id);
+        run("tab.new", { space: space.id, ...(folder ? { folder } : {}) });
+      }, () => openOverlay({ mod: "nested-tabs", kind: "popup", width: 260, props: { menu: "top", space: space.id, on: space.machine ?? null, folder: spaceFolder(space.id) } }))))
       // A remote space says so before its tabs: these terminals run elsewhere.
       .when(Boolean(space.machine), (el) =>
         el.child(
