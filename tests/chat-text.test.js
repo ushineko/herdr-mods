@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { plainText, quote, commandOf, menuFor, unwrapPastes, keepLineBreaks, joinLines, sentHistory, recallStep } from "../lib/chat-text.js";
+import { plainText, quote, commandOf, menuFor, unwrapPastes, keepLineBreaks, joinLines, sentHistory, recallStep, panelLinks, linkBareUrls } from "../lib/chat-text.js";
 
 test("plainText drops Markdown marks and keeps words, code and line breaks", () => {
   const md = [
@@ -116,4 +116,29 @@ test("recallStep: up walks back, down returns to the draft; an edit starts over"
   const edited = recallStep({ pos: 1, draft: "d", shown: "b" }, -1, "b!", h);
   assert.deepEqual(edited, { pos: 0, draft: "b!", shown: "c" }, "an edited recall is the new draft");
   assert.equal(recallStep(null, -1, "", []), null, "no history");
+});
+
+test("panelLinks: a wrapped login URL comes back whole; borders, indents and prose stay out", () => {
+  const lines = [
+    " Browser didn't open? Use the url below to sign in:",
+    "",
+    "   https://claude.ai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9",
+    "   -ad8a-4d2e&response_type=code&redirect_uri=https%3A%2F%2Fconsole",
+    "   .anthropic.com%2Foauth%2Fcode%2Fcallback&state=abc123",
+    "",
+    " Paste code here if prompted >",
+  ];
+  assert.deepEqual(panelLinks(lines), ["https://claude.ai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-ad8a-4d2e&response_type=code&redirect_uri=https%3A%2F%2Fconsole.anthropic.com%2Foauth%2Fcode%2Fcallback&state=abc123"]);
+  assert.deepEqual(panelLinks(["│ see https://example.com/a. Then go on │", "│ next │"]), ["https://example.com/a"]);
+  assert.deepEqual(panelLinks(["https://a.example/x", "https://b.example/y", "https://a.example/x"]), ["https://a.example/x", "https://b.example/y"]);
+  assert.deepEqual(panelLinks(["no links here"]), []);
+});
+
+test("linkBareUrls: bare URLs become links; code, links and trailing punctuation stay as they are", () => {
+  assert.equal(linkBareUrls("See https://example.com/a?b=1, then go."), "See <https://example.com/a?b=1>, then go.");
+  assert.equal(linkBareUrls("(https://example.com/x)"), "(<https://example.com/x>)");
+  assert.equal(linkBareUrls("[docs](https://example.com) and <https://example.org>"), "[docs](https://example.com) and <https://example.org>");
+  assert.equal(linkBareUrls("run `curl https://example.com` here"), "run `curl https://example.com` here");
+  assert.equal(linkBareUrls("```\nhttps://example.com\n```\nhttps://b.example"), "```\nhttps://example.com\n```\n<https://b.example>");
+  assert.equal(linkBareUrls("no links"), "no links");
 });

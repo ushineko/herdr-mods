@@ -5,6 +5,9 @@ const MARKER = /^(\s*)([❯›>])\s+/;
 const NUMBER = /^\s*\d+[.)]\s+/;
 const HINT = /(Enter to (confirm|select)|Esc to (cancel|exit)|↑\/↓|to navigate)/i;
 const RULE = /^\s*[─━—\-▔▁═]{8,}\s*$/;
+// ushi-naruse: a command's output under its echo ("❯ /login" then "⎿ Login
+// interrupted"): never a choice, so an echo and its answer don't read as a menu.
+const OUTPUT = /^\s*[⎿└]/;
 
 // A menu waiting at the bottom of the screen: its hint line ("Enter to confirm ·
 // Esc to cancel") is among the last lines. "form" when ←/→ change its values,
@@ -34,8 +37,8 @@ export function parsePrompt(screen) {
   // Unselected options sit where the marker's text starts; deeper lines continue one.
   const indent = MARKER.exec(lines[at])[0].length;
   const depth = (l) => l.length - l.trimStart().length;
-  const isOption = (l) => MARKER.test(l) || (l.trim() && depth(l) === indent && !HINT.test(l) && !RULE.test(l));
-  const continues = (l) => l.trim() && depth(l) > indent && !HINT.test(l) && !RULE.test(l);
+  const isOption = (l) => !OUTPUT.test(l) && (MARKER.test(l) || (l.trim() && depth(l) === indent && !HINT.test(l) && !RULE.test(l)));
+  const continues = (l) => l.trim() && !OUTPUT.test(l) && depth(l) > indent && !HINT.test(l) && !RULE.test(l);
 
   let first = at;
   while (first > 0 && (isOption(lines[first - 1]) || continues(lines[first - 1]))) first--;

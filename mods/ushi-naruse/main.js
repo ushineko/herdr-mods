@@ -18,7 +18,7 @@ import { subagentProgress, stopMessage, lastLines, elapsed } from "./lib/chat-ta
 import { contextMeter } from "./lib/chat-context.js";
 import { MERMAID_SH, MERMAID_WINDOWS, mermaidTheme, mermaidFailure } from "./lib/mermaid.js";
 import { powershell, win } from "./lib/powershell.js";
-import { plainText, quote, commandOf, menuFor, keepLineBreaks, joinLines, sentHistory, recallStep } from "./lib/chat-text.js";
+import { plainText, quote, commandOf, menuFor, keepLineBreaks, joinLines, sentHistory, recallStep, panelLinks, linkBareUrls } from "./lib/chat-text.js";
 import { Tail, locate, agentKind, machineOf, subagentLog, onAgent } from "./source.js";
 import { catalog, launchArgv, modelName, switchModel } from "./models.js";
 import { emojify, PICKER, emojiMatches } from "./emoji.js";
@@ -1289,11 +1289,19 @@ export default class Chat extends View {
     for (let i = end - 2; i > end - 30 && i > 0; i--) if (/^\s*[─━▔▁═]{8,}\s*$/.test(lines[i])) { top = i + 1; break; }
     const shown = lines.slice(top, end).filter((l, i, a) => l.trim() || (i > 0 && a[i - 1].trim()));
     const q = P.q;
+    // ushi-naruse: Copy link (its wrapping undone, panelLinks) when the panel shows one,
+    // else Copy text.
+    const links = q ? [] : panelLinks(shown);
+    const copy = links.length ? links[0] : shown.map((l) => l.trimEnd()).join("\n").trim();
     return h_flex().w_full().justify_center().child(v_flex().id("term-panel").w_full().max_w(COLUMN).p(12).gap(10).rounded(14)
       .border_1().border_color(t.accent).bg(t.popover).shadow_md()
       .child(h_flex().gap(8).items_center()
         .child(svg("mods/ushi-naruse/icons/terminal.svg").size(14).text_color(t.dim))
         .child(div().flex_1().text_size(tsz(12.5)).font_semibold().child(P.seen ? `${P.command} · in the terminal` : `${P.command} · opening…`))
+        // The panel shows its text as written, so its link can't be clicked: Open link.
+        .when(links.length > 0, (el) => el.child(this.button("panel-open", "Open link", (_e, cx) => cx.open_url(links[0]), t)))
+        .when(Boolean(copy), (el) => el.child(this.button("panel-copy", links.length ? "Copy link" : "Copy text",
+          (_e, cx) => { cx.write_to_clipboard(copy); notify({ title: "Copied", body: links.length ? copy.slice(0, 80) : undefined, timeout: 1500 }); }, t)))
         .child(this.button("panel-term", "Show terminal", (_e, cx) => this.showTerminal(cx), t))
         .child(this.button("panel-close", "Close", (_e, cx) => { this.panelKeys("esc"); this.panel = null; cx.notify(); }, t)))
       .when(Boolean(q), (el) => el
@@ -1897,6 +1905,23 @@ export default class Chat extends View {
     if (mm?.items.length) return this.pickMention(mm.items[mm.sel], cx);
     const em = this.emojiMenu();
     if (em) return this.pickEmoji(em.items[em.sel], cx);
+    // ushi-naruse: with a terminal panel open, a /command closes it first and then runs
+    // (typed into the open dialog it would be its input: a second /login interrupted the
+    // first); other text (a code /login asks for) goes to its prompt, pasted and entered;
+    // an empty box presses Enter.
+    const typedNow = this.input.value().trim();
+    if (this.panel?.seen && typedNow) {
+      if (typedNow.startsWith("/")) {
+        this.panelKeys("esc");
+        this.panel = null;
+        cx.spawn(async (cx) => { await cx.sleep(600); this.send(cx); cx.notify(); });
+        return cx.notify();
+      }
+      this.input.set_value("");
+      this.panel.gone = 0; this.panel.at = Date.now();
+      hc(["send", this.term, typedNow]);
+      return cx.notify();
+    }
     if (this.panelLive()) { this.input.set_value(""); this.panelKeys("enter"); return cx.notify(); }
     const text = emojify(this.input.value().trim());
     const cmd = this.dialog ? null : this.typedCommand();
@@ -2275,7 +2300,13 @@ export default class Chat extends View {
   markdown(id, text) {
     // ushi-naruse: the last selection, for the right-click menu's Copy selection.
     // ushi-naruse: line breaks kept, as the terminal shows them (R1i).
-    return TextView.markdown(id, keepLineBreaks(text)).selectable(true).on_selection_change((sel) => { this.selection = sel?.text || null; });
+    // ushi-naruse: a selection is copied when it settles (the pointer released, a double
+    // or triple click), as the herdr TUI does; the right-click menu's Copy stays.
+    // Bare URLs are made links (linkBareUrls), which a click opens, shift-click too.
+    return TextView.markdown(id, keepLineBreaks(linkBareUrls(text))).selectable(true).on_selection_change((sel, cx) => {
+      this.selection = sel?.text || null;
+      if (this.selection) cx.write_to_clipboard(this.selection);
+    });
   }
 
   // A row whose height is kept (spec 009: scrolling to a row).
