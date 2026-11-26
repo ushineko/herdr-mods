@@ -15,7 +15,8 @@
 // went in spec 010: mods/hayami-usage draws usage under the dock's nav and git.
 
 import { View, div } from "gpui-kit";
-import { terminals, hc, appHome, checking, nextCommand, notify, setWindowTitle } from "herdr";
+import { terminals, hc, appHome, checking, nextCommand, notify, setWindowTitle, window } from "herdr";
+import { resumeCommand } from "./lib/resume.js";
 import { Inbox } from "./inbox.js"; // herdr-mods spec 005: agent requests
 
 export default class DockFollow extends View {
@@ -51,7 +52,7 @@ export default class DockFollow extends View {
     return s.uptime_ms != null ? Date.now() - s.uptime_ms : 0;
   }
 
-  // A terminal the herdr-app-claude-tag.sh hook labelled with a conversation
+  // A terminal the herdr-app-claude-tag hook (.sh, .ps1 on Windows) labelled with a conversation
   // before the core (re)started, and which no longer runs Claude, lost that
   // Claude to the restart: type the resume into its restored shell. `force`
   // (palette "Resume Claude conversations") skips the core-restart check.
@@ -60,6 +61,7 @@ export default class DockFollow extends View {
     if (!force && (!started || Math.abs(started - this.coreStart) < 5000)) return;
     this.coreStart = started;
     const work = /-work$/.test(appHome());
+    const platform = window()?.platform;
     const resumed = [];
     for (const t of terminals()) {
       const sid = t.labels?.["claude.session"];
@@ -69,11 +71,10 @@ export default class DockFollow extends View {
       if (t.agent === "claude-code" || t.program?.key === "claude") continue;
       const at = Number(t.labels?.["claude.at"] ?? 0);
       if (!force && at >= started) continue;
-      if (!/^[0-9a-f-]{8,}$/i.test(sid)) continue;
-      const profile = t.labels?.["claude.profile"];
-      const cmd = profile === "work" ? "claude-work" : profile === "max" ? "claude-max" : work ? "claude-work" : "claude-max";
+      const cmd = resumeCommand(sid, { profile: t.labels?.["claude.profile"], workHome: work, platform });
+      if (!cmd) continue;
       await hc(["label", t.address, `claude.at=${Date.now()}`]);
-      await hc(["send", t.address, ` ${cmd} --resume ${sid}`]);
+      await hc(["send", t.address, cmd]);
       resumed.push(t.where || t.address);
     }
     if (resumed.length) notify({ title: `Resumed ${resumed.length} Claude session${resumed.length > 1 ? "s" : ""}`, body: resumed.join(", "), level: "info" });

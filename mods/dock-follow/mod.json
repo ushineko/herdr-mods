@@ -15,6 +15,7 @@
     "external.js",
     "external-open.js",
     "editor.js",
-    "edit-open.js"
+    "edit-open.js",
+    "resume.js"
   ]
 }
