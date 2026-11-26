@@ -9,6 +9,7 @@ import { svgSize } from "./svg-size.js";
 import { imageExtension } from "./mime.js";
 import { programs, pictureSize } from "./programs.js";
 import { readText } from "./viewers/text.js";
+import { mermaidFailure } from "./lib/mermaid.js"; // herdr-mods
 
 const DIR = () => `${appHome().split("\\").join("/")}/data/cria-file-preview`;
 const here = () => programs(window()?.platform);
@@ -49,6 +50,18 @@ export async function fetchImage(url) {
   const kept = `${DIR()}/${k}.${ext}`;
   await exec(...here().move(tmp, kept));
   return picture(`${k}.${ext}`).catch(async (e) => { await exec(...here().remove(kept)); throw e; });
+}
+
+/**
+ * herdr-mods (spec 012): a Mermaid diagram drawn by mmdc, at scale 2: resolves
+ * { path, width, height } with the size halved, or rejects with what to tell the person.
+ */
+export async function drawMermaid(source, theme) {
+  const r = await exec(...here().mermaid(DIR(), key(`${theme}\n${source}`), theme, source), { timeout: 30000 })
+    .catch((e) => ({ code: 1, stdout: "", stderr: "", error: String(e?.message ?? e) }));
+  if (r.code !== 0) throw new Error(mermaidFailure(r));
+  const p = await picture(r.stdout.trim().split("\n").pop());
+  return { ...p, width: p.width / 2, height: p.height / 2 };
 }
 
 /** Drops cached pages and pictures older than a day, and all but the newest KEEP (herdr-mods). */

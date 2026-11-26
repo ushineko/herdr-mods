@@ -1,10 +1,11 @@
 // Markdown cut into blocks: around its images, since Herdr's Markdown view
 // draws none, and before each heading, so the preview can show the document
 // from a heading (no scroll area can be scrolled from code):
-// [{ text, heading? } | { image: { alt, src, link? } }], heading being
+// [{ text, heading? } | { image: { alt, src, link? } } | { mermaid: { source } }], heading being
 // { level, title, slug } with GitHub's anchor names. Fenced code is left whole,
 // and reference definitions ([id]: url) are repeated in every text block so a
 // reference link still resolves when its definition sits in another block.
+// herdr-mods (spec 012): a ```mermaid fence is a block of its own, to be drawn.
 // Pure, so node --test covers it.
 import { GONE } from "./text-file.js";
 
@@ -24,11 +25,18 @@ export const slugify = (title) => title.toLowerCase().replace(/[`*_~]|<[^>]*>/g,
 
 export function splitBlocks(text) {
   const blocks = [], seen = {};
-  let buffer = "", heading = null, fence = null;
+  let buffer = "", heading = null, fence = null, diagram = null;
   const flush = () => { if (buffer.trim() || heading) blocks.push(heading ? { text: buffer, heading } : { text: buffer }); buffer = ""; heading = null; };
   for (const line of text.split(/(?<=\n)/)) {
     const marker = line.match(/^ {0,3}(`{3,}|~{3,})/)?.[1];
+    const closes = fence && marker?.[0] === fence[0] && marker.length >= fence.length && !line.trim().slice(marker.length).trim();
+    if (diagram !== null) {
+      if (closes) { blocks.push({ mermaid: { source: diagram.source.replace(/\r?\n$/, "") } }); diagram = null; fence = null; }
+      else diagram.source += line;
+      continue;
+    }
     if (fence) { buffer += line; if (marker?.[0] === fence[0] && marker.length >= fence.length) fence = null; continue; }
+    if (marker && /^mermaid(?:\s|$)/i.test(line.trim().slice(marker.length).trim())) { flush(); fence = marker; diagram = { opening: line, source: "" }; continue; }
     if (marker) { fence = marker; buffer += line; continue; }
     const h = line.replace(/\r?\n$/, "").match(HEADING);
     if (h) {
@@ -46,6 +54,7 @@ export function splitBlocks(text) {
     }
     buffer += line.slice(last);
   }
+  if (diagram !== null) buffer += diagram.opening + diagram.source; // never closed: left as code
   flush();
   if (!blocks.length) blocks.push({ text: "" });
   const definitions = text.match(DEFINITION);

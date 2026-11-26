@@ -4,17 +4,20 @@
 // Local images are drawn between the text blocks. Web images are fetched only
 // after a click on the bar above the document: fetching on open would tell their
 // hosts who reads it, and when.
+// herdr-mods (spec 012): ```mermaid blocks are drawn by mmdc in the background, one
+// at a time, and shown as pictures; a click opens one in the image viewer.
 // A heading is reached by showing the document from it, with a bar back to the
 // top: Herdr scrolls only virtual lists from code, and their rows can't carry
 // the link handler yet.
 import { div, image } from "gpui-kit";
 import { v_flex, h_flex, TextView } from "gpui-base";
-import { theme, notify } from "herdr";
+import { theme, notify, appHome } from "herdr";
 import { resolveLink } from "../links.js";
 import { readText, codeState, codeView } from "./text.js";
 import { rawToggle, iconButton, wrapButton } from "./controls.js";
 import { splitBlocks, imageNote } from "../markdown-blocks.js";
-import { stageImage, fetchImage, pruneCache } from "../media.js";
+import { stageImage, fetchImage, pruneCache, drawMermaid } from "../media.js";
+import { mermaidTheme } from "../lib/mermaid.js"; // herdr-mods
 
 let views = 0;
 
@@ -47,6 +50,23 @@ function loadWeb(state, cx) {
   cx.notify();
 }
 
+// herdr-mods (spec 012): draws the document's diagrams one after the other,
+// redrawing as each arrives. A document reloaded meanwhile has new blocks; the old
+// ones are left to finish unseen.
+function drawDiagrams(state, cx) {
+  const look = mermaidTheme(theme().background);
+  const diagrams = state.blocks.filter((b) => b.mermaid);
+  for (const b of diagrams) b.mermaid.drawing = true;
+  cx.spawn(async (cx) => {
+    for (const b of diagrams) {
+      b.mermaid.picture = await drawMermaid(b.mermaid.source, look).catch((e) => { b.mermaid.failed = String(e?.message ?? e); return null; });
+      b.mermaid.drawing = false;
+      cx.notify();
+    }
+    pruneCache();
+  });
+}
+
 export default {
   id: "markdown",
   async load(file, env, previous) {
@@ -70,6 +90,7 @@ export default {
   // Web images the person already let through come back after a reload.
   start(state, env, cx) {
     if (state.web === "loading") loadWeb(state, cx);
+    if (state.blocks.some((b) => b.mermaid)) drawDiagrams(state, cx);
   },
 
   toolbar(state) {
@@ -91,6 +112,20 @@ export default {
         : div().px(8).py(4).rounded(6).bg(t.raised).text_size(12).text_color(url ? t.accent : t.dim)
           .child(`Image: ${alt || "untitled"} (${imageNote(shown, state.web)})`);
       return div().id(`${state.id}-img-${i}`).py(6).when(Boolean(target), (d) => d.cursor_pointer().on_click((_e, cx) => follow(target, state, env, cx))).child(el);
+    };
+    // herdr-mods (spec 012): a drawn diagram, "drawing…", or its code with why not.
+    const diagram = (m, i) => {
+      const p = m.picture;
+      if (p) {
+        const w = Math.min(p.width, column);
+        return div().id(`${state.id}-mm-${i}`).py(6).cursor_pointer().on_click((_e, cx) => env.navigate(`${appHome()}/${p.path}`, cx))
+          .child(image(p.path).w(w).h(w * p.height / p.width));
+      }
+      if (m.drawing) return div().py(6).child(div().px(8).py(4).rounded(6).bg(t.raised).text_size(12).text_color(t.dim).child("Mermaid diagram (drawing…)"));
+      return v_flex().py(6).gap(4)
+        .child(TextView.markdown(`${state.id}-mm-${i}`, "```mermaid\n" + m.source + "\n```").selectable())
+        .child(v_flex().text_size(12).text_color(/isn't installed/.test(m.failed ?? "") ? t.dim : t.ansi1)
+          .children(String(m.failed ?? "").split("\n").map((line) => div().child(line))));
     };
     const contents = v_flex().id(`${state.id}-contents`).w(240).h_full().flex_none().min_h(0).overflow_y_scrollbar().py(16).px(10).gap(1)
       .border_r(1).border_color(t.border).bg(t.surface).text_size(12.5)
@@ -114,7 +149,7 @@ export default {
         .child(`↑ Showing from “${state.blocks[start].heading.title}” · show the whole document`)))
       .child(v_flex().id(`${state.id}-scroll-${state.from ?? ""}`).flex_1().min_h(0).overflow_y_scrollbar()
         .child(v_flex().w_full().max_w(920).mx_auto().px(40).pt(28).pb(48).text_size(14.5)
-          .children(state.blocks.slice(start).map((b, j) => b.image ? picture(b.image, start + j)
+          .children(state.blocks.slice(start).map((b, j) => b.mermaid ? diagram(b.mermaid, start + j) : b.image ? picture(b.image, start + j)
             // The space a heading gets inside one Markdown view, lost between two.
             : div().when(Boolean(b.heading) && j > 0, (d) => d.pt(16))
               .child(TextView.markdown(`${state.id}-${start + j}`, b.text).selectable().on_link_click((url, cx) => follow(url, state, env, cx)))))));

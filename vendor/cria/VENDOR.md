@@ -32,6 +32,11 @@ delete them).
 | `external-open.js` (new) | "Open in <app>" from `~/.config/herdr-mods/external.json` rules (`lib/external.js`), run on the file's machine. | Spec 001 R14 / spec 005 R9–R11. |
 | `preview.js` | Picks `diff` for `props.diff`; looks up the external rule once; header button "Open in <app> ↗". | |
 | `mod.json` | `"lib": ["filetype.js", "diff.js", "external.js"]` (copied in by `install.sh`). | |
+| `markdown-blocks.js` | A ```` ```mermaid ```` fence is its own block, `{ mermaid: { source } }`. | Spec 012 R1. |
+| `programs.js` | `mermaid` command: `MERMAID` (sh) and `MERMAID_WINDOWS` draw a diagram with `mmdc` into the cache as `mermaid-<key>.png`. | Spec 012 R2, R6. |
+| `media.js` | `drawMermaid(source, theme)`: runs it, returns the picture at half its pixels (drawn at scale 2). | Spec 012 R2, R4. |
+| `viewers/markdown.js` | Draws diagrams in the background after the document shows; "drawing…", the picture (a click opens it in the image viewer), or the code with why not. | Spec 012 R2–R5. |
+| `mod.json` | `"lib"` adds `"mermaid.js"` (theme choice, failure wording). | Spec 012. |
 | `vendor/cria/tests/programs.test.mjs` | Prune test is "over a day old"; new tests: keeps newest `KEEP`, stage replaces an older copy. | Follows the prune change. |
 | `vendor/cria/tests/windows.test.mjs` | `linux.prune` is now `sh`, not `find`. | Follows the prune change. |
 

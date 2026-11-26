@@ -216,6 +216,48 @@ for ($n = [Math]::Max(1, [int]$from); $n -le [Math]::Min([int]$to, $count); $n++
 }
 @{ count = $count; pages = $pages } | ConvertTo-Json -Compress -Depth 4`;
 
+// herdr-mods (spec 012): draws a Mermaid diagram with mmdc to <dir>/mermaid-<key>.png
+// unless there already; prints the name. The source arrives as an argument and goes
+// through a file. mmdc is a node script, often outside Herdr's PATH (Homebrew, npm's
+// global folder): the usual folders, then the login shell, are asked for it.
+const MERMAID = String.raw`
+dir=$1 key=$2 theme=$3 source=$4
+name="mermaid-$key.png" out="$dir/mermaid-$key.png"
+[ -f "$out" ] && { echo "$name"; exit 0; }
+PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$HOME/.npm-global/bin"
+login=$SHELL; [ -n "$login" ] || login=/bin/sh
+m=$(command -v mmdc) || m=$("$login" -lc 'command -v mmdc' 2>/dev/null | tail -n 1)
+[ -n "$m" ] && [ -x "$m" ] || { echo "__no_mmdc__" >&2; exit 127; }
+PATH="$(dirname "$m"):$PATH"
+mkdir -p "$dir" || exit 1
+src="$out.$$.mmd" tmp="$out.$$.png"
+printf '%s\n' "$source" > "$src" || exit 1
+"$m" -i "$src" -o "$tmp" -t "$theme" -b transparent -s 2 -q
+code=$?
+rm -f "$src"
+[ $code -eq 0 ] && [ -f "$tmp" ] || { rm -f "$tmp"; exit 1; }
+mv -f "$tmp" "$out" && echo "$name"`;
+
+// herdr-mods (spec 012): MERMAID for PowerShell; mmdc is npm's mmdc.cmd on PATH.
+const MERMAID_WINDOWS = String.raw`
+$dir, $key, $theme, $source = $args
+$name = 'mermaid-' + $key + '.png'
+$out = $dir + '\' + $name
+if (-not [IO.File]::Exists($out)) {
+  $m = Get-Command mmdc -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $m) { throw '__no_mmdc__' }
+  [void][IO.Directory]::CreateDirectory($dir)
+  $src = $out + '.' + $PID + '.mmd'
+  $tmp = $out + '.' + $PID + '.png'
+  [IO.File]::WriteAllText($src, $source + [char]10)
+  $said = & $m.Source -i $src -o $tmp -t $theme -b transparent -s 2 -q 2>&1 | Out-String
+  $code = $LASTEXITCODE
+  Remove-Item -LiteralPath $src -Force -ErrorAction SilentlyContinue
+  if ($code -ne 0 -or -not [IO.File]::Exists($tmp)) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue; throw $said }
+  ${PLACE}
+}
+$name`;
+
 /** The POPPLER script's output as PDFKIT's: { count, pages: [{ n, path, width, height }] }, sizes in points. */
 export function popplerPages(text, key) {
   const stamp = text.match(/^Stamp: (\d+)/m)?.[1], count = Number(text.match(/^Pages:\s*(\d+)/m)?.[1] ?? 0);
@@ -240,6 +282,7 @@ const POSIX = {
   prune: (dir) => ["sh", ["-c", PRUNE, "prune", dir, String(KEEP)]],
   move: (from, to) => ["mv", ["-f", from, to]],
   remove: (file) => ["rm", ["-f", file]],
+  mermaid: (dir, key, theme, source) => ["sh", ["-c", MERMAID, "mermaid", dir, key, theme, source]], // herdr-mods
   pdf: (file, dir, key, from, to, wide) => ["sh", ["-c", POPPLER, "pdf", file, dir, key, String(from), String(to), String(wide)]],
   pages: (r, key) => r.code === 0 ? popplerPages(r.stdout, key) : failed(/password/i.test(r.stderr) ? "This PDF is password protected" : r.stderr),
 };
@@ -260,6 +303,7 @@ const WINDOWS = {
   prune: (dir) => powershell(PRUNE_WINDOWS, win(dir), String(KEEP)),
   move: (from, to) => powershell("Move-Item -LiteralPath $args[0] -Destination $args[1] -Force", win(from), win(to)),
   remove: (file) => powershell("Remove-Item -LiteralPath $args[0] -Force -ErrorAction SilentlyContinue", win(file)),
+  mermaid: (dir, key, theme, source) => powershell(MERMAID_WINDOWS, win(dir), key, theme, source), // herdr-mods
   pdf: (file, dir, key, from, to, wide) => powershell(PDF_WINDOWS, win(file), win(dir), key, String(from), String(to), String(wide)),
   pages: (r) => r.code === 0 ? JSON.parse(r.stdout.trim()) : failed(r.stderr),
 };
