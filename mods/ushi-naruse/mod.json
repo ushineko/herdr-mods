@@ -37,6 +37,7 @@
   "lib": [
     "chat-text.js",
     "chat-tasks.js",
-    "chat-context.js"
+    "chat-context.js",
+    "mermaid.js"
   ]
 }

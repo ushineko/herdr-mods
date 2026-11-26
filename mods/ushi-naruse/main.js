@@ -16,6 +16,7 @@ import { createHash } from "crypto";
 import { Transcript, summarize } from "./parse.js";
 import { subagentProgress, stopMessage, lastLines, elapsed } from "./lib/chat-tasks.js";
 import { contextMeter } from "./lib/chat-context.js";
+import { MERMAID_SH, mermaidTheme, mermaidFailure } from "./lib/mermaid.js";
 import { plainText, quote, commandOf, menuFor, keepLineBreaks, joinLines, sentHistory, recallStep } from "./lib/chat-text.js";
 import { Tail, locate, agentKind, machineOf, subagentLog } from "./source.js";
 import { catalog, launchArgv, modelName, switchModel } from "./models.js";
@@ -499,6 +500,23 @@ export default class Chat extends View {
       if (p.md != null) return div().w_full().child(this.markdown(`${e.key}-${n}`, p.md));
       const id = `${e.key}-${n}`;
       const done = this.copied === id;
+      // ushi-naruse: a Mermaid block drawn (click: open it to zoom), "drawing…", or its
+      // code with why not.
+      const diagram = p.lang?.toLowerCase() === "mermaid" ? this.diagrams?.[this.diagramKey(p.code)] : null;
+      if (diagram?.rel) {
+        const w = Math.min(diagram.w, 760);
+        return div().w_full().relative()
+          .child(div().id(`mm-${id}`).cursor_pointer().tooltip("Open (zoom)").on_click(() => openFile(diagram.abs))
+            .child(image(diagram.rel).w(w).h(w * diagram.h / diagram.w)))
+          .child(h_flex().absolute().top(0).right(0).gap(4).items_center()
+            .child(div().pr(4).text_size(tsz(11)).text_color(t.dim).child("mermaid"))
+            .child(div().id(`copy-${id}`).size(26).flex().items_center().justify_center().rounded(6).cursor_pointer()
+              .bg(t.background).border_1().border_color(t.border).text_color(t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground))
+              .tooltip(done ? "Copied" : "Copy the diagram's source").on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+              .on_click((_e, cx) => this.copyOut(p.code, id, cx))
+              .child(svg(`mods/ushi-naruse/icons/${done ? "check" : "copy"}.svg`).size(13))));
+      }
+      if (diagram?.drawing) return div().px(8).py(4).rounded(6).bg(t.raised).text_size(tsz(12)).text_color(t.dim).child("Mermaid diagram (drawing…)");
       const con = SHELL_LANGS.has(p.lang.toLowerCase()) ? this.shellPane() : null;
       const conName = con && ((con.program?.shell && con.program.name) || con.title || con.terminal);
       const btn = (name, icon, tip, action) => div().id(`${name}-${id}`).size(26).flex().items_center().justify_center().rounded(6)
@@ -508,6 +526,9 @@ export default class Chat extends View {
         .child(svg(`mods/ushi-naruse/icons/${icon}.svg`).size(13));
       return div().w_full().relative()
         .child(this.markdown(id, `${p.fence}\n${p.code}\n${p.fence}`))
+        .when(Boolean(diagram?.failed), (el) => el.child(v_flex().pt(4).text_size(tsz(12))
+          .text_color(/isn't installed/.test(diagram?.failed ?? "") ? t.dim : t.ansi1)
+          .children(String(diagram?.failed ?? "").split("\n").map((line) => div().child(line)))))
         .child(h_flex().absolute().top(6).right(6).gap(4).items_center()
           .when(Boolean(p.lang), (el) => el.child(div().pr(4).text_size(tsz(11)).text_color(t.dim).child(p.lang)))
           .child(btn("copy", done ? "check" : "copy", done ? "Copied" : "Copy", (_e, cx) => this.copyOut(p.code, id, cx)))
@@ -1688,7 +1709,35 @@ export default class Chat extends View {
     const { start, ents } = this.shown();
     for (const e of ents.slice(start)) {
       for (const img of [...(e.images ?? []), ...(e.items ?? []).flatMap((i) => i.images)]) this.cache(img, cx);
+      // ushi-naruse: Mermaid diagrams in replies, drawn as the viewer draws them.
+      if ((e.kind === "assistant" || e.kind === "thinking") && /mermaid/i.test(e.text ?? "")) {
+        for (const part of splitCode(e.text)) if (part.lang?.toLowerCase() === "mermaid") this.drawDiagram(part.code, cx);
+      }
     }
+  }
+
+  // A diagram's state by its text and theme: { drawing } | { rel, abs, w, h } | { failed }.
+  diagramKey(source) {
+    return hash(`${mermaidTheme(theme().background)}\n${source}`);
+  }
+
+  // Draws a Mermaid diagram with mmdc into the chat's data folder (cached by key), at
+  // scale 2: shown at half its pixels.
+  drawDiagram(source, cx) {
+    const key = this.diagramKey(source), look = mermaidTheme(theme().background);
+    if ((this.diagrams ??= {})[key]) return;
+    this.diagrams[key] = { drawing: true };
+    cx.spawn(async (cx) => {
+      const r = await exec("sh", ["-c", MERMAID_SH, "mermaid", `${appHome()}/${CACHE}`, key, look, source], { timeout: 30000 })
+        .catch((e) => ({ code: 1, stdout: "", stderr: "", error: String(e?.message ?? e) }));
+      if (r.code !== 0) this.diagrams[key] = { failed: mermaidFailure(r) };
+      else {
+        const rel = `${CACHE}/${r.stdout.trim().split("\n").pop()}`, abs = `${appHome()}/${rel}`;
+        const size = (await imageSize(abs).catch(() => null)) ?? { w: 1280, h: 720 };
+        this.diagrams[key] = { rel, abs, w: size.w / 2, h: size.h / 2 };
+      }
+      cx.notify();
+    });
   }
 
   cache(img, cx) {

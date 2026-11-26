@@ -92,3 +92,8 @@ cp "$in" "$out"
   assert.ok(!existsSync(join(dir, "mermaid-b.png")));
   assert.deepEqual(readdirSync(dir).sort(), ["mermaid-a.png"], "no temporary files left");
 });
+
+test("lib's MERMAID_SH is the viewer's script, unchanged", async () => {
+  const { MERMAID_SH } = await import("../lib/mermaid.js");
+  assert.equal(MERMAID_SH, programs("linux").mermaid("d", "k", "dark", "s")[1][1]);
+});
