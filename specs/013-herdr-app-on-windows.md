@@ -2,7 +2,7 @@
 
 **Issue**: #44
 
-## Status: INCOMPLETE
+## Status: COMPLETE
 
 ## Executive Summary
 
@@ -74,8 +74,12 @@ that macOS and Linux did not.
   back. (2026-11-26, after the core fix below.)
 - [x] R2: the task "herdr-core at logon" exists (interactive, limited); a run leaves
   a running core alone. A real sign-in is still to be seen.
-- [ ] R2 at sign-in: after a sign-out and sign-in, the core runs in the desktop
-  session and the app opens.
+- [x] R2 at sign-in: rebooted 2026-11-26 14:37:17; at the sign-in the task ran
+  (14:37:31, result 0) and started the core in the desktop session (session 1);
+  njv-cachyos's SSH connection came 7 s later and attached to it (no second core);
+  the app opened in session 1 with no errors, its three machines connected.
+  Claude Code sessions on Windows aren't resumed after a reboot (no session-tagging
+  hook there): #47.
 - [x] R3: `hc machine ls` on Windows: `njv-cachyos-default`, `njv-cachyos-work`
   (session work), `njv-mbp-m1`, all connected.
 - [x] R4: `install.sh` without rsync and python3 (2d59c9b): the real homes
