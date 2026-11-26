@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { platform as osPlatform, userInfo } from "node:os";
 import { join } from "node:path";
@@ -147,18 +147,24 @@ test("until and pollEvery", () => {
 });
 
 // Integration (spec 010 AC): the real command against this machine's running service.
+// run-tests.sh gives the run a throwaway TMPDIR, so on macOS the account's real
+// temporary folder is asked of the system and handed to the command, as herdr's
+// exec (the user's real environment) would have it.
 function liveSocket() {
   const os = osPlatform();
   if (os === "linux") {
     const dir = process.env.XDG_RUNTIME_DIR || `/run/user/${userInfo().uid}`;
-    return { platform: "linux", path: join(dir, "hayami", "api.sock") };
+    return { platform: "linux", path: join(dir, "hayami", "api.sock"), env: process.env };
   }
-  if (os === "darwin" && process.env.TMPDIR) return { platform: "macos", path: join(process.env.TMPDIR, "hayami", "api.sock") };
+  if (os === "darwin") {
+    const dir = execFileSync("/usr/bin/getconf", ["DARWIN_USER_TEMP_DIR"], { encoding: "utf8" }).trim();
+    return { platform: "macos", path: join(dir, "hayami", "api.sock"), env: { ...process.env, TMPDIR: dir } };
+  }
   return null;
 }
 const live = liveSocket();
 const nodeExec = (command, args, { timeout }) => new Promise((resolve) => {
-  execFile(command, args, { timeout }, (err, stdout, stderr) => resolve({ code: err ? (typeof err.code === "number" ? err.code : 1) : 0, stdout, stderr }));
+  execFile(command, args, { timeout, env: live?.env }, (err, stdout, stderr) => resolve({ code: err ? (typeof err.code === "number" ? err.code : 1) : 0, stdout, stderr }));
 });
 
 test("live: the running service's usage section holds to what usageRows reads", { skip: !live || !existsSync(live.path) ? `no hayami service socket on this machine (${live?.path ?? osPlatform()})` : false }, async () => {
