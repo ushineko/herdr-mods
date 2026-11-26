@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { plainText, quote, commandOf, menuFor, unwrapPastes, keepLineBreaks, joinLines } from "../lib/chat-text.js";
+import { plainText, quote, commandOf, menuFor, unwrapPastes, keepLineBreaks, joinLines, sentHistory, recallStep } from "../lib/chat-text.js";
 
 test("plainText drops Markdown marks and keeps words, code and line breaks", () => {
   const md = [
@@ -82,4 +82,38 @@ test("joinLines: a reply seen in parts joins where the parts overlap; no overlap
   assert.deepEqual(joinLines(first, []), first);
   assert.deepEqual(joinLines([...first, "", ""], ["2. two", "3. three", "4. four"]), [...first, "4. four"],
     "blank lines that ended the earlier read don't block the overlap");
+});
+
+test("sentHistory: the user's messages and commands, newest first, repeats in a row once", () => {
+  const entries = [
+    { kind: "user", text: "first" },
+    { kind: "assistant", text: "ok" },
+    { kind: "user", command: true, text: "/model opus" },
+    { kind: "user", text: "  second  " },
+    { kind: "user", text: "second" },
+    { kind: "tools", items: [] },
+    { kind: "user", text: "" },
+  ];
+  assert.deepEqual(sentHistory(entries, ["third"]), ["third", "second", "/model opus", "first"]);
+  assert.deepEqual(sentHistory(null), []);
+});
+
+test("recallStep: up walks back, down returns to the draft; an edit starts over", () => {
+  const h = ["c", "b", "a"];
+  let s = recallStep(null, -1, "draft", h);
+  assert.deepEqual(s, { pos: 0, draft: "draft", shown: "c" });
+  s = recallStep(s, -1, "c", h);
+  assert.equal(s.shown, "b");
+  s = recallStep(s, -1, "b", h);
+  assert.equal(s.shown, "a");
+  assert.equal(recallStep(s, -1, "a", h), null, "nothing older");
+  s = recallStep(s, 1, "a", h);
+  assert.equal(s.shown, "b");
+  s = recallStep(recallStep(s, 1, "b", h), 1, "c", h);
+  assert.deepEqual(s, { pos: -1, draft: "draft", shown: "draft" }, "back at the draft");
+  assert.equal(recallStep(s, 1, "draft", h), null, "nothing newer than the draft");
+  assert.equal(recallStep(null, 1, "x", h), null, "down without recalling");
+  const edited = recallStep({ pos: 1, draft: "d", shown: "b" }, -1, "b!", h);
+  assert.deepEqual(edited, { pos: 0, draft: "b!", shown: "c" }, "an edited recall is the new draft");
+  assert.equal(recallStep(null, -1, "", []), null, "no history");
 });

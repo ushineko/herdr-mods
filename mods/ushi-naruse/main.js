@@ -15,7 +15,7 @@ import { Buffer } from "buffer";
 import { createHash } from "crypto";
 import { Transcript, summarize } from "./parse.js";
 import { subagentProgress, stopMessage, lastLines, elapsed } from "./lib/chat-tasks.js";
-import { plainText, quote, commandOf, menuFor, keepLineBreaks, joinLines } from "./lib/chat-text.js";
+import { plainText, quote, commandOf, menuFor, keepLineBreaks, joinLines, sentHistory, recallStep } from "./lib/chat-text.js";
 import { Tail, locate, agentKind, machineOf, subagentLog } from "./source.js";
 import { catalog, launchArgv, modelName, switchModel } from "./models.js";
 import { emojify, PICKER, emojiMatches } from "./emoji.js";
@@ -178,6 +178,7 @@ export default class Chat extends View {
     this.stopping = new Set();
     this.images = {};
     this.attach = [];
+    this.recall = null; // ↑/↓ through earlier messages: recallStep's state
     this.pending = []; // sent, not yet in the log: { text, files, users } (users: user messages the log had then)
     this.off = 0;
     this.viewH = 0;
@@ -236,6 +237,8 @@ export default class Chat extends View {
         { keystroke: "escape", action: "chat_menu_escape", context: "ChatPanel > Input" },
         { keystroke: "escape", action: "chat_menu_escape", context: "ChatMenu > Input" },
         { keystroke: "escape", action: "chat_menu_escape", context: "ChatMenuNav > Input" },
+        { keystroke: "up", action: "chat_menu_up", context: "ChatHistory > Input" },
+        { keystroke: "down", action: "chat_menu_down", context: "ChatHistory > Input" },
         { keystroke: "up", action: "chat_menu_up", context: "ChatPanel > Input" },
         { keystroke: "down", action: "chat_menu_down", context: "ChatPanel > Input" },
         { keystroke: "left", action: "chat_menu_left", context: "ChatPanel > Input" },
@@ -718,7 +721,7 @@ export default class Chat extends View {
       return;
     }
     const m = this.slash();
-    if (!m) return;
+    if (!m) return this.recallKey(e, cx);
     const k = e.keystroke;
     if (k === "up" || k === "down" || k === "ctrl-p" || k === "ctrl-n") {
       const d = k === "up" || k === "ctrl-p" ? -1 : 1;
@@ -728,6 +731,30 @@ export default class Chat extends View {
     else if ((k === "left" || k === "escape") && this.menuSub) { this.menuSub = null; this.menuSel = 0; }
     else if (k === "escape") this.menuClosed = this.input.value().replace(/\n/g, "");
     else return;
+    cx.stop_propagation();
+    cx.notify();
+  }
+
+  // ↑/↓ go through earlier messages (no menu or panel open) while the box holds one
+  // line or an unchanged recalled message; in a draft of several lines they move the
+  // cursor, as the box's own keys.
+  recallLive() {
+    if (this.slash() || this.emojiMenu() || this.mentionMenu() || this.panelLive()) return false;
+    const value = this.input.value();
+    return !value.includes("\n") || value === this.recall?.shown;
+  }
+
+  // ↑ brings back an earlier message, newest first; ↓ steps forward again, to the
+  // unsent draft (as Claude Code's terminal).
+  recallKey(e, cx) {
+    const dir = { up: -1, down: 1 }[e.keystroke];
+    if (!dir) return;
+    const value = this.input.value();
+    const history = sentHistory(this.t?.entries, this.pending.map((p) => p.text));
+    const next = recallStep(this.recall, dir, value, history);
+    if (!next) return;
+    this.recall = next;
+    this.input.set_value(next.shown);
     cx.stop_propagation();
     cx.notify();
   }
@@ -1630,6 +1657,7 @@ export default class Chat extends View {
     if (!this.term || ((!text || text === "/") && !files.length)) { if (!files.length) this.input.set_value(""); return; }
     this.input.set_value("");
     this.attach = [];
+    this.recall = null;
     this.off = 0;
     // Slash commands and ! lines are logged as notes, not messages: no bubble for them.
     if (!/^[\/!]/.test(text)) this.pending.push({ text, files: files.length, users: this.userCount(), at: Date.now() });
@@ -2500,6 +2528,7 @@ export default class Chat extends View {
         .when(Boolean(this.slash()), (el) => el.key_context(this.slash().nav ? "ChatMenuNav" : "ChatMenu"))
         .when(!this.slash() && (Boolean(this.emojiMenu()) || Boolean(this.mentionMenu())), (el) => el.key_context("ChatMenu"))
         .when(!this.slash() && this.panelLive(), (el) => el.key_context("ChatPanel"))
+        .when(this.recallLive(), (el) => el.key_context("ChatHistory"))
         .on_action("chat_menu_up", (_e, cx) => this.menuKey({ keystroke: "up" }, cx))
         .on_action("chat_menu_down", (_e, cx) => this.menuKey({ keystroke: "down" }, cx))
         .on_action("chat_menu_left", (_e, cx) => this.menuKey({ keystroke: "left" }, cx))
