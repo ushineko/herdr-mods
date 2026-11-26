@@ -98,7 +98,9 @@ export default class NestedTabs extends View {
     else if (c === "chat") { const [e] = await Chat.options(base); if (e) await Chat.open(pane, base, e.run.join(" "), e.label.replace(/^New /, "")); }
     else if (c === "open-chat") {
       const shown = S.shownOf(pane, base), term = terminals().find((t) => t.address === shown);
-      if (Chat.agentOf(term) && await Chat.check(shown)) await Chat.openExisting(pane, shown, S.members(pane, base).length < 2);
+      // A terminal a chat already shows (after its Show terminal) goes back behind it.
+      if (Chat.chatOf(term)) Chat.hideBehindChat(shown);
+      else if (Chat.agentOf(term) && await Chat.check(shown)) await Chat.openExisting(pane, shown, S.members(pane, base).length < 2);
     }
     else if (c === "close-pane") {
       const shown = S.shownOf(pane, base), term = terminals().find((t) => t.address === shown);
@@ -157,8 +159,12 @@ export default class NestedTabs extends View {
       .items_center()
       // The terminal is hidden behind the chat, unless the pane holds other nested tabs
       // (hiding takes its pane away, and theirs with it): then the chat opens beside it.
-      .when(chat, (el) => el.child(this.button(`nt-chat-${pane}`, "cow", "Open as chat (the terminal hides; the chat's Show terminal brings it back)",
-        () => Chat.openExisting(pane, shown, S.members(pane, base).length < 2))))
+      // One a chat already shows (after the chat's Show terminal): back behind that chat,
+      // not a second chat beside it.
+      .when(chat, (el) => el.child(Chat.chatOf(term)
+        ? this.button(`nt-chat-${pane}`, "cow", "Back to the chat (hides this terminal behind it)", () => Chat.hideBehindChat(shown))
+        : this.button(`nt-chat-${pane}`, "cow", "Open as chat (the terminal hides; the chat's Show terminal brings it back)",
+          () => Chat.openExisting(pane, shown, S.members(pane, base).length < 2))))
       .when(Boolean(base), (el) =>
         el.child(this.button(`nt-add-${pane}`, "plus", "New nested tab (right-click: start an agent)",
           () => S.add(pane, base), () => this.menu("new", pane, base))))
