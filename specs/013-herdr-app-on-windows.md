@@ -91,7 +91,13 @@ that macOS and Linux did not.
   restore.sh for Git Bash. The layout shows the spaces bar with the three remote
   machines, the tab bar, nested tabs and the bottom dock (nav, git, hayami).
   programs.json is not carried over (it names the Linux `claude-max` wrapper).
-- [ ] R7: each mod looked at in the Windows window; the tools list written here.
+- [x] R7: each mod looked at in the Windows window (operator, 2026-11-26, in daily
+  use: the spaces bar, tab bar, nested tabs, the dock's nav, git and hayami, the
+  viewer, an editor tab, and the chat, spec 014). Tools: mermaid-cli from npm
+  (dotfiles `windows/install.ps1 -Components mermaid-cli`); the rest, per system,
+  in the README's Requirements (Windows needs nothing more for PDFs, the clipboard
+  or the chat's helpers). `herdr-open`/`herdr-nav` (bash) aren't installed on
+  Windows (`install.sh --no-agent`): a Windows form only if wanted.
 
 ## Test approach
 
