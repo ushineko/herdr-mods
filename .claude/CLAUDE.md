@@ -22,8 +22,13 @@ below.
 - **Sibling projects**: `~/git/sysadmin/docs/herdr-desktop-app.md` documents how
   the app is set up on both machines; `~/git/dotfiles/setup/<host>/herdr-app/`
   snapshots layouts, keys and settings (not mods). `~/git/hayami` (on
-  njv-cachyos) is the reference for conventions; spec 113 there plans
-  `hayami-js`, a future client in this style.
+  njv-cachyos) is the reference for conventions.
+- **hayami-js is ours.** The client of hayami's service (hayami spec 113,
+  `hayami-tui serve`) is `lib/hayami.js` here, drawn by `mods/hayami-usage`
+  (spec 010); herdr-mods owns it, not hayami. hayami owns the service and its
+  contract (`api/openapi.yaml`, prose `docs/api.md`, in that repository), which
+  the client follows: read them before changing what the client asks or parses.
+  How a reading is drawn follows hayami's own panel (`internal/view` there).
 
 ---
 
