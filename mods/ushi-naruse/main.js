@@ -1566,6 +1566,77 @@ export default class Chat extends View {
     return i.bg?.kind === "shell" && out?.length ? out[out.length - 1] : null;
   }
 
+  // The working line over the message box: what Claude Code reports it is doing. When
+  // that is background work ("1 shell still running") or the chat knows of some, a
+  // click opens the dialog of what runs in the background (shellsDialog).
+  workingLine(term, t) {
+    const msg = term.report?.msg || "Working…";
+    const known = this.t?.background().length ?? 0;
+    const opens = known > 0 || /\b(still running|shells?|background)\b/i.test(msg);
+    return h_flex().id("working-line").w_full().max_w(COLUMN).px(6).gap(8).items_center().text_size(tsz(12)).text_color(t.muted)
+      .when(opens, (el) => el.cursor_pointer().rounded(6).hover((s) => s.bg(t.hover).text_color(t.foreground))
+        .tooltip("Show what runs in the background").on_click((_e, cx) => { this.shells = true; cx.notify(); }))
+      .child(div().flex_none().text_color(t.working).frames(SPINNER, 90))
+      .child(div().flex_1().min_w(0).truncate().child(msg))
+      .when(opens, (el) => el.child(div().flex_none().text_color(t.dim).child("details")));
+  }
+
+  // A dialog over the chat: each background shell and agent, its command, how long it
+  // has run, its latest output (or the agent's latest step), with Show in chat and Stop.
+  shellsDialog(t) {
+    const list = this.t?.background() ?? [];
+    const now = Date.now();
+    const mono = settings().font_family;
+    const close = (cx) => { this.shells = false; cx.notify(); };
+    const button = (id, label, tip, action, danger) => div().id(id).flex_none().px(10).py(4).rounded(6).cursor_pointer()
+      .border_1().border_color(t.border).text_size(tsz(12)).text_color(t.muted).tooltip(tip)
+      .hover((s) => s.bg(t.hover).text_color(danger ? t.blocked : t.foreground)).on_click(action).child(label);
+    const row = ({ item, key }) => {
+      const shell = item.bg.kind === "shell";
+      const stopping = this.stopping.has(item.id);
+      const command = shell ? commandOf(item.input) : item.input?.prompt ?? "";
+      const out = shell ? this.outputs[item.id]?.lines ?? [] : [];
+      const progress = shell ? null : this.progressOf(item);
+      return v_flex().gap(6).p(12).rounded(10).border_1().border_color(t.border).bg(t.background)
+        .child(h_flex().gap(8).items_center()
+          .child(div().flex_none().text_color(t.working).frames(SPINNER, 90))
+          .child(div().flex_none().px(6).rounded(4).bg(t.raised).text_size(tsz(11)).text_color(t.dim).child(shell ? "shell" : "agent"))
+          .child(div().flex_1().min_w(0).truncate().font_semibold().child(item.summary || item.name))
+          .child(div().flex_none().text_size(tsz(11.5)).text_color(t.dim).child(stopping ? "stopping…" : elapsed(now - (item.bg.started ?? now)))))
+        .when(Boolean(command), (el) => el.child(div().px(10).py(6).rounded(6).bg(t.surface).text_size(tsz(11.5)).text_color(t.foreground)
+          .when(Boolean(mono), (d) => d.font_family(mono)).child(command.length > 1200 ? command.slice(0, 1200) + "…" : command)))
+        .when(Boolean(progress), (el) => el.child(div().text_size(tsz(12)).text_color(t.dim).child(progress)))
+        .when(shell, (el) => el.child(v_flex().px(10).py(6).rounded(6).bg(t.surface).text_size(tsz(11)).text_color(t.muted)
+          .when(Boolean(mono), (d) => d.font_family(mono))
+          .when(!out.length, (d) => d.child(div().text_color(t.dim).child("No output yet")))
+          .children(out.slice(-12).map((l) => div().truncate().child(l || " ")))))
+        .child(h_flex().gap(8).items_center()
+          .child(div().flex_1().min_w(0).truncate().text_size(tsz(11)).text_color(t.dim)
+            .child([item.bg.task && `task ${item.bg.task}`, item.bg.output].filter(Boolean).join(" · ")))
+          .child(button(`sd-show-${item.id}`, "Show in chat", "Close this and open its row in the chat",
+            (_e, cx) => { this.open.add(key); this.seek = key; close(cx); }))
+          .when(!stopping, (el) => el.child(button(`sd-stop-${item.id}`, "Stop", "Asks Claude to stop it",
+            (_e, cx) => { this.stopTask(item, cx); cx.notify(); }, true))));
+    };
+    const msg = this.terminal()?.report?.msg;
+    // The list scrolls within 80 % of the chat's height, less the title row.
+    const maxH = 0.8 * (this.rootSize?.height ?? 800) / (Number(settings()?.zoom) || 1) - 48;
+    return div().id("shells-backdrop").absolute().top(0).left(0).right(0).bottom(0).bg("#00000088")
+      .flex().items_center().justify_center()
+      .on_mouse_down("left", (_e, cx) => close(cx))
+      .child(v_flex().id("shells-dialog").w_full().max_w(760).mx(24).rounded(12)
+        .border_1().border_color(t.border).bg(t.popover).text_color(t.foreground).text_size(tsz(13)).shadow_lg()
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+        .child(h_flex().flex_none().px(16).py(10).gap(8).items_center().border_b(1).border_color(t.border)
+          .child(div().flex_1().font_semibold().child(`Running in the background${list.length ? ` (${list.length})` : ""}`))
+          .child(div().id("shells-close").flex_none().px(6).py(2).rounded(5).cursor_pointer().text_color(t.muted)
+            .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Close (Esc)").on_click((_e, cx) => close(cx)).child("×")))
+        .child(v_flex().id("shells-list").max_h(Math.max(160, maxH)).overflow_y_scrollbar().p(12).gap(10)
+          .when(!list.length, (el) => el.child(div().text_size(tsz(12.5)).text_color(t.dim)
+            .child(`${msg ? `Claude Code says "${msg}", but` : "Nothing runs in the background that"} this chat doesn't know of it: it wasn't started by a tool call in this conversation's log.`)))
+          .children(list.map(row))));
+  }
+
   // ushi-naruse (spec 009): what runs in the background, above the message box.
   backgroundStrip(t) {
     if (!this.t || this.terminal()?.state !== "live") return null;
@@ -1574,7 +1645,9 @@ export default class Chat extends View {
     const now = Date.now();
     return h_flex().w_full().justify_center().child(h_flex().w_full().max_w(COLUMN).px(6).gap(6).items_center()
       .text_size(tsz(12)).text_color(t.muted)
-      .child(div().flex_none().text_color(t.dim).child(`Background ${list.length}`))
+      .child(div().id("bg-details").flex_none().px(4).rounded(6).cursor_pointer().text_color(t.dim)
+        .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Details of what runs in the background")
+        .on_click((_e, cx) => { this.shells = true; cx.notify(); }).child(`Background ${list.length}`))
       .children(list.slice(0, 3).map(({ item, key }) => h_flex().min_w(0).items_center().rounded(8).bg(t.surface)
         .child(h_flex().id(`bg-${item.id}`).min_w(0).gap(6).pl(8).pr(4).py(3).rounded(8).cursor_pointer().hover((s) => s.bg(t.hover))
           .tooltip("Show it in the chat")
@@ -2750,9 +2823,7 @@ export default class Chat extends View {
     const strip = this.backgroundStrip(t);
     return v_flex().flex_none().bg(t.background).px(16).pb(14).gap(8)
       .when(Boolean(strip), (el) => el.child(strip))
-      .when(working, (el) => el.child(h_flex().w_full().justify_center().child(h_flex().w_full().max_w(COLUMN).px(6).gap(8).items_center().text_size(tsz(12)).text_color(t.muted)
-        .child(div().flex_none().text_color(t.working).frames(SPINNER, 90))
-        .child(div().flex_1().min_w(0).truncate().child(term.report?.msg || "Working…")))))
+      .when(working, (el) => el.child(h_flex().w_full().justify_center().child(this.workingLine(term, t))))
       .when((status === "blocked" || Boolean(this.idleAsk)) && Boolean(this.t), (el) => el.child(h_flex().w_full().justify_center()
         .child(div().w_full().max_w(COLUMN).child(this.promptBox("The agent is asking:", t)))))
       .when(Boolean(this.error), (el) => el.child(h_flex().w_full().justify_center()
@@ -2876,7 +2947,10 @@ export default class Chat extends View {
       // ushi-naruse: the right-click menu's place, the root's size, Esc closes it (R14).
       .on_mouse_down("right", (ev) => { this.ctxAt = ev.local_position ?? null; if (this.ctx && ev.local_position) this.ctx.at = ev.local_position; })
       .on_size_change((size) => { this.rootSize = size; })
-      .on_key_down((e, cx) => { if (this.ctx && e.key === "escape") { this.ctx = null; cx.notify(); } })
+      .on_key_down((e, cx) => {
+        if (this.ctx && e.key === "escape") { this.ctx = null; cx.notify(); }
+        else if (this.shells && e.key === "escape") { this.shells = false; cx.notify(); cx.stop_propagation(); }
+      })
       .key_context("ChatRoot")
       .on_action("chat_search", (_e, cx) => (this.searching ? this.closeSearch(cx) : this.openSearch(cx)))
       .on_action("chat_side_toggle", (_e, cx) => { this.side.open = !this.side.open; (this.side.open ? this.sideInput : this.input).focus(); cx.notify(); })
@@ -2890,6 +2964,7 @@ export default class Chat extends View {
           .child(v_flex().flex_1().min_w(0).h_full().child(this.body(t)).child(this.footer(term, t)))
           .when(this.side.open, (el) => el.child(this.sidePane(t)))))
       .when(this.dialog, (el) => el.child(this.newChat(t)).child(this.footer(term, t)))
+      .when(Boolean(this.shells) && !this.dialog, (el) => el.child(this.shellsDialog(t)))
       // Last, so it draws over the conversation (R14).
       .when(Boolean(this.ctx), (el) => { const m = this.renderMenu(t); return m ? el.child(m) : el; });
   }
