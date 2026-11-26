@@ -51,6 +51,8 @@ const COUNTS_SH = 'for w; do n=$(git -C "$w" --no-optional-locks -c core.fsmonit
 const SIZES = "git.sizes";
 const SIZE_DEFAULTS = { wt: 300, recent: 320, wtH: 150, recentH: 140 };
 const SIZE_LIMITS = { wt: [140, 900], recent: [140, 900], wtH: [60, 900], recentH: [60, 900] };
+// The changes column's least width in the horizontal layout: the side columns give way first.
+const CHANGES_MIN_W = 220;
 
 // A #rrggbb theme colour at the given alpha (two hex digits); others as they are.
 const tint = (c, alpha) => (/^#[0-9a-f]{6}$/i.test(c) ? c + alpha : c);
@@ -407,8 +409,8 @@ export default class Git extends View {
         .on_click((_e, cx) => { c.cursor = k; this.commitFileAction("diff", f, cx); cx.notify(); })
         .child(div().w(12).flex_none().font_semibold().text_size(11.5).text_color(codeColor[f.code] ?? t.muted).child(f.code))
         .child(h_flex().flex_1().min_w(0).gap(4).text_size(12.5)
-          .child(div().flex_shrink(0).max_w(240).truncate().child(slash < 0 ? f.path : f.path.slice(slash + 1)))
-          .when(slash >= 0, (el) => el.child(div().min_w(0).truncate().text_size(11).text_color(t.dim).child(f.path.slice(0, slash)))))
+          .child(div().flex_shrink(1).min_w(0).max_w(240).truncate().child(slash < 0 ? f.path : f.path.slice(slash + 1)))
+          .when(slash >= 0, (el) => el.child(div().flex_shrink(4).min_w(0).truncate().text_size(11).text_color(t.dim).child(f.path.slice(0, slash)))))
         .when(f.added != null, (el) => el.child(h_flex().flex_none().gap(4).text_size(11)
           .child(div().text_color(t.ansi2).child(`+${f.added}`)).child(div().text_color(t.ansi1).child(`−${f.removed}`))))
         .child(h_flex().flex_none().gap(4)
@@ -518,7 +520,11 @@ export default class Git extends View {
     const zoom = settings().zoom ?? 1;
     let delta = ((d.axis === "x" ? e.position.x : e.position.y) - d.start) / zoom;
     if (d.invert) delta = -delta;
-    const [lo, hi] = SIZE_LIMITS[d.key];
+    const [lo, limit] = SIZE_LIMITS[d.key];
+    let hi = limit;
+    // A side column may not squeeze the changes column below its least width.
+    const other = { wt: "recent", recent: "wt" }[d.key];
+    if (other && this.size) hi = Math.min(hi, this.size.width / zoom - 10 - CHANGES_MIN_W - this.sizes[other]);
     this.sizes[d.key] = Math.round(Math.max(lo, Math.min(hi, d.orig + delta)));
     cx.notify();
   }
@@ -1086,9 +1092,9 @@ export default class Git extends View {
         .on_click((_e, cx) => { this.cursor = i; this.zone = "changes"; this.openDiff({ group, file }, cx); cx.notify(); })
         .child(div().w(12).flex_none().font_semibold().text_size(11.5).text_color(codeColor[file.code] ?? t.muted).child(file.code))
         .child(h_flex().flex_1().min_w(0).gap(4).text_size(12.5)
-          .child(div().flex_shrink(0).max_w(220).truncate().child(slash < 0 ? p : p.slice(slash + 1)))
-          .when(slash >= 0, (el) => el.child(div().min_w(0).truncate().text_size(11).text_color(t.dim).child(p.slice(0, slash)))))
-        .when(Boolean(ns) && ns.added != null, (el) => el.child(h_flex().gap(4).text_size(11)
+          .child(div().flex_shrink(1).min_w(0).max_w(220).truncate().child(slash < 0 ? p : p.slice(slash + 1)))
+          .when(slash >= 0, (el) => el.child(div().flex_shrink(4).min_w(0).truncate().text_size(11).text_color(t.dim).child(p.slice(0, slash)))))
+        .when(Boolean(ns) && ns.added != null, (el) => el.child(h_flex().flex_none().gap(4).text_size(11)
           .child(div().text_color(t.ansi2).child(`+${ns.added}`)).child(div().text_color(t.ansi1).child(`−${ns.removed}`))));
     };
 
@@ -1150,13 +1156,14 @@ export default class Git extends View {
         // Expanded (R8b): the commit list alone.
         ? v_flex().flex_1().min_h(0).child(pane("git-recent-full-list", recentBlock).flex_1())
         : wide
-        // Horizontal: worktrees | changes | recent, the outer two resizable.
+        // Horizontal: worktrees | changes | recent, the outer two resizable; when the
+        // panel narrows they shrink (to their least width) before the changes column does.
         ? h_flex().flex_1().min_h(0).items_start()
-          .when(worktreeBlock.length > 0, (el) => el.child(pane("git-col-wt", worktreeBlock).w(sz.wt).h_full().flex_none())
+          .when(worktreeBlock.length > 0, (el) => el.child(pane("git-col-wt", worktreeBlock).w(sz.wt).h_full().flex_shrink_1().min_w(SIZE_LIMITS.wt[0]))
             .child(this.divider("git-div-wt", "wt", "x", false, t)))
-          .child(pane("git-col-changes", changesBlock).flex_1().h_full())
+          .child(pane("git-col-changes", changesBlock).flex_1().min_w(CHANGES_MIN_W).h_full())
           .when(recentBlock.length > 0, (el) => el.child(this.divider("git-div-recent", "recent", "x", true, t))
-            .child(pane("git-col-recent", recentBlock).w(sz.recent).h_full().flex_none()))
+            .child(pane("git-col-recent", recentBlock).w(sz.recent).h_full().flex_shrink_1().min_w(SIZE_LIMITS.recent[0])))
         // Vertical: worktrees / changes / recent, the outer two resizable.
         : v_flex().flex_1().min_h(0)
           .when(worktreeBlock.length > 0, (el) => el.child(pane("git-sec-wt", worktreeBlock).h(sz.wtH).flex_none())
