@@ -35,8 +35,8 @@ does (spec 015 builds on the inbox's other-window support, #48).
 ## Acceptance Criteria
 
 - [x] R1: unit tests for the order (record, move to front, drop gone tabs, seed):
-  \`tests/tab-order.test.js\`, plus each row's details (\`tabEntry\`) and the merged
-  list (\`switcherList\`). Added on the way: a window re-stamps its shown tab when it
+  `tests/tab-order.test.js`, plus each row's details (`tabEntry`) and the merged
+  list (`switcherList`). Added on the way: a window re-stamps its shown tab when it
   gets the focus, so across windows the order follows what was used.
 - [x] R2: in the window: hold Ctrl, Tab twice, release: the third most recent tab
   is shown; a tap flips between two tabs; Esc cancels. (Operator, 2026-11-26, on all
