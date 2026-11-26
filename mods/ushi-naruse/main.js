@@ -2795,13 +2795,19 @@ export default class Chat extends View {
       .hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click(action).child(text);
     const card = v_flex().w_full().max_w(COLUMN).rounded(18).border_1().border_color(this.inputFocused ? t.input : t.border)
       .bg(t.background).shadow_sm()
-      // Claude's suggested next message (ushi-naruse): click or Tab to take it.
+      // Claude's suggested next message (ushi-naruse): click or Tab to edit it (the cursor
+      // at its end); Send sends it as it is, without leaving the mouse.
       .when(Boolean(this.suggestion) && !typed && !this.dialog, (el) => el.child(h_flex().id("suggestion").px(14).pt(10).gap(8)
         .items_center().cursor_pointer().text_size(tsz(12.5)).text_color(t.dim).hover((s) => s.text_color(t.muted))
-        .tooltip("Claude's suggestion: click or Tab to use it")
+        .tooltip("Claude's suggestion: click or Tab to edit it")
         .on_click((_e, cx) => this.acceptSuggestion(cx))
         .child(div().flex_1().min_w(0).truncate().child(this.suggestion ?? ""))
-        .child(div().flex_none().px(5).rounded(4).border_1().border_color(t.border).text_size(tsz(10.5)).child("Tab"))))
+        .child(div().flex_none().px(5).rounded(4).border_1().border_color(t.border).text_size(tsz(10.5)).child("Tab"))
+        .child(div().id("suggestion-send").flex_none().px(8).py(1).rounded(6).bg(t.solid).text_color(t.solid_foreground)
+          .text_size(tsz(11.5)).hover((s) => s.opacity(0.85)).tooltip("Send it as it is")
+          .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+          .on_click((_e, cx) => { cx.stop_propagation(); this.acceptSuggestion(cx); this.send(cx); })
+          .child("Send ↑"))))
       .when(this.attach.length > 0, (el) => el.child(h_flex().px(12).pt(12).gap(8).flex_wrap().children(this.attach.map((a, n) =>
         div().relative()
           .child(a.image ? this.img(a.image.ref, t, 96, 72) : div().px(10).py(8).rounded(8).bg(t.raised).text_size(tsz(11.5)).child(a.name))
