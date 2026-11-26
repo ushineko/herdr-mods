@@ -98,7 +98,8 @@ install.sh       copies mods (and lib/) into an app home
 - **Never symlink a mod into an app home**: Herdr does not hot-reload a mod
   reached through a symlink. `install.sh` copies, comparing by content, so only
   changed mods reload. The work home on njv-cachyos gets symlinks to the
-  default home's copies (`--link`), and so needs an app restart for changes.
+  default home's mod folders (`--link`); a change installed into the default
+  home reaches the work window too, without a restart (seen 2026-11-25).
 - **Replacing a mod's folder closes its open copies** (tabs, dock blocks).
 - A mod imports only its own files (`./x.js`). Shared code lives in `lib/` and
   `install.sh` copies it into each mod that lists it in `mod.json`'s `"lib"`

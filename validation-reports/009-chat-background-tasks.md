@@ -59,8 +59,7 @@ Real window (njv-mbp-m1), each criterion's evidence is in the spec:
 The change is additive: the background mark, strip, progress and Stop are new, and
 Codex chats are unchanged. To roll back, revert the spec 009 commits (5150cf7,
 c653606, 12ba454), then run `./install.sh` on each machine (njv-cachyos:
-`--home ~/.config/herdr-app --link ~/.config/herdr-app-work`, then restart the work
-window).
+`--home ~/.config/herdr-app --link ~/.config/herdr-app-work`).
 
 ## Untested
 
