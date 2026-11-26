@@ -2374,7 +2374,13 @@ export default class Chat extends View {
   header(term, t) {
     const { kind } = this.current();
     const mine = this.myPane();
-    const termLabel = mine ? (this.termHidden(mine) ? "Show terminal" : "Hide terminal") : "Terminal";
+    const hidden = mine ? this.termHidden(mine) : true;
+    const termTip = !mine ? "Open the agent's terminal" : hidden ? "Show the agent's terminal beside the chat" : "Hide the agent's terminal (the chat keeps the session)";
+    // ushi-naruse: icon buttons, their meaning in the tooltip.
+    const iconBtn = (id, icon, tip, on, action) => div().id(id).flex_none().size(24).flex().items_center().justify_center().rounded(6)
+      .cursor_pointer().text_color(on ? t.foreground : t.muted).when(on, (el) => el.bg(t.hover))
+      .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip(tip).on_click(action)
+      .child(svg(`mods/ushi-naruse/icons/${icon}.svg`).size(15));
     const btn = (id, text, action) => div().id(id).flex_none().px(8).py(3).rounded(6).cursor_pointer().text_color(t.muted)
       .hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click(action).child(text);
     return v_flex().flex_none().border_b(1).border_color(t.border).bg(t.chrome)
@@ -2394,10 +2400,10 @@ export default class Chat extends View {
             .tooltip(shared(FONT_KEY) ? `Chat text ${Math.round(chatFont())} px (terminals ${Math.round(termFont())}): click to match them` : `Chat text matches the terminals (${Math.round(termFont())} px)`)
             .on_click(() => this.setFont(0)).child(String(Math.round(chatFont()))))
           .child(btn("font-up", "A+", () => this.setFont(1)).tooltip("Larger text in chats")))
-        .child(btn("go-term", termLabel, (_e, cx) => this.toggleTerminal(cx)))
+        .child(iconBtn("go-term", "terminal-side", termTip, Boolean(mine) && !hidden, (_e, cx) => this.toggleTerminal(cx)))
         // ushi-naruse: in a tab, not a dock subtab (dock-tabs' menu has its own).
-        .when(!props()?.dockName, (el) => el.child(btn("back-term", "Back to terminal", (_e, cx) => this.backToTerminal(cx))
-          .tooltip("Close the chat; the session carries on in its terminal, here"))))
+        .when(!props()?.dockName, (el) => el.child(iconBtn("back-term", "terminal-window",
+          "Close this chat and continue in the terminal (the session keeps running)", false, (_e, cx) => this.backToTerminal(cx)))))
       .when(Boolean(this.searching) && (this.shown(), true), (el) => el.child(h_flex().id("search-bar").key_context("ChatSearch")
         .on_action("chat_search_close", (_e, cx) => this.closeSearch(cx))
         .h(38).px(12).gap(8).items_center().border_t(1).border_color(t.border).bg(t.background)
