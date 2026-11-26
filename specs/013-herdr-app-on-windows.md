@@ -85,7 +85,12 @@ that macOS and Linux did not.
 - [x] R5: `herdr-app check` passes for every mod on Windows, run in the desktop
   session (in an SSH session it fails: "cannot open windows while headless");
   `herdr-app status` shows no errors.
-- [ ] R6: config in place on Windows and in dotfiles.
+- [x] R6: on Windows: njv-cachyos's keys.json (Ctrl-based; the Mac's are Cmd-based)
+  and terminals-dock layout (own title bar and window buttons); settings.json was
+  already the same. Dotfiles: `setup/win11-kvm/herdr-app/` with backup.sh and
+  restore.sh for Git Bash. The layout shows the spaces bar with the three remote
+  machines, the tab bar, nested tabs and the bottom dock (nav, git, hayami).
+  programs.json is not carried over (it names the Linux `claude-max` wrapper).
 - [ ] R7: each mod looked at in the Windows window; the tools list written here.
 
 ## Test approach
