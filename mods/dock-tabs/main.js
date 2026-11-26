@@ -36,8 +36,14 @@ const TITLE = "nt.title";
 // them (spec 010), which replaced the lower dock's usage terminal.
 const FIXED = [{ key: "panels", label: "nav + git", icons: ["folder", "git-branch"] }];
 const fixedId = (dock, key) => `${dock}-${key}`;
-const USAGE_PX = 100; // a header and three accounts, one line each (#28)
-const usageNode = (dock) => ({ id: `${dock}-usage`, type: "block", size: { px: USAGE_PX }, content: { mod: "hayami-usage" } });
+// hayami's block (specs 010, 011) sizes itself to the sections it shows and records
+// the height in shared "hayami.px", so a rebuilt dock starts at that height.
+const HAYAMI_PX = 100;
+const usageNode = (dock) => ({
+  id: `${dock}-hayami`, type: "block",
+  size: { px: Number(shared("hayami.px")?.[dock]) || HAYAMI_PX },
+  content: { mod: "hayami", props: { dock } },
+});
 const navGit = (dock) => [
   { id: `${dock}-nav`, type: "block", size: { weight: 1 }, content: { mod: "nav" } },
   { id: `${dock}-git`, type: "block", size: { weight: 1 }, content: { mod: "git" } },
@@ -162,13 +168,13 @@ async function setLayout(t) {
 }
 
 // True when a dock's stack does not start with the nav + git split of the right
-// direction and the usage block (spec 010), or still holds retired blocks or the
-// earlier separate nav/git blocks.
+// direction and hayami's block knowing its dock (specs 010, 011), or still holds
+// retired blocks or the earlier separate nav/git blocks.
 function needsMigration(dock) {
   const kids = find(layout(), STACK(dock))?.children ?? [];
   const first = kids[0];
   const splitOk = first?.id === fixedId(dock, "panels") && first.type === panelsNode(dock).type
-    && Boolean(find(first, `${dock}-nav`)) && Boolean(find(first, `${dock}-usage`));
+    && Boolean(find(first, `${dock}-nav`)) && find(first, `${dock}-hayami`)?.content?.props?.dock === dock;
   return !splitOk || kids.some((c, i) => i > 0 && ((modOf(c) && !chatOf(c)) || RETIRED.test(baseOf(nameOf(c) ?? ""))));
 }
 

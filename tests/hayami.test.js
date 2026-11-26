@@ -4,7 +4,10 @@ import { execFile, execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { platform as osPlatform, userInfo } from "node:os";
 import { join } from "node:path";
-import { request, checkPath, parse, get, readings, usageRows, until, pollEvery, windowTail, leadWindow, otherFigures, daysLeft } from "../lib/hayami.js";
+import { request, checkPath, parse, get, readings, usageRows, until, pollEvery, windowTail, leadWindow, otherFigures, daysLeft,
+  ORDER, shownSections, due, arrange, blockHeight, MAX_HEIGHT, size, rate, quotaStatus, batteryStatus, coolantStatus, rateStatus,
+  ago, bandwidthRows, coolerRows, peripheralRows, clockRow,
+} from "../lib/hayami.js";
 
 // An invented usage section, in the contract's shape (hayami api/openapi.yaml, Section).
 const SECTION = {
@@ -185,6 +188,130 @@ test("daysLeft: rounded up, <1d on the last day, nothing once passed", () => {
   assert.equal(daysLeft("2026-01-01T00:00:00Z", now), "");
 });
 
+// ---- spec 011 -------------------------------------------------------------------
+
+test("shownSections: valid keys in hayami's order; usage alone by default", () => {
+  assert.deepEqual(shownSections(["clock", "usage", "nope", "cooler"]), ["usage", "cooler", "clock"]);
+  assert.deepEqual(shownSections(undefined), ["usage"]);
+  assert.deepEqual(shownSections([]), ["usage"]);
+});
+
+test("due: shown sections whose time has come, by the cadence", () => {
+  const now = 1_000_000;
+  const all = ORDER;
+  assert.deepEqual(due(all, {}, now, 30), all, "never read: all due");
+  const last = { usage: now - 10_000, bandwidth: now - 5_000, cooler: now - 4_000, peripherals: now - 15_000, clock: now - 30_000 };
+  assert.deepEqual(due(all, last, now, 30), ["bandwidth", "peripherals"]);
+  assert.deepEqual(due(["usage"], { usage: now - 30_000 }, now, 30), ["usage"]);
+  assert.deepEqual(due(["cooler"], {}, now), ["cooler"], "a hidden section is never due");
+});
+
+test("arrange and blockHeight: columns when each gets 250 px; heights capped, stacked higher", () => {
+  assert.equal(arrange(1600, 4), "columns");
+  assert.equal(arrange(600, 4), "stack");
+  assert.equal(arrange(1600, 1), "stack");
+  assert.equal(blockHeight([3], "stack"), 12 + 22 + 20 + 3 * 22);
+  assert.equal(blockHeight([3, 5, 2], "columns"), 12 + 22 + 20 + 5 * 22);
+  assert.equal(blockHeight([3, 1], "stack"), 12 + 22 + (20 + 66) + (20 + 22) + 8);
+  assert.equal(blockHeight([3, 5, 7, 4, 1], "stack"), 12 + 22 + (20 + 66) + (20 + 110) + (20 + 154) + (20 + 88) + (20 + 22) + 4 * 8);
+  assert.equal(blockHeight([30, 1], "stack"), MAX_HEIGHT.stack);
+  assert.equal(blockHeight([30, 1], "columns"), MAX_HEIGHT.columns);
+  assert.equal(blockHeight([0], "stack"), 12 + 22 + 20 + 22, "an empty section keeps a line for what it says");
+});
+
+test("size and rate: hayami's binary units, five characters a number", () => {
+  assert.equal(size(0), "0 B");
+  assert.equal(size(1023), "1023 B");
+  assert.equal(size(1024), "1.0 KiB");
+  assert.equal(size(68279349248), "63.6 GiB");
+  assert.equal(size(null), "--");
+  assert.equal(rate(1.5 * 1024 * 1024), "  1.5 MiB/s");
+  assert.equal(rate(0), "    0 B/s  ");
+  assert.equal(rate(0).length, rate(123456789).length, "every rate one width");
+  assert.equal(rate(null).trim(), "--", "no rate before two readings");
+  assert.equal(rate(null).length, rate(1).length);
+});
+
+test("bands: hayami's thresholds", () => {
+  assert.deepEqual([49, 50, 80, 81].map(quotaStatus), ["good", "warn", "warn", "bad"]);
+  assert.deepEqual([20, 21, 50, 51].map(batteryStatus), ["bad", "warn", "warn", "good"]);
+  assert.deepEqual([49.9, 50, 55].map(coolantStatus), ["good", "warn", "bad"]);
+  const M = 1 << 20;
+  assert.deepEqual([null, M - 1, M, 10 * M, 100 * M].map(rateStatus), ["info", "info", "accent", "warn", "strong"]);
+});
+
+test("ago", () => {
+  const now = Date.parse("2026-01-02T03:00:00Z");
+  assert.equal(ago("2026-01-02T02:55:00Z", now), "5m");
+  assert.equal(ago("2026-01-02T00:00:00Z", now), "3h");
+  assert.equal(ago("2025-12-30T03:00:00Z", now), "3d");
+  assert.equal(ago(null, now), "");
+});
+
+const sec = (key, reading) => ({ key, polled_at: null, interval_s: 5, reading: { [key]: reading }, absences: [], error: null, details: [], truncated: false });
+
+test("bandwidthRows: interfaces present with rates, then VPNs", () => {
+  const rows = bandwidthRows(sec("bandwidth", {
+    interfaces: [
+      { name: "eth0", present: true, rx_bps: 2 * 1024 * 1024, tx_bps: null, rx_bytes: 1, tx_bytes: 1, trail: { rx: [], tx: [] }, wireless: null, extra: 1 },
+      { name: "wlan9", present: false, rx_bps: null, tx_bps: null },
+    ],
+    vpns: [
+      { name: "office", label: "Office", state: "up", latency_ms: 19.2, failing: false, stale: false },
+      { name: "home", label: null, state: "down", latency_ms: null, failing: false, stale: false },
+      { name: "lab", label: "Lab", state: "up", latency_ms: null, failing: true, stale: false },
+    ],
+  }));
+  assert.deepEqual(rows.map((r) => r.label), ["eth0", "Office", "home", "Lab"]);
+  assert.deepEqual(rows[0].parts, [{ text: "↓   2.0 MiB/s", status: "accent" }, { text: `↑ ${rate(null)}`, status: "info" }]);
+  assert.deepEqual(rows[1].parts, [{ text: "up", status: "good" }, { text: "19 ms", status: "info" }]);
+  assert.equal(rows[2].dim, true);
+  assert.deepEqual(rows[3].parts, [{ text: "up, failing", status: "bad" }]);
+  assert.deepEqual(bandwidthRows(null), []);
+});
+
+test("coolerRows: each role as hayami says it; a processor never coloured", () => {
+  const rows = coolerRows(sec("cooler", { uptime_s: 1, probes: [
+    { id: "cpu", role: "cpu", name: "Acme CPU", load_pct: 5.4, temp_c: 91, trail: [], stale: false },
+    { id: "gpu", role: "gpu", load_pct: null, temp_c: null, stale: false },
+    { id: "gpu1", role: "gpu", load_pct: 3, temp_c: 40, stale: true },
+    { id: "memory", role: "memory", load_pct: 50.6, bytes: 68279349248, of_bytes: 134722494464 },
+    { id: "io", role: "io", read_bps: 0, write_bps: 367777 },
+    { id: "coolant", role: "coolant", temp_c: 52.04 },
+    { id: "fan1", role: "fan", rpm: 1200.4 },
+  ] }));
+  assert.deepEqual(rows.map((r) => r.label), ["CPU", "GPU", "GPU 2", "Memory", "IO", "Coolant", "Fan"]);
+  assert.deepEqual(rows[0].parts, [{ text: "91°", status: "info" }, { text: "5%", status: "info" }]);
+  assert.deepEqual(rows[1].parts.map((p) => p.text), ["--°", "--%"]);
+  assert.equal(rows[2].dim, true);
+  assert.deepEqual(rows[3].parts.map((p) => p.text), ["51%", "63.6 GiB / 125.5 GiB"]);
+  assert.deepEqual(rows[4].parts.map((p) => p.text), ["R     0 B/s  ", "W 359.2 KiB/s"]);
+  assert.deepEqual(rows[5].parts, [{ text: "52.0°", status: "warn" }]);
+  assert.deepEqual(rows[6].parts.map((p) => p.text), ["1200 rpm"]);
+});
+
+test("peripheralRows: battery by band, segments, charging, stale with last seen", () => {
+  const now = Date.parse("2026-01-02T03:00:00Z");
+  const rows = peripheralRows(sec("peripherals", { devices: [
+    { name: "Mouse", kind: "mouse", battery_pct: 15, band: null, segments: null, charge: "draining", stale: false, last_seen: null },
+    { name: "Pad", kind: "gamepad", battery_pct: null, band: 2, segments: 4, charge: "draining", stale: false },
+    { name: "Buds", kind: "headset", battery_pct: 40, charge: "charging", stale: true, last_seen: "2026-01-01T03:00:00Z" },
+  ] }), now);
+  assert.deepEqual(rows[0].parts, [{ text: "15%", status: "bad" }]);
+  assert.deepEqual(rows[1].parts, [{ text: "2/4", status: "warn" }]);
+  assert.deepEqual(rows[2].parts.map((p) => p.text), ["40%", "charging", "seen 1d ago"]);
+  assert.equal(rows[2].parts[0].status, "good", "a charging battery is not a warning");
+  assert.equal(rows[2].dim, true);
+});
+
+test("clockRow: the machine's time from its offset, not this one's", () => {
+  const now = Date.parse("2026-01-02T03:04:59Z");
+  const r = clockRow(sec("clock", { time: "2026-01-02T03:04:00Z", zone: "PST", utc_offset_s: -28800 }), now);
+  assert.equal(r.label, "PST");
+  assert.deepEqual(r.parts.map((p) => p.text), ["19:04", "2026-01-01"]);
+  assert.equal(clockRow(null, now).parts[0].text, "--:--");
+});
+
 // Integration (spec 010 AC): the real command against this machine's running service.
 // run-tests.sh gives the run a throwaway TMPDIR, so on macOS the account's real
 // temporary folder is asked of the system and handed to the command, as herdr's
@@ -206,12 +333,18 @@ const nodeExec = (command, args, { timeout }) => new Promise((resolve) => {
   execFile(command, args, { timeout, env: live?.env }, (err, stdout, stderr) => resolve({ code: err ? (typeof err.code === "number" ? err.code : 1) : 0, stdout, stderr }));
 });
 
-test("live: the running service's usage section holds to what usageRows reads", { skip: !live || !existsSync(live.path) ? `no hayami service socket on this machine (${live?.path ?? osPlatform()})` : false }, async () => {
-  const r = await readings(nodeExec, live.platform, ["usage"], {});
+test("live: the running service's sections hold to what the rows functions read", { skip: !live || !existsSync(live.path) ? `no hayami service socket on this machine (${live?.path ?? osPlatform()})` : false }, async () => {
+  const r = await readings(nodeExec, live.platform, ORDER, {});
   assert.equal(r.ok, true, JSON.stringify(r));
   const s = r.readings.usage;
   assert.equal(s.key, "usage");
   for (const k of ["polled_at", "interval_s", "reading", "absences", "error", "details", "truncated"]) assert.ok(k in s, `Section has ${k}`);
+  for (const k of ORDER) assert.equal(r.readings[k]?.key, k, `the service answered ${k}`);
+  assert.ok(Array.isArray(bandwidthRows(r.readings.bandwidth)));
+  for (const row of [...coolerRows(r.readings.cooler), ...peripheralRows(r.readings.peripherals), clockRow(r.readings.clock)]) {
+    assert.equal(typeof row.label, "string");
+    assert.ok(row.parts.length > 0 && row.parts.every((p) => typeof p.text === "string"));
+  }
   const u = usageRows(s);
   assert.ok(u.interval_s > 0);
   if (s.reading.usage) {

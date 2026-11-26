@@ -1,0 +1,60 @@
+{
+  "place": "none",
+  "title": "hayami's readings under the dock's nav and git (specs 010, 011)",
+  "lib": [
+    "hayami.js",
+    "location.js"
+  ],
+  "palette": [
+    {
+      "title": "hayami: show Usage",
+      "command": "hayami.show-usage",
+      "words": "hayami dock section usage show"
+    },
+    {
+      "title": "hayami: hide Usage",
+      "command": "hayami.hide-usage",
+      "words": "hayami dock section usage hide"
+    },
+    {
+      "title": "hayami: show Bandwidth",
+      "command": "hayami.show-bandwidth",
+      "words": "hayami dock section bandwidth show"
+    },
+    {
+      "title": "hayami: hide Bandwidth",
+      "command": "hayami.hide-bandwidth",
+      "words": "hayami dock section bandwidth hide"
+    },
+    {
+      "title": "hayami: show Cooler",
+      "command": "hayami.show-cooler",
+      "words": "hayami dock section cooler show"
+    },
+    {
+      "title": "hayami: hide Cooler",
+      "command": "hayami.hide-cooler",
+      "words": "hayami dock section cooler hide"
+    },
+    {
+      "title": "hayami: show Peripherals",
+      "command": "hayami.show-peripherals",
+      "words": "hayami dock section peripherals show"
+    },
+    {
+      "title": "hayami: hide Peripherals",
+      "command": "hayami.hide-peripherals",
+      "words": "hayami dock section peripherals hide"
+    },
+    {
+      "title": "hayami: show Clock",
+      "command": "hayami.show-clock",
+      "words": "hayami dock section clock show"
+    },
+    {
+      "title": "hayami: hide Clock",
+      "command": "hayami.hide-clock",
+      "words": "hayami dock section clock hide"
+    }
+  ]
+}
