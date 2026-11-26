@@ -284,6 +284,41 @@ export default class Chat extends View {
       || panes().find((p) => p.pane === this.pane && p.mod === "ushi-naruse") || null;
   }
 
+  // Debug trace of what the chat draws (vanishing replies, #32): on while the file
+  // data/ushi-naruse/trace-on exists; each change of the drawn rows goes to
+  // data/ushi-naruse/trace-<chat>.log (the last 4000 lines).
+  traceCheck() {
+    const dir = `${appHome()}/${CACHE}`;
+    exec("test", ["-e", `${dir}/trace-on`]).then((r) => { this.tracing = r.code === 0; }).catch(() => {});
+    if (!this.traceDirty) return;
+    this.traceDirty = false;
+    const name = String(this.termId ?? this.term ?? "chat").replace(/[^\w-]/g, "_");
+    fs.writeFile(`${dir}/trace-${name}.log`, this.traceLines.join("\n") + "\n").catch(() => {});
+  }
+
+  trace(shown, live) {
+    const snip = (x) => String(x ?? "").replace(/\s+/g, " ").trim().slice(0, 48);
+    const row = (e) => {
+      const id = this.drawnAs(e).key;
+      if (e.kind === "tools") return `${id} tools(${e.items.length}) ${e.items.map((i) => i.name).slice(-3).join(",")}${e.items.some((i) => i.bg?.status === "running") ? " bg-running" : ""}`;
+      return `${id} ${e.kind}${e.command ? "/cmd" : ""}: ${snip(e.text ?? e.title ?? e.card)}`;
+    };
+    const lines = [
+      ...shown.slice(-12).map(row),
+      live ? `LIVE streaming-${this.streamN}: ${snip(live)}` : null,
+      this.running ? `RUNNING ${snip(JSON.stringify(this.running))}` : null,
+      ...this.pending.map((p) => `PENDING ${snip(p.text)}`),
+    ].filter(Boolean);
+    const sig = lines.join("\n");
+    if (sig === this.traceLast) return;
+    this.traceLast = sig;
+    const now = new Date();
+    const stamp = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}.${String(now.getMilliseconds()).padStart(3, "0")}`;
+    (this.traceLines ??= []).push(`${stamp} entries=${this.t?.entries.length ?? 0} stream=${this.stream ? "yes" : "no"}`, ...lines.map((l) => `   ${l}`));
+    if (this.traceLines.length > 4000) this.traceLines.splice(0, this.traceLines.length - 4000);
+    this.traceDirty = true;
+  }
+
   // ushi-naruse: keeps the agent's ushi.chat label on this chat's pane. The app can
   // restore a pane under a new id; a label naming the old one made the agents list
   // open the hidden terminal's tab, which flashed up until the chat sent it back.
@@ -512,7 +547,7 @@ export default class Chat extends View {
     const n = norm(text), head = n.slice(0, 80), tail = n.slice(-80);
     const ents = this.t?.entries ?? [];
     for (let i = ents.length - 1; i >= 0 && ents[i].kind !== "user"; i--) {
-      if (ents[i].kind !== "assistant") continue;
+      if (ents[i].kind !== "assistant" && ents[i].kind !== "thinking") continue;
       const e = norm(ents[i].text);
       // ushi-naruse: the matching entry (truthy), so it can take over the live copy's id.
       if (e.includes(head) || e.includes(tail)) return ents[i];
@@ -1307,6 +1342,7 @@ export default class Chat extends View {
     const mine = this.myPane();
     if (mine) this.pane = mine.pane;
     this.fixOwner(term, mine);
+    this.traceCheck();
     this.keepAway();
     if (this.hideAtStart && mine && term?.state === "live") {
       this.hideAtStart = false;
@@ -2088,6 +2124,13 @@ export default class Chat extends View {
         .on_mouse_down("right", (ev, cx) => this.openMenu(ev, { kind: "assistant", text: e.text }, cx))
         .child(this.reply(e, t));
     }
+    // ushi-naruse: Claude's thinking that the terminal shows as a reply: dimmed.
+    if (e.kind === "thinking") {
+      return v_flex().id(`row-${e.key}`).w_full().pb(6).pl(10).border_l_2().border_color(t.border).text_color(t.muted)
+        .on_mouse_down("right", (ev, cx) => this.openMenu(ev, { kind: "assistant", text: e.text }, cx))
+        .child(div().text_size(tsz(11)).text_color(t.dim).pb(2).child("Thinking"))
+        .child(this.reply(e, t));
+    }
     if (e.kind === "card") return this.card(e, t);
     // What a slash command printed, as the terminal shows it.
     if (e.kind === "output") {
@@ -2444,6 +2487,7 @@ export default class Chat extends View {
     // The live reply, decided before the rows are drawn: it settles which reply holds
     // which element id this frame.
     const live = this.streamShown();
+    if (this.tracing) this.trace(shown, live);
     if (this.seek) this.seekRow(shown);
     let lastUser = -1;
     for (let i = shown.length - 1; i >= 0; i--) if (shown[i].kind === "user" && !shown[i].command) { lastUser = i; break; }

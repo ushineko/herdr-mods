@@ -1,5 +1,5 @@
 // Turns Claude Code and Codex session logs (JSONL) into chat entries:
-// { kind: "user" | "assistant" | "tools" | "note", key, text, images, items }.
+// { kind: "user" | "assistant" | "thinking" | "tools" | "note", key, text, images, items }.
 // Images come out as { data (base64) | path, ext } for the view to cache.
 import { unwrapPastes } from "./lib/chat-text.js";
 import { launchOf, stoppedBy, parseNotification, ended } from "./lib/chat-tasks.js";
@@ -161,6 +161,13 @@ export class Transcript {
     else this.push({ kind: "assistant", text });
   }
 
+  thought(text) {
+    if (!text?.trim()) return;
+    const prev = this.last();
+    if (prev?.kind === "thinking") prev.text += "\n\n" + text.trim();
+    else this.push({ kind: "thinking", text: text.trim() });
+  }
+
   toolUse(id, name, input) {
     let group = this.last();
     if (group?.kind !== "tools") group = this.push({ kind: "tools", items: [] });
@@ -281,6 +288,9 @@ export class Transcript {
       }
       for (const b of d.message?.content ?? []) {
         if (b.type === "text") this.assistant(b.text);
+        // ushi-naruse: Claude Code draws a thinking block with text as a reply ("⏺ …");
+        // left out, the chat's live copy of it had nothing to hand over to and vanished.
+        else if (b.type === "thinking") this.thought(b.thinking);
         else if (b.type === "tool_use") this.toolUse(b.id, b.name, b.input);
       }
     }
