@@ -3,6 +3,14 @@
   "title": "Horizontal spaces bar (port of the herdr TUI fork's spaces bar)",
   "lib": [
     "machine-color.js",
-    "inbox.js"
+    "inbox.js",
+    "tab-order.js"
+  ],
+  "palette": [
+    {
+      "title": "Switch to a recent tab",
+      "command": "spaces-bar.switch",
+      "words": "tab switcher recent ctrl-tab mru"
+    }
   ]
 }

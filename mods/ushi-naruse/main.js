@@ -304,6 +304,18 @@ export default class Chat extends View {
     if (this.dialog) this.loadCatalog(this.cfg.kind, this.cfg.machine, cx);
     this.checkTimer = cx.timer.every(2000, (cx) => this.check(cx));
     this.check(cx);
+    cx.timer.every(300, () => this.focusInput());
+  }
+
+  // ushi-naruse: the cursor goes to the message box when this chat becomes the one in
+  // use: its pane focused in the active window, by any route (Ctrl+Tab, the inbox,
+  // another window raising this one, a click on its header), not only by pane.go's
+  // "focus". Switching windows counts: its pane stays focused in its own window
+  // meanwhile. Left alone while the new-chat form or the side question has it.
+  focusInput() {
+    const inUse = appWindow()?.active !== false && Boolean(this.myPane()?.focused);
+    if (inUse && !this.wasInUse && !this.dialog && !this.side.open) this.input.focus();
+    this.wasInUse = inUse;
   }
 
   // ushi-naruse: this chat's pane, as its agent's ushi.chat label names it (herdr-mods sets
