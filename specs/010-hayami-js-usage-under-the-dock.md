@@ -2,11 +2,16 @@
 
 **Issue**: #26
 
-## Status: INCOMPLETE
+## Status: COMPLETE
 
 ## Executive Summary
 
-(Filled in before the work is closed.)
+The lower dock's hayami-tui terminal is gone. `lib/hayami.js` (hayami-js) reads
+the hayami service (hayami spec 113) on the machine the dock follows, by running
+curl over its Unix socket (Linux, macOS) or `hayami-tui api get` (Windows) through
+herdr's `exec`, and `mods/hayami-usage` draws its usage under nav and git in both
+docks. Reviewers should look first at `dock-tabs`' `panelsNode` and migration
+check, which own the dock's fixed subtab and so carry the new block.
 
 ## Context
 
@@ -133,11 +138,11 @@ later, on the same client.
       machine's usage; the lower dock is gone; a shot is read back.
 - [x] Real window: focusing a terminal in an njv-mbp-m1 space switches the block
       to the Mac's usage (or its "service not running" line), and back.
-- [ ] Real window (njv-mbp-m1): the same, seen from the Mac's window.
+- [x] Real window (njv-mbp-m1): the same, seen from the Mac's window.
 - [x] Moving the dock to the right (`dock-right`) shows the block under git.
 - [x] `dock-follow` no longer starts a `usage` terminal; nothing else it does
       changed (title, resume, inbox).
-- [ ] `npm test` on the Mac, `./run-tests.sh` here, `tools/test-windows.sh` for
+- [x] `npm test` on the Mac, `./run-tests.sh` here, `tools/test-windows.sh` for
       Windows pass.
 - [x] README's Mods table lists `hayami-usage` and the dock-follow row no
       longer mentions the usage strip; BACKLOG's hayami-js item is replaced by
@@ -162,6 +167,23 @@ later, on the same client.
   the socket is back; the right dock shows it under git; the work window shows
   it after the layout edit. The old `usage` terminal (t6) was ended and has not
   come back.
+
+## E2E results (2026-11-25)
+
+- Step 1: njv-cachyos default window, local terminal: five usage windows, same
+  figures as `hayami-tui api get readings?sections=usage`. Pass.
+- Step 2: an njv-mbp-m1 space: header "njv-mbp-m1", the Mac's one account. Pass.
+- Step 3: `hayami-api.socket` stopped: "this machine: hayami service not
+  running", same height; figures back after the socket was started. Pass.
+- Step 4: the Mac's window: its own usage in its right dock, and njv-cachyos's
+  five windows with an njv-cachyos-default space shown. Pass.
+- Step 5: the right dock on njv-cachyos shows the block under git. Pass.
+- Step 6: the old `usage` terminals (t6 here, t16 on the Mac) were ended; none came
+  back with the new dock-follow loaded (checked minutes later; an app restart was
+  not done). Pass, with that note.
+- Tests: `./run-tests.sh` here 224 pass / 0 fail; `npm test` on the Mac 223 / 0
+  (the live case ran against the Mac's service); `tools/test-windows.sh` 220 / 0
+  after fixing the mod-shadowing test's Windows path (pre-existing, 4d1d68e).
 
 ## Risks & Assumptions
 
