@@ -10,6 +10,11 @@
 // shown space's machine's. yazi and lazygit are no longer started here; a dock
 // still holding their blocks is rewritten (migrated) when it is shown.
 //
+// Each dock chooses its subtabs (spec 019): one set of names, and per dock a list
+// of the ones it hides (shared "dock-tabs.hidden", lib/dock-tabs-hidden.js), the
+// fixed subtab among them. A subtab is shown in at least one dock; a dock that
+// would show nothing shows the fixed subtab anyway.
+//
 // A **mod subtab** (spec 018) holds a mod's block instead of a terminal: a mod whose
 // mod.json has a "dock" entry (lib/dock-mods.js) is offered under "+", shows as its
 // icon alone, and belongs to no machine, so every machine's strip shows it.
@@ -32,6 +37,7 @@ import {
 import { chatEntries, newChatId, ID_LABEL, AGENT_LOOKUP, parseAgentLookup, withLoginAgents, hasChatAgent, platformOf } from "./lib/chat-entries.js";
 import { machineColor } from "./lib/machine-color.js";
 import { modTabName, isModTab, modOfTab, dockMods, dockModIcon, LIST_MODS, modNamesFrom } from "./lib/dock-mods.js";
+import { FIXED as FIXED_NAME, hiddenIn, isHidden, hide, show as showIn, moveTo, forget, visibleNames, otherDock } from "./lib/dock-tabs-hidden.js";
 
 const ICON = (n) => `mods/dock-tabs/${n}.svg`;
 const DOCKS = ["dock-right", "dock-bottom"];
@@ -113,8 +119,17 @@ function tabs(dock, machine) {
   return machine === undefined ? list : list.filter((t) => t.fixed || t.mod || t.machine === machine);
 }
 
-// The added (non-fixed) subtabs' terminal names, in order, without retired blocks.
-const ownNames = (dock) => tabs(dock).filter((t) => !t.fixed && t.name && !RETIRED.test(baseOf(t.name))).map((t) => t.name);
+// The added (non-fixed) subtabs' names, in order, without retired blocks: the
+// union of both docks' stacks, since a dock may hide some (spec 019), in the
+// asked dock's order with the other's extras after.
+const HIDDEN = "dock-tabs.hidden";
+const hiddenState = () => shared(HIDDEN) ?? {};
+const stackNames = (dock) => tabs(dock).filter((t) => !t.fixed && t.name && !RETIRED.test(baseOf(t.name))).map((t) => t.name);
+function ownNames(dock) {
+  const names = stackNames(dock);
+  for (const n of stackNames(otherDock(dock))) if (!names.includes(n)) names.push(n);
+  return names;
+}
 
 function activeOf(dock) {
   const st = find(layout(), STACK(dock));
@@ -134,12 +149,14 @@ function chatsNow() {
 function setTabs(names, active, chats = {}) {
   const t = tree();
   const chat = { ...chatsNow(), ...chats };
+  const hidden = hiddenState();
   for (const dock of DOCKS) {
     const st = find(t, STACK(dock));
     if (!st) continue;
+    const vis = visibleNames(names, hidden, dock);
     st.children = [
-      panelsNode(dock),
-      ...names.map((n) => ({
+      ...(vis.fixed ? [panelsNode(dock)] : []),
+      ...vis.names.map((n) => ({
         id: childId(dock, n),
         type: "block",
         // A mod subtab's block knows its dock, stack and own id, so the mod can tell
@@ -151,7 +168,8 @@ function setTabs(names, active, chats = {}) {
     ];
     const want = active?.[dock];
     const wantId = want && (FIXED.some((f) => f.key === want) ? fixedId(dock, want) : names.includes(want) ? childId(dock, want) : null);
-    st.active = wantId ?? (st.children.some((c) => c.id === st.active) ? st.active : st.children[0]?.id);
+    const has = (id) => st.children.some((c) => c.id === id);
+    st.active = (wantId && has(wantId) ? wantId : null) ?? (has(st.active) ? st.active : st.children[0]?.id);
   }
   setLayout(t).catch((e) => fail("Dock: the layout could not be changed", `${e?.message ?? e}`));
 }
@@ -186,9 +204,11 @@ async function setLayout(t) {
 function needsMigration(dock) {
   const kids = find(layout(), STACK(dock))?.children ?? [];
   const first = kids[0];
-  const splitOk = first?.id === fixedId(dock, "panels") && first.type === panelsNode(dock).type
-    && Boolean(find(first, `${dock}-nav`)) && find(first, `${dock}-hayami`)?.content?.props?.dock === dock;
-  return !splitOk || kids.some((c, i) => i > 0 && ((modOf(c) && !chatOf(c) && !modTabOf(c)) || RETIRED.test(baseOf(nameOf(c) ?? ""))));
+  const fixedFirst = first?.id === fixedId(dock, "panels");
+  // A dock that hides the fixed subtab (spec 019) has none to check.
+  const splitOk = (isHidden(hiddenState(), dock, FIXED_NAME) && !fixedFirst) || (fixedFirst && first.type === panelsNode(dock).type
+    && Boolean(find(first, `${dock}-nav`)) && find(first, `${dock}-hayami`)?.content?.props?.dock === dock);
+  return !splitOk || kids.some((c, i) => (i > 0 || !fixedFirst) && ((modOf(c) && !chatOf(c) && !modTabOf(c)) || RETIRED.test(baseOf(nameOf(c) ?? ""))));
 }
 
 function label(tab) {
@@ -229,15 +249,53 @@ function here() {
 
 // The subtab last shown for each machine, so switching back to a machine's
 // space shows what was showing there.
+// Keyed by dock and machine ("dock-bottom|njv-mbp-m1"): the two docks no longer
+// hold the same list (spec 019). The old per-machine key is read as a fallback.
 const ACTIVE = "dock.active";
-function remember(tab) {
-  if (tab.fixed) { setShared(ACTIVE, { ...(shared(ACTIVE) ?? {}), [currentMachine() ?? ""]: tab.fixed.key }); return; }
-  setShared(ACTIVE, { ...(shared(ACTIVE) ?? {}), [tab.machine ?? ""]: baseOf(tab.name) });
+const activeKey = (dock, machine) => `${dock}|${machine ?? ""}`;
+function remember(dock, tab) {
+  const value = tab.fixed ? tab.fixed.key : baseOf(tab.name);
+  const machine = tab.fixed ? currentMachine() : tab.machine;
+  setShared(ACTIVE, { ...(shared(ACTIVE) ?? {}), [activeKey(dock, machine)]: value });
 }
+const remembered = (dock, machine) => { const all = shared(ACTIVE) ?? {}; return all[activeKey(dock, machine)] ?? all[machine ?? ""]; };
 
 function show(dock, tab) {
   run("layout.select", { stack: STACK(dock), child: tab.id });
-  remember(tab);
+  remember(dock, tab);
+}
+
+// ---- which dock shows what (spec 019) --------------------------------------------
+
+// A subtab by name in either dock's list, for its label and icon when it is hidden here.
+function tabByName(name) {
+  for (const d of DOCKS) {
+    const t = tabs(d).find((x) => (x.fixed ? x.fixed.key : x.name) === name);
+    if (t) return t;
+  }
+  return null;
+}
+const tabName = (tab) => (tab.fixed ? tab.fixed.key : tab.name);
+
+// Hide `tab` in `dock` while the other dock shows it; refused otherwise.
+function hideHere(dock, tab) {
+  const name = tabName(tab);
+  const other = otherDock(dock);
+  const r = hide(hiddenState(), dock, name, !isHidden(hiddenState(), other, name));
+  if (!r.ok) return notify({ title: "Shown nowhere", body: "A tab stays in at least one dock: move it instead.", level: "warning", timeout: 3000 });
+  setShared(HIDDEN, r.state);
+  setTabs(ownNames(dock), {});
+}
+
+function showHere(dock, name) {
+  setShared(HIDDEN, showIn(hiddenState(), dock, name));
+  setTabs(ownNames(dock), { [dock]: name });
+}
+
+function moveToOther(dock, tab) {
+  const name = tabName(tab), other = otherDock(dock);
+  setShared(HIDDEN, moveTo(hiddenState(), dock, other, name));
+  setTabs(ownNames(dock), { [other]: name });
 }
 
 // A shell subtab running `command` if given. With `chat`, the subtab is the chat
@@ -263,7 +321,7 @@ async function addTab(dock, command, { chat = false } = {}) {
   const at = names.indexOf(nameOf(find(layout(), activeOf(dock))));
   names.splice(at < 0 ? names.length : at + 1, 0, name);
   setTabs(names, { [dock]: name }, chats);
-  remember({ name, machine });
+  remember(dock, { name, machine });
   if (command) await hc(["send", name, command]);
 }
 
@@ -277,7 +335,7 @@ function addModTab(dock, mod) {
     names.splice(at < 0 ? names.length : at + 1, 0, name);
   }
   setTabs(names, { [dock]: name });
-  remember({ name, machine: null });
+  remember(dock, { name, machine: null });
 }
 
 // The installed mods that offer a dock subtab: each mod.json under the app home's
@@ -306,6 +364,7 @@ async function closeTab(dock, tab) {
   // Drop it from both stacks first, then end it: an ended terminal's block
   // would otherwise be removed by the app on its own. Removing its last block
   // may already end it, so "not found" is success here.
+  setShared(HIDDEN, forget(hiddenState(), tab.name));
   setTabs(ownNames(dock).filter((n) => n !== tab.name), next ? { [dock]: next.fixed?.key ?? next.name } : {});
   if (tab.term) {
     const r = await hc(["kill", tab.name]);
@@ -364,6 +423,16 @@ export default class DockTabs extends View {
       .catch((e) => fail("New chat failed", `${e?.message ?? e}`));
     else if (c === "close") { const t = tabs(dock).find((x) => x.id === activeOf(dock)); if (t && !t.fixed) closeTab(dock, t); }
     else if (/^mod-[A-Za-z0-9._-]+$/.test(c)) addModTab(dock, c.slice(4)); // `herdr-app do dock-tabs.mod-<mod>`
+    else {
+      // `herdr-app do dock-tabs.<hide|show|move>-<dock>-<name>` (spec 019): the strip
+      // of the named dock acts, since both docks' strips receive every command.
+      const m = /^(hide|show|move)-(dock-bottom|dock-right)-(.+)$/.exec(c);
+      if (!m || m[2] !== dock) return;
+      const tab = tabByName(m[3]);
+      if (m[1] === "show") showHere(dock, m[3]);
+      else if (tab && m[1] === "hide") hideHere(dock, tab);
+      else if (tab) moveToOther(dock, tab);
+    }
   }
 
   shownNow() {
@@ -371,9 +440,11 @@ export default class DockTabs extends View {
     return Boolean(node) && !node.hidden;
   }
 
-  // On opening: hide the other dock.
+  // On opening: hide the other dock, while the two show the same subtabs. Once
+  // a dock hides some (spec 019) the two are different panels and both stay.
   onShown() {
-    run("layout.hide", { id: props().other });
+    const h = hiddenState();
+    if (DOCKS.every((d) => hiddenIn(h, d).length === 0)) run("layout.hide", { id: props().other });
   }
 
   // On showing the dock (and on a machine change): migrate a stack from before
@@ -382,7 +453,7 @@ export default class DockTabs extends View {
   ensureDock(_cx, machine) {
     const { dock } = props();
     if (DOCKS.some(needsMigration)) setTabs(ownNames(dock), {});
-    const want = (shared(ACTIVE) ?? {})[machine ?? ""];
+    const want = remembered(dock, machine);
     const list = tabs(dock, machine);
     const pick = list.find((t) => (t.fixed ? t.fixed.key : baseOf(t.name)) === want) ?? list[0];
     if (pick) run("layout.select", { stack: STACK(dock), child: pick.id });
@@ -509,6 +580,12 @@ export default class DockTabs extends View {
       ...this.agents.map((a) => ({ label: `New ${a.name} tab`, icon: "terminal", act: () => addTab(dock, a.run.join(" ")) })),
       ...this.chats.map((c) => ({ label: c.label, icon: "layers", act: () => addTab(dock, c.run.join(" "), { chat: true }) })),
       ...this.dockMods.map((m) => ({ label: `${m.title} tab`, iconPath: dockModIcon(m), act: () => addModTab(dock, m.mod) })),
+      // The subtabs this dock hides (spec 019), each brought back by its entry.
+      ...hiddenIn(hiddenState(), dock).map((name) => {
+        const t = tabByName(name);
+        const text = name === FIXED_NAME ? "nav + git" : t ? label(t) : baseOf(name);
+        return { label: `Show here: ${text}`, icon: "layers", iconPath: t?.mod ? dockModIcon({ mod: t.mod, icon: "icon" }) : undefined, act: () => showHere(dock, name) };
+      }),
     ];
     if (menu !== "tab") return news;
     const list = tabs(dock, currentMachine());
@@ -517,6 +594,12 @@ export default class DockTabs extends View {
     if (!tab) return news;
     const items = [];
     if (activeOf(dock) !== target) items.push({ label: "Show", icon: "layers", act: () => show(dock, tab) });
+    // Which dock shows it (spec 019): hidden here while the other dock shows it,
+    // else moved there.
+    const shownElsewhere = !isHidden(hiddenState(), otherDock(dock), tabName(tab));
+    items.push(shownElsewhere
+      ? { label: "Hide in this dock", icon: "close", act: () => hideHere(dock, tab) }
+      : { label: "Move to the other dock", icon: "chevron-right", act: () => moveToOther(dock, tab) });
     if (tab.fixed) return [...items, { sep: true }, ...news].filter((it, k, all) => !(it.sep && (k === 0 || k === all.length - 1)));
     if (tab.term) items.push({ label: "Rename…", icon: "square-pen", act: () => this.rename(tab) });
     // The chat's escape hatch (spec 008): the subtab shows the agent's terminal again.
