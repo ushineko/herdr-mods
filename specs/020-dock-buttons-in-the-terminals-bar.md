@@ -69,7 +69,7 @@ visible whatever the docks do.
       hidden one, with the key in brackets only when there is one.
 - [x] AC2 `herdr-app check` passes for terminals-bar-proc and term-menu;
       `./run-tests.sh` passes.
-- [ ] AC3 Real window (njv-cachyos, the work home): both buttons sit between
+- [x] AC3 Real window (njv-cachyos, the work home): both buttons sit between
       the tabs and ⌘; with the right dock shown and the bottom hidden, the
       right button is lit and the bottom dim (shot). Clicking the bottom
       button shows the bottom dock with its subtabs as they were and lights
@@ -77,7 +77,7 @@ visible whatever the docks do.
       command and by key moves the buttons the same way.
       Done by command 2026-11-27 (the three states read back from shots: right
       lit and bottom dim; both lit with the bottom dock open on its subtabs;
-      bottom dim again). The click and the key are the operator's.
+      bottom dim again). The operator, 2026-11-27: "the dock buttons work".
 - [ ] AC4 Real window: the tooltips read "Hide the right dock (Ctrl+Shift+Y)"
       on the lit button and "Show the bottom dock (Alt+Shift+Y)" on the dim
       one (operator).
