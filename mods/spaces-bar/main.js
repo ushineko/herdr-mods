@@ -171,7 +171,9 @@ export default class SpacesBar extends View {
       .border_1()
       .cursor_pointer()
       .text_size(13)
-      .when(s.active, (el) => el.bg(t.raised).border_color(t.border).text_color(t.foreground))
+      // Shown, filled with the accent, this computer's colour (as a machine's chip is with
+      // its own, and the shown tab is marked in the tab bar; operator, 2026-11-27).
+      .when(s.active, (el) => el.bg(t.accent + "e6").border_color(t.accent).text_color(ON_COLOR).font_semibold())
       .when(!s.active, (el) => el.border_color("#00000000").text_color(t.muted).hover((x) => x.bg(t.hover)))
       .tooltip(`${s.name}${s.branch ? " · " + s.branch : ""}${s.machine ? " · " + s.machine : ""}`)
       .on_click(() => run("space.select", { id: s.id }))
@@ -179,7 +181,7 @@ export default class SpacesBar extends View {
         cx.stop_propagation();
         openOverlay({ mod: "menu", kind: "popup", width: 200, props: { tab: "space", target: { id: s.id } } });
       })
-      .when(i < 9, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(String(i + 1))))
+      .when(i < 9, (el) => el.child(div().flex_none().text_size(11).text_color(s.active ? ON_COLOR : t.dim).child(String(i + 1))))
       .when(Boolean(state), (el) => el.child(glyph(t, state)))
       .child(div().flex_none().max_w(160).truncate().child(s.name))
       .when(Boolean(roll), (el) => el.child(roll));
