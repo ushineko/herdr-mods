@@ -30,6 +30,8 @@ import { live, textFromRaw } from "./stream.js";
 import { herdr, chatTab, away, hide, show, adopt, waitWith } from "./backstage.js";
 
 const ASK_FIRST = "Answer the question above first.";
+// A question's choice that takes your own text (Claude Code: "Type something.").
+const OWN_ANSWER = /^type something\.?$/i;
 
 const CACHE = "data/ushi-naruse";
 // Tool calls: the folded line and each call's name (upstream 12), and their output (upstream 11.5).
@@ -247,6 +249,10 @@ export default class Chat extends View {
       cx.notify();
     });
     this.input.focus();
+    // A question's "Type something." choice, typed in its row (questionView): Enter
+    // moves the terminal's selection there and types it, Esc goes back to the choices.
+    this.ownAnswer = InputState.new({ placeholder: "Type your answer · Enter to send · Esc to go back" });
+    this.ownAnswer.on("submit", (_e, cx) => this.sendOwn(cx));
     this.search = InputState.new({ placeholder: "Search this conversation" });
     this.search.on("change", (_e, cx) => { this.off = 0; cx.notify(); });
     this.sideInput = TextareaState.new({ placeholder: "Ask about this conversation…" });
@@ -1325,14 +1331,8 @@ export default class Chat extends View {
         .child(this.button("panel-term", "Show terminal", (_e, cx) => this.showTerminal(cx), t))
         .child(this.button("panel-close", "Close", (_e, cx) => { this.panelKeys("esc"); this.panel = null; cx.notify(); }, t)))
       .when(Boolean(q), (el) => el
-        .when(Boolean(q.question), (d) => d.child(div().text_size(tsz(12.5)).child(this.markdown("panel-q", q.question))))
-        .child(v_flex().gap(5).children(q.options.map((o, n) =>
-          h_flex().id(`po-${n}`).px(12).py(7).gap(10).rounded(8).cursor_pointer().border_1()
-            .border_color(n === q.selected ? t.accent : t.border).bg(n === q.selected ? t.selected : t.surface)
-            .hover((s) => s.bg(t.hover)).on_mouse_down("left", (_e, cx) => cx.stop_propagation())
-            .on_click((_e, cx) => { this.panelKeys(...choose(q.selected, n)); cx.notify(); })
-            .child(div().flex_1().text_size(tsz(12.5)).child(o))))))
-      .when(!q && shown.length > 0, (el) => el.child(div().id("panel-screen").max_h(360).overflow_y_scrollbar().text_size(tsz(11.5)).text_color(t.foreground)
+        .child(this.questionView(q, "po", (n, cx) => { this.panelKeys(...choose(q.selected, n)); cx.notify(); }, t)))
+      .when(!q && shown.length > 0, (el) => el.child(div().id("panel-screen").w_full().min_w(0).max_h(360).overflow_y_scrollbar().text_size(tsz(11.5)).text_color(t.foreground)
         .when(Boolean(mono), (d) => d.font_family(mono))
         .child(this.markdown("panel-screen", "~~~~text\n" + shown.join("\n") + "\n~~~~"))))
       .child(h_flex().gap(6).flex_wrap().items_center()
@@ -2858,27 +2858,123 @@ export default class Chat extends View {
     return scroll;
   }
 
+  // A question read off the terminal (prompt.js parsePrompt), for the prompt box and
+  // the terminal panel: a form's tabs, a review page's answers, the question, and the
+  // choices, each with its description under it. Text wraps in the column. In a form,
+  // the choices keep the room of its tallest question so far, so stepping between
+  // questions doesn't move the chat; while an answer goes through, the old ones dim.
+  questionView(q, id, pick, t) {
+    const busy = id === "choice" && this.answering;
+    const form = q.tabs ? q.tabs.map((x) => x.label).join("\u0000") : null;
+    if (form !== this.formRoom?.form) this.formRoom = { form, rows: 0, details: false };
+    if (form) {
+      this.formRoom.rows = Math.max(this.formRoom.rows, q.options.length + (q.review?.length ?? 0));
+      this.formRoom.details ||= Boolean(q.details);
+    }
+    const row = tsz(12.5) * 1.5 + 18 + (this.formRoom.details ? tsz(11.5) * 1.5 + 2 : 0);
+    return v_flex().w_full().min_w(0).gap(10).when(busy, (el) => el.opacity(0.55))
+      .when(Boolean(q.tabs), (el) => el.child(h_flex().gap(6).flex_wrap().items_center().text_size(tsz(11.5)).children(q.tabs.map((x, i) =>
+        h_flex().id(`${id}-tab-${i}`).px(8).py(2).gap(5).rounded(6).items_center().border_1()
+          .border_color(x.current ? t.accent : t.border).bg(x.current ? t.selected : t.surface)
+          .text_color(x.current ? t.foreground : x.done ? t.muted : t.dim)
+          .child(div().text_color(x.done ? t.ansi2 : t.dim).child(x.done ? "✓" : x.current ? "•" : "○"))
+          .child(x.label)))))
+      .when(Boolean(q.title), (el) => el.child(div().font_semibold().text_size(tsz(12.5)).child(q.title)))
+      .when(Boolean(q.review?.length), (el) => el.child(v_flex().w_full().min_w(0).gap(8).px(12).py(10).rounded(8).bg(t.surface)
+        .children(q.review.map((r) => v_flex().w_full().min_w(0).gap(2)
+          .child(div().w_full().min_w(0).text_size(tsz(11.5)).text_color(t.dim).child(r.question))
+          .child(h_flex().w_full().min_w(0).gap(6).items_start().text_size(tsz(12.5))
+            .child(div().flex_none().text_color(t.accent).child("→"))
+            .child(div().flex_1().min_w(0).child(r.answer || "(no answer)")))))))
+      .when(Boolean(q.question), (el) => el.child(div().w_full().min_w(0).text_size(tsz(12.5)).child(this.markdown(`${id}-q`, q.question))))
+      .child(v_flex().w_full().min_w(0).gap(6).when(Boolean(form), (el) => el.min_h(Math.max(0, this.formRoom.rows - (q.review?.length ?? 0)) * (row + 6)))
+        .children(q.options.map((o, n) => id === "choice" && this.typing?.n === n && OWN_ANSWER.test(o)
+          // "Type something." chosen: the row is the answer's field.
+          ? h_flex().id(`${id}-${n}`).w_full().min_w(0).px(12).py(6).gap(10).items_center().rounded(8).border_1()
+            .border_color(t.accent).bg(t.background)
+            .on_key_down((e, cx) => { if (e.key === "escape") { this.typing = null; cx.stop_propagation(); this.input.focus(); cx.notify(); } })
+            .child(div().flex_none().w(16).text_size(tsz(12.5)).text_color(t.dim).child(String(n + 1)))
+            .child(div().flex_1().min_w(0).child(Input.new(this.ownAnswer).text_size(tsz(12.5))))
+            .child(this.button(`${id}-own-send`, "Send", (_e, cx) => this.sendOwn(cx), t))
+          : h_flex().id(`${id}-${n}`).w_full().min_w(0).px(12).py(8).gap(10).items_start().rounded(8).cursor_pointer().border_1()
+            .border_color(n === q.selected ? t.accent : t.border).bg(n === q.selected ? t.selected : t.surface)
+            .hover((s) => s.bg(t.hover)).on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+            .on_click((_e, cx) => {
+              if (busy) return;
+              if (id === "choice" && OWN_ANSWER.test(o)) { this.typing = { n, from: q.selected }; this.ownAnswer.set_value(""); cx.timer.after(1, () => this.ownAnswer.focus()); cx.notify(); return; }
+              pick(n, cx);
+            })
+            .child(div().flex_none().w(16).text_size(tsz(12.5)).text_color(t.dim).child(String(n + 1)))
+            // A pick-any question: each choice's box (a click ticks or unticks it).
+            .when(q.checks?.[n] != null, (el) => el.child(div().flex_none().text_size(tsz(13)).text_color(q.checks[n] ? t.accent : t.dim).child(q.checks[n] ? "☑" : "☐")))
+            .child(v_flex().flex_1().min_w(0).gap(2)
+              .child(div().w_full().min_w(0).text_size(tsz(12.5)).child(o))
+              .when(Boolean(q.details?.[n]), (d) => d.child(div().w_full().min_w(0).text_size(tsz(11.5)).text_color(t.dim).child(q.details[n]))))))
+        // A pick-any question goes on with its own item under the choices.
+        .when(Boolean(q.next), (el) => el.child(h_flex().w_full().justify_end()
+          .child(h_flex().id(`${id}-next`).px(14).py(6).gap(6).items_center().rounded(8).cursor_pointer().border_1()
+            .border_color(q.selected === q.options.length ? t.accent : t.border).bg(q.selected === q.options.length ? t.selected : t.surface)
+            .text_size(tsz(12.5)).font_medium().hover((x) => x.bg(t.hover))
+            .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+            .on_click((_e, cx) => { if (!busy) pick(q.options.length, cx); })
+            .child("Next").child(div().text_color(t.dim).child("→"))))));
+  }
+
+  // The typed answer for "Type something.": the selection moved to that choice, then
+  // the text typed there and sent.
+  sendOwn(cx) {
+    const text = this.ownAnswer.value().trim(), at = this.typing;
+    if (!text || !at) return;
+    this.ownAnswer.set_value("");
+    this.answer(choose(at.from, at.n).slice(0, -1), cx, text);
+  }
+
+  // Keys for the agent's question, the question kept on screen (dimmed) until its
+  // terminal shows the next screen: a form stays "blocked" from one question to the
+  // next, so nothing else would read it soon.
+  answer(keys, cx, text = null) { // text: an answer typed for "Type something."
+    const before = this.screen, term = this.term;
+    this.typing = null;
+    this.answering = true;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      if (keys.length) await hc(["keys", term, ...keys]).catch(() => null);
+      // Your own answer: typed into the choice's field and sent (hc send presses Enter;
+      // --force, as the agent is blocked on this very question).
+      if (text) await hc(["send", "--force", term, text]).catch(() => null);
+      let now = before;
+      for (let i = 0; i < 12 && now === before && this.term === term; i++) {
+        await cx.sleep(150);
+        const r = await hc(["read", term, "--lines", "40"]).catch(() => null);
+        if (r) now = r.stdout.replace(/\s+$/, "");
+      }
+      this.answering = false;
+      // The next screen; a menu the agent opened on its own is asked again whether it's
+      // still there. A finished question also changes the agent's status, which check()
+      // follows.
+      if (this.term === term && now !== before) {
+        if (this.idleAsk) { this.idleAsk = menuAtBottom(now); this.screen = this.idleAsk ? now : null; }
+        else this.screen = now;
+      }
+      cx.notify();
+    });
+  }
+
   // A question on the agent's terminal: its text, and its choices as buttons
   // that move the selection there and confirm. Without a menu, the screen itself.
   promptBox(title, t) {
     const form = this.idleAsk === "form";
     const q = form ? null : parsePrompt(this.screen);
-    const key = (k, label) => this.button(`key-${k}`, label, () => hc(["keys", this.term, k]), t);
+    const key = (k, label) => this.button(`key-${k}`, label, (_e, cx) => this.answer([k], cx), t);
     const mono = settings().font_family;
     const lines = (this.screen ?? "").split("\n").filter((l, i, a) => l.trim() || (i > 0 && a[i - 1].trim()));
-    return v_flex().p(12).gap(10).rounded(10).border_1().border_color(t.blocked).bg(t.background)
+    return v_flex().w_full().min_w(0).p(12).gap(10).rounded(10).border_1().border_color(t.blocked).bg(t.background)
       .child(h_flex().gap(8).items_center()
-        .child(div().flex_1().font_semibold().text_size(tsz(12.5)).text_color(t.blocked).child(title))
+        .child(div().flex_1().min_w(0).font_semibold().text_size(tsz(12.5)).text_color(t.blocked).child(title))
         .child(this.button("go-term2", "Show terminal", (_e, cx) => this.showTerminal(cx), t)))
-      .when(Boolean(q?.question), (el) => el.child(div().text_size(tsz(12.5)).child(this.markdown("question", q.question))))
-      .when(Boolean(q), (el) => el.child(v_flex().gap(6).children(q.options.map((o, n) =>
-        h_flex().id(`choice-${n}`).px(12).py(8).gap(10).rounded(8).cursor_pointer().border_1()
-          .border_color(n === q.selected ? t.accent : t.border).bg(n === q.selected ? t.selected : t.surface)
-          .hover((s) => s.bg(t.hover))
-          .on_click((_e, cx) => { hc(["keys", this.term, ...choose(q.selected, n)]); this.screen = this.idleAsk = null; cx.notify(); })
-          .child(div().flex_none().w(16).text_color(t.dim).child(String(n + 1)))
-          .child(div().flex_1().text_size(tsz(12.5)).child(o))))))
-      .when(!q && lines.length > 0, (el) => el.child(div().text_size(tsz(11.5)).text_color(t.muted)
+      .when(Boolean(q), (el) => el.child(this.questionView(q, "choice", (n, cx) => this.answer(choose(q.selected, n), cx), t)))
+      // The screen as it is: its lines are the terminal's width, so it scrolls sideways.
+      .when(!q && lines.length > 0, (el) => el.child(div().id("screen-x").w_full().min_w(0).overflow_x_scrollbar().text_size(tsz(11.5)).text_color(t.muted)
         .when(Boolean(mono), (d) => d.font_family(mono))
         .child(this.markdown("screen", "~~~~text\n" + lines.slice(-24).join("\n") + "\n~~~~"))))
       .child(h_flex().gap(6).flex_wrap()
