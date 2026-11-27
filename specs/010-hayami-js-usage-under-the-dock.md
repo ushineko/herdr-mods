@@ -39,7 +39,11 @@ later, on the same client.
 
 - **Transport**: Herdr mods run in QuickJS and have no sockets; the only way out
   is `exec(command, args, { on })`. So hayami-js runs one command on the target
-  machine per request:
+  machine per request (corrected 2026-11-27: mods do have network access, a
+  global `fetch`, `net.connect(host, port)` and a `websocket` module, gated by a
+  capability policy. None opens a Unix socket or named pipe, which is all the
+  service listens on, and none reaches another machine as `exec`'s `on` does, so
+  the transport stands; found in the discussion of jira-viewer's spec 026):
   - Linux and macOS: `curl --unix-socket <address> http://hayami/v1/…`, the
     address worked out in `/bin/sh` by the contract's rule;
   - Windows: `hayami-tui api get …`, since curl cannot open a named pipe nor

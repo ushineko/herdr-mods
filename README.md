@@ -113,9 +113,11 @@ on any machine. Changing the model or effort backs up
 
 `lib/hayami.js` is a client for [hayami](https://github.com/ushineko/hayami)'s
 service (`hayami-tui serve`, hayami spec 113; contract `api/openapi.yaml`, prose
-`docs/api.md` there). It belongs to this repository, not to hayami. Mods have no
-sockets, so each request is one command on the machine that serves it: `curl
---unix-socket` on Linux and macOS, `hayami-tui api get` on Windows. Every
+`docs/api.md` there). It belongs to this repository, not to hayami. Each request
+is one command on the machine that serves it: `curl --unix-socket` on Linux and
+macOS, `hayami-tui api get` on Windows. A mod's own network access (`fetch`,
+`net.connect(host, port)`, `websocket`) reaches TCP and URLs only, not the Unix
+socket or named pipe the service listens on, nor another machine. Every
 section is drawn (`hayami`); bandwidth and cooler are read every 5 s, the others less
 often, and only the sections shown are asked for.
 

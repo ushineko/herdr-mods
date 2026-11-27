@@ -29,9 +29,12 @@ a GitHub issue and a spec (`specs/NNN-…md`) when work starts.
   files only, printed once to PDF, scripts out). Options weighed: (1) a URL snapshot:
   the headless browser, scripts on, run on the machine the site is reachable from (a
   remote dev server's localhost), screenshot or PDF copied here (`fetchHere`),
-  Refresh; small. (2) A live pane: a helper keeps a headless Chromium on the Chrome
-  DevTools Protocol, writes screenshots and takes clicks and keys through files (a
-  mod can't hold a socket); a few frames a second. (3) That pane attached to the
+  Refresh; small. (2) A live pane: a headless Chromium on the Chrome DevTools
+  Protocol, which the mod drives itself over the protocol's WebSocket on localhost
+  (the `websocket` module; first written here as "a mod can't hold a socket", which
+  was wrong, 2026-11-27): screenshots in, clicks and keys out; a few frames a
+  second. Only the Chromium is a helper, and on another machine it needs a
+  forwarded port. (3) That pane attached to the
   Chromium an agent drives (`chrome-devtools-mcp`), to watch and take over.
 - **TODO: hayami-js details and drills** (operator, 2026-11-26: to be done later).
   Specs 010 and 011 draw the sections only. The service lists each section's
@@ -52,7 +55,11 @@ a GitHub issue and a spec (`specs/NNN-…md`) when work starts.
   when its program ends, so a stream needs a long-running reader: for example a
   herdr-core background terminal running curl into a file the mod reads, one per
   machine, ended when the block stops following that machine. The stream is a new
-  path for `checkPath`'s allow-list.
+  path for `checkPath`'s allow-list. A mod's own `net` socket could hold the stream
+  without a terminal, but it connects to TCP only, and the service listens only on
+  a Unix socket or named pipe that one account can open; a loopback TCP listener
+  would be a hayami change across its threat model (B3, B6), not a client one
+  (2026-11-27).
 
 ## Ideas from spec 006 (not yet asked for)
 
