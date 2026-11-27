@@ -30,6 +30,20 @@ const FONT_KEY = "git.fontSize";
 const FONT_BASE = 12.5, FONT_MIN = 9, FONT_MAX = 24;
 let Z = 1;
 const z = (n) => Math.round(n * Z * 10) / 10;
+
+// A changed file that view and edit can open: not deleted, not an untracked folder.
+const fileOpens = (file) => file.code !== "D" && !file.path.endsWith("/");
+
+// A file row's small button (diff, view, edit): commit files and changed files alike.
+// Its press stays its own: the row under it isn't clicked too.
+function fileChip(t, id, label, act, enabled = true) {
+  return div().id(id).px(6).h(z(20)).flex().items_center().rounded(5).text_size(z(11))
+    .when(enabled, (el) => el.cursor_pointer().text_color(t.muted).bg(t.raised).hover((x) => x.bg(t.hover).text_color(t.foreground))
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .on_click((_e, cx) => { cx.stop_propagation(); act(cx); }))
+    .when(!enabled, (el) => el.text_color(t.dim).opacity(0.5))
+    .child(label);
+}
 const panelFont = () => Number(shared(FONT_KEY)) || FONT_BASE;
 // Every copy gets a palette command; only the first within a moment acts.
 let lastFontCommand = 0;
@@ -422,12 +436,7 @@ export default class Git extends View {
     const back = div().id("git-commit-back").px(8).h(z(24)).flex().items_center().rounded(6).cursor_pointer().text_size(z(12))
       .text_color(t.muted).hover((x) => x.bg(t.hover).text_color(t.foreground))
       .on_click((_e, cx) => { this.commit = null; cx.notify(); }).child("← Back");
-    const chip = (id, label, act, enabled = true) => div().id(id).px(6).h(z(20)).flex().items_center().rounded(5).text_size(z(11))
-      .when(enabled, (el) => el.cursor_pointer().text_color(t.muted).bg(t.raised).hover((x) => x.bg(t.hover).text_color(t.foreground))
-        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
-        .on_click((_e, cx) => { cx.stop_propagation(); act(cx); }))
-      .when(!enabled, (el) => el.text_color(t.dim).opacity(0.5))
-      .child(label);
+    const chip = (...a) => fileChip(t, ...a);
     const codeColor = { M: t.blocked, A: t.ansi2, D: t.ansi1, R: t.ansi4, C: t.ansi4, T: t.blocked };
     const head = h_flex().flex_none().px(10).py(6).gap(10).items_center().border_b(1).border_color(t.border)
       .child(back)
@@ -491,7 +500,8 @@ export default class Git extends View {
         if (this.zone === "worktrees") { this.showWorktree(this.stripRows()[this.wtCursor], cx); return true; }
         if (sel) this.openDiff(sel, cx);
         return true;
-      case "open": if (sel) openInViewer(cx, { path: join(this.shown, sel.file.path.replace(/\/$/, "")), on: this.loc.on, space: this.loc.space ?? undefined }); return true;
+      case "open": if (sel) this.fileAction("view", sel, cx); return true;
+      case "edit": if (sel) this.fileAction("edit", sel, cx); return true;
       case "toggle":
         if (!sel) return true;
         this.write(sel.group === "Staged" ? "Unstage" : "Stage", sel.group === "Staged" ? unstageArgs([sel.file.path], hasHead) : stageArgs([sel.file.path]), cx);
@@ -526,6 +536,16 @@ export default class Git extends View {
     this.cursor = 0;
     this.watchHere(cx);
     this.refresh(cx);
+  }
+
+  // A changed file's diff, the file in the viewer, or the file in the editor. A deleted
+  // file or an untracked folder has only its diff.
+  fileAction(kind, item, cx) {
+    const path = join(this.shown, item.file.path.replace(/\/$/, ""));
+    if (kind === "diff") return this.openDiff(item, cx);
+    if (!fileOpens(item.file)) return;
+    if (kind === "view") openInViewer(cx, { path, on: this.loc.on, space: this.loc.space ?? undefined });
+    else editFile({ path, on: this.loc.on });
   }
 
   openDiff(item, cx) {
@@ -1134,7 +1154,11 @@ export default class Git extends View {
           .child(div().flex_shrink(1).min_w(0).max_w(220).truncate().child(slash < 0 ? p : p.slice(slash + 1)))
           .when(slash >= 0, (el) => el.child(div().flex_shrink(4).min_w(0).truncate().text_size(z(11)).text_color(t.dim).child(p.slice(0, slash)))))
         .when(Boolean(ns) && ns.added != null, (el) => el.child(h_flex().flex_none().gap(4).text_size(z(11))
-          .child(div().text_color(t.ansi2).child(`+${ns.added}`)).child(div().text_color(t.ansi1).child(`−${ns.removed}`))));
+          .child(div().text_color(t.ansi2).child(`+${ns.added}`)).child(div().text_color(t.ansi1).child(`−${ns.removed}`))))
+        .child(h_flex().flex_none().gap(4)
+          .child(fileChip(t, `git-file-diff-${i}`, "diff", (cx) => { this.cursor = i; this.zone = "changes"; this.fileAction("diff", { group, file }, cx); }))
+          .child(fileChip(t, `git-file-view-${i}`, "view", (cx) => this.fileAction("view", { group, file }, cx), fileOpens(file)))
+          .child(fileChip(t, `git-file-edit-${i}`, "edit", (cx) => this.fileAction("edit", { group, file }, cx), fileOpens(file))));
     };
 
     const groupHeader = (group, files) => section(group, files.length, null)
@@ -1149,7 +1173,7 @@ export default class Git extends View {
     else if (this.commit && !this.help) body = this.renderCommit(t);
     else if (this.help) {
       const keys = [["j / k", "move"], ["space", "stage / unstage"], ["a", "stage all / unstage all"], ["c", "commit"], ["p", "pull (fast-forward only)"], ["P", "push"], ["f", "fetch"],
-        ["enter", "open the diff"], ["o", "open the file"], ["w", "worktrees"], ["r", "refresh"], ["F", "follow the terminal"], ["- / =", "smaller / larger text (0: back)"], ["?", "close this"],
+        ["enter", "open the diff"], ["o", "open the file"], ["e", "edit the file"], ["w", "worktrees"], ["r", "refresh"], ["F", "follow the terminal"], ["- / =", "smaller / larger text (0: back)"], ["?", "close this"],
         ["click a commit", "its details and files; there: enter diff, o view, e edit, esc back"]];
       body = v_flex().p(12).gap(4).text_size(z(12.5)).children(keys.map(([k, what]) => h_flex().gap(10)
         .child(div().w(70).text_color(t.accent).child(k)).child(div().text_color(t.muted).child(what))))
