@@ -3,7 +3,8 @@
   "lib": [
     "chat-entries.js",
     "machine-color.js",
-    "dock-mods.js"
+    "dock-mods.js",
+    "dock-tabs-hidden.js"
   ],
   "title": "Dock tab strip (subtabs inside a window dock)",
   "palette": [
