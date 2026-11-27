@@ -7,6 +7,7 @@
 
 import { knownAgents, exec, hc, panes, spaces, terminals, run, window, notify, shared, setShared } from "herdr";
 import { chatEntries, strayChats, orphanedHidden, toSettle, toRename, localId, newChatId, ID_LABEL, returnTab, SHOWN_KEY, CHAT_LABEL, HIDDEN_LABEL, OWNER_LABEL, AGENT_LOOKUP, parseAgentLookup, withLoginAgents, hasChatAgent, platformOf } from "./lib/chat-entries.js";
+import * as S from "./stack.js";
 
 const where = (base) => {
   const i = base.indexOf("/");
@@ -213,4 +214,38 @@ export async function sweep() {
   // The hidden terminal's tab is named like its chat's (a new tab only has a number),
   // so it keeps the project's name if it comes back.
   for (const { id, name } of toRename(terms, tabs)) run("tab.rename", { id, name });
+}
+
+// ---- a chat as a nested tab (spec 021) -----------------------------------
+
+const machinePart = (id) => (String(id).includes("/") ? String(id).slice(0, String(id).lastIndexOf("/") + 1) : "");
+// The agent's terminal is in a tab of its own, away from its chat's (Hide terminal).
+const awayFromChat = (l) => Boolean(l?.["ushi.chat"] && l["chat.tab"] && l["herdr.tab"] && l["herdr.tab"] !== l["chat.tab"]);
+
+/**
+ * The chat a stack's own terminal `base` stands behind: { chatPane, chatTab }, or
+ * null when it has no chat or sits beside it.
+ */
+export function pairOfStack(base) {
+  const term = terminals().find((t) => t.address === base);
+  if (!awayFromChat(term?.labels)) return null;
+  const chat = panes().find((p) => p.mod === "ushi-naruse" && localId(p.pane) === localId(term.labels[OWNER_LABEL]));
+  return chat ? { chatPane: chat.pane, chatTab: machinePart(base) + term.labels["chat.tab"] } : null;
+}
+
+/**
+ * The stack behind chat pane `chatPane`: { base, pane } (the agent's terminal and the
+ * pane showing it in the hidden tab), or null when the chat's terminal isn't away.
+ */
+export function stackOfChat(chatPane) {
+  const term = terminals().find((t) => localId(t.labels?.[OWNER_LABEL]) === localId(chatPane) && awayFromChat(t.labels));
+  const pane = term && panes().find((p) => p.terminal === term.address);
+  return pane ? { base: term.address, pane: pane.pane } : null;
+}
+
+/** Shows the chat (its tab, then the chat pane), ending the stack side's mark. */
+export function toChat(chatTab, chatPane) {
+  setShared(S.CHAT_SIDE, null);
+  run("tab.select", { id: chatTab });
+  run("pane.focus", { pane: chatPane });
 }

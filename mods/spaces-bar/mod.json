@@ -5,7 +5,8 @@
     "machine-color.js",
     "inbox.js",
     "tab-order.js",
-    "quick-find.js"
+    "quick-find.js",
+    "chat-stack.js"
   ],
   "palette": [
     {

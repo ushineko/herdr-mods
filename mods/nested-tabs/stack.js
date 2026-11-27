@@ -10,7 +10,7 @@
 // state under the pane's own terminal, so every copy of this mod sees the same
 // thing. The pane header applies the shown tab with terminal.show.
 
-import { shared, setShared, terminals, panes, run, hc, home, notify } from "herdr";
+import { shared, setShared, terminals, panes, spaces, run, hc, home, notify } from "herdr";
 
 const KEY = "nested-tabs.v1";
 export const LABEL = "nt.stack";
@@ -83,8 +83,32 @@ function apply(pane, base, addr) {
   run("terminal.show", addr && addr !== base ? { terminal: addr, pane } : { pane });
 }
 
+// A chat as a nested tab (spec 021): the pane may sit in its chat's hidden tab. A
+// switch made here is marked (CHAT_SIDE: the pane's own terminal, when), so the chat
+// lets that tab stay shown; the mark goes once the tab is left.
+export const CHAT_SIDE = "nested-tabs.chat-side";
+
+/** Shows the hidden (settled) tab pane `pane` is in, if it isn't shown, marked as asked for. */
+export function reveal(pane) {
+  const me = panes().find((p) => p.pane === pane);
+  const tab = me && spaces().flatMap((s) => s.tabs ?? []).find((t) => t.id === me.tab);
+  if (!tab?.settled || tab.active) return;
+  setShared(CHAT_SIDE, { terminal: me.terminal, at: Date.now() });
+  run("tab.select", { id: tab.id });
+}
+
+/** Clears the mark once its tab has been left (not just after it was asked for). */
+export function expireChatSide() {
+  const mark = shared(CHAT_SIDE);
+  if (!mark || Date.now() - (mark.at ?? 0) < 1500) return;
+  const tab = panes().find((p) => p.terminal === mark.terminal)?.tab;
+  const shown = tab && spaces().some((s) => s.tabs?.some((t) => t.id === tab && t.active));
+  if (!shown) setShared(CHAT_SIDE, null);
+}
+
 export function select(pane, base, addr) {
   setPane(pane, base, { order: members(pane, base).map((m) => m.address), shown: addr === base ? null : addr });
+  reveal(pane);
   apply(pane, base, addr);
   run("pane.focus", { pane });
 }
@@ -154,6 +178,7 @@ export async function add(pane, base, command, opts = {}) {
   order.splice(order.indexOf(shownOf(pane, base)) + 1, 0, addr);
   if (show) {
     setPane(pane, base, { order, shown: addr });
+    reveal(pane);
     apply(pane, base, addr);
     run("pane.focus", { pane });
   } else {

@@ -58,3 +58,9 @@ test("nestedPane: the pane showing a nested tab's parent, whatever its label nam
   assert.equal(nestedPane({ parent: "t1", labels: { "nt.stack": "" } }, ps), null, "popped out");
   assert.equal(nestedPane({ parent: "t9", labels: { "nt.stack": "x" } }, ps), null, "its pane is hidden or gone");
 });
+
+test("findItems: a chat's partner tab is left out while shown (spec 021)", () => {
+  const sp = [{ id: "sp1", name: "x", machine: null, tabs: [{ id: "tbC", name: "chat" }, { id: "tbP", name: "chat", active: true }] }];
+  const ts = [{ address: "t1", state: "live", labels: { "ushi.chat": "pc", "chat.tab": "tbC", "herdr.tab": "tbP" } }];
+  assert.deepEqual(findItems({ spaces: sp, panes: [], terms: ts, order: [] }).filter((x) => x.kind === "tab").map((x) => x.key), ["tab:tbC"]);
+});

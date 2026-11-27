@@ -10,6 +10,7 @@ import { svg, image, div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { spaces, panes, terminals, run, theme, props, closeOverlay, shared, setShared, window as win } from "herdr";
 import { tabEntry, recordTab, liveOrder, switcherList } from "./lib/tab-order.js";
+import { chatPairs } from "./lib/chat-stack.js";
 import { machineColor } from "./lib/machine-color.js";
 import { OTHERS, showInWindow } from "./others.js";
 import { openDialog, openKind, dialogClosed, alive } from "./dialogs.js";
@@ -24,10 +25,12 @@ const SW = { open: false, alive: 0, rows: [], sel: 0 };
 const isOpen = () => SW.open && Date.now() - SW.alive < 1000;
 const tick = () => setShared("spaces-bar.switcher.tick", Date.now());
 
-// This window's tabs now (settled ones left out), in space and tab order.
+// This window's tabs now (settled ones left out, and a chat's partner tab, which the
+// app unsettles while it's shown: spec 021), in space and tab order.
 function entries() {
   const ps = panes(), ts = terminals();
-  return spaces().flatMap((s) => s.tabs.filter((t) => !t.settled).map((t) => tabEntry(t, s, ps, ts)));
+  const pairs = chatPairs(ts);
+  return spaces().flatMap((s) => s.tabs.filter((t) => !t.settled && !pairs.has(t.id)).map((t) => tabEntry(t, s, ps, ts)));
 }
 
 /**
@@ -40,7 +43,10 @@ function entries() {
 let wasActive = false;
 export function recordShown() {
   const s = spaces().find((x) => x.active);
-  const t = s?.tabs.find((x) => x.active);
+  const shownTab = s?.tabs.find((x) => x.active);
+  // A chat's partner tab shown (spec 021) counts as its chat's tab.
+  const chat = shownTab && chatPairs(terminals()).get(shownTab.id)?.chat;
+  const t = (chat && s.tabs.find((x) => x.id === chat)) || shownTab;
   const active = win()?.active !== false;
   const focused = active && !wasActive;
   wasActive = active;

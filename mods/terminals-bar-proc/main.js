@@ -2,10 +2,11 @@
 
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, ScrollHandle } from "gpui-base";
-import { spaces, panes, terminals, run, theme, openOverlay, layout, keys, window as win } from "herdr";
+import { spaces, panes, terminals, run, theme, openOverlay, layout, keys, nextCommand, checking, window as win } from "herdr";
 import { machineColor } from "./lib/machine-color.js";
 import { keyFor, dockTooltip } from "./lib/key-names.js";
-import { closeTab, followShown } from "./keep.js";
+import { closeTab, followShown, openTab, moveShown } from "./keep.js";
+import { chatPairs } from "./lib/chat-stack.js";
 import { spaceFolder } from "./lib/location.js";
 
 const C = {
@@ -168,6 +169,14 @@ export default class TerminalsBar extends View {
     this.wheel = 0;
     // Closing the shown tab goes back to the one shown before it (keep.js).
     cx.timer.every(300, () => followShown());
+    if (checking()) return;
+    // The palette's Tab: move left / right (keep.js moveShown).
+    cx.spawn(async () => {
+      for (;;) {
+        const c = await nextCommand();
+        if (c === "move-left" || c === "move-right") moveShown(c === "move-left" ? -1 : 1);
+      }
+    });
   }
 
   // The wheel over the strip moves along it a tab at a time.
@@ -192,7 +201,13 @@ export default class TerminalsBar extends View {
     const edges = paneEdges(layout()) ?? {};
     // Settled tabs (a chat's hidden agent terminal, spec 008) are left out, as the
     // shipped tab bar does, unless one is shown.
-    const shownTabs = space.tabs.filter((c) => !c.settled || c.active);
+    // A chat's hidden partner tab (spec 021: its agent's pane and nested tabs) is drawn
+    // as the chat's tab, lit while either is shown. Shown, the app unsettles it for a
+    // while (the chat settles it again), so it's left out by the pair, not the flag.
+    const pairs = chatPairs(terminals());
+    const partnerShown = new Set(space.tabs.filter((c) => c.active && pairs.has(c.id)).map((c) => pairs.get(c.id).chat));
+    const shownTabs = space.tabs.filter((c) => !pairs.has(c.id) && (!c.settled || c.active))
+      .map((c) => (partnerShown.has(c.id) ? { ...c, active: true } : c));
     const focusedPane = all.some((p) => p.focused && p.tab === space.tabs.find((c) => c.active)?.id);
     const edge = (focusedPane ? edges.focus : edges.border) ?? t.border;
     // Reveal the shown tab when it changes; a wheel scroll owns the strip until then.
@@ -242,7 +257,7 @@ export default class TerminalsBar extends View {
           else if (this.over?.id === c.id) this.over = null;
           cx.notify();
         })
-        .on_click(() => run("tab.select", { id: c.id }))
+        .on_click(() => openTab(c.id))
         .on_mouse_down("right", () =>
           openOverlay({ mod: "menu", kind: "popup", width: 200, props: { tab: "tab", target: { id: c.id, space: space.id } } }),
         )

@@ -2,6 +2,7 @@
   "place": "none",
   "lib": [
     "chat-entries.js",
+    "chat-stack.js",
     "key-names.js",
     "location.js",
     "machine-color.js"
@@ -14,18 +15,12 @@
   "palette": [
     {
       "title": "Tab: move left",
-      "command": "tab.move",
-      "args": {
-        "by": -1
-      },
+      "command": "terminals-bar-proc.move-left",
       "words": "tab move reorder left"
     },
     {
       "title": "Tab: move right",
-      "command": "tab.move",
-      "args": {
-        "by": 1
-      },
+      "command": "terminals-bar-proc.move-right",
       "words": "tab move reorder right"
     }
   ]

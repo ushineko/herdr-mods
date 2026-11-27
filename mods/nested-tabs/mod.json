@@ -1,6 +1,6 @@
 {
   "place": "none",
-  "lib": ["chat-entries.js"],
+  "lib": ["chat-entries.js", "chat-stack.js"],
   "title": "Nested tabs pane header",
   "palette": [
     { "title": "Nested tabs: new tab in this pane", "command": "nested-tabs.add", "words": "stack nested tab new" },

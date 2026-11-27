@@ -4,6 +4,7 @@
 
 import { panes, spaces, terminals, hc, run, notify, shared, setShared } from "herdr";
 import { agentsToKeep, localId, returnTab, noteShown, SHOWN_KEY } from "./lib/chat-entries.js";
+import { chatPairs, moveIndex } from "./lib/chat-stack.js";
 
 const machinePart = (id) => (String(id).includes("/") ? String(id).slice(0, String(id).lastIndexOf("/") + 1) : "");
 const wait = (cx, ms) => new Promise((done) => cx.timer.after(ms, () => done()));
@@ -36,10 +37,36 @@ const record = (space, history) => setShared(SHOWN_KEY, { ...(shared(SHOWN_KEY) 
  * has closed some other way (a key, its program exiting), the app showed a neighbour
  * of its choosing: the tab shown before it comes back instead.
  */
+// Which side of a chat pair (spec 021) was shown last, by the chat's tab id: "chat"
+// or "term" (its hidden partner, the agent's pane and nested tabs).
+const SIDE_KEY = "terminals-bar.pair-side";
+
+function noteSide(tab) {
+  const pairs = chatPairs(terminals());
+  const chat = pairs.get(tab.id)?.chat ?? ([...pairs.values()].some((v) => v.chat === tab.id) ? tab.id : null);
+  if (!chat) return;
+  const side = pairs.has(tab.id) ? "term" : "chat";
+  const all = shared(SIDE_KEY) ?? {};
+  if (all[chat] !== side) setShared(SIDE_KEY, { ...all, [chat]: side });
+}
+
+/** Shows tab `id` from the bar: a chat's tab shows the side of its pair shown last. */
+export function openTab(id) {
+  const partner = [...chatPairs(terminals())].find(([, v]) => v.chat === id);
+  const shown = (x) => spaces().some((s) => s.tabs?.some((t) => t.id === x && t.active));
+  if (partner && shared(SIDE_KEY)?.[id] === "term" && !shown(id) && !shown(partner[0])) {
+    setShared("nested-tabs.chat-side", { terminal: partner[1].terminal, at: Date.now() });
+    run("tab.select", { id: partner[0] });
+    return;
+  }
+  run("tab.select", { id });
+}
+
 export function followShown() {
   const space = spaces().find((s) => s.active);
   const tab = space?.tabs?.find((t) => t.active);
   if (!tab) return;
+  noteSide(tab);
   const history = historyOf(space.id);
   if (history[0] === tab.id) return;
   const open = new Set(spaces().flatMap((s) => (s.tabs ?? []).map((t) => t.id)));
@@ -87,4 +114,19 @@ export function closeTab(tab, space, name, cx) {
     await leaveTab(tab, cx);
     run("tab.close", { id: tab, confirmed: true });
   });
+}
+
+/**
+ * Moves the shown tab one place left (-1) or right (1) among the tabs the bar draws
+ * (spec 021): a chat's partner tab shown moves its chat's tab, and hidden tabs are
+ * passed over, so a move is always seen.
+ */
+export function moveShown(by) {
+  const space = spaces().find((s) => s.active);
+  const shown = space?.tabs?.find((t) => t.active);
+  if (!shown) return;
+  const pairs = chatPairs(terminals());
+  const id = pairs.get(shown.id)?.chat ?? shown.id;
+  const index = moveIndex(space.tabs, id, by, new Set(pairs.keys()));
+  if (index != null) run("tab.move", { id, index });
 }

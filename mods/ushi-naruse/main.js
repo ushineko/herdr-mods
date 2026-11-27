@@ -1376,6 +1376,9 @@ export default class Chat extends View {
     const mine = own && this.myPane();
     if (!own || !mine) return;
     if (own.active) {
+      // herdr-mods (spec 021): the nested-tabs strip showed this tab on purpose (a
+      // terminal picked beside the chat); it stays until the person leaves it.
+      if (shared("nested-tabs.chat-side")?.terminal === this.term) return;
       if (this.redirected === own.id) return;
       this.redirected = own.id;
       run("tab.select", { id: mine.tab });
@@ -2234,6 +2237,17 @@ export default class Chat extends View {
     if (!this.termHidden(mine)) {
       const tp = panes().find((p) => p.terminal === this.term);
       return tp && run("pane.focus", { pane: tp.pane });
+    }
+    // herdr-mods (spec 021 D6): the terminal is shown where it waits, in its own tab with
+    // its nested tabs, as the nested-tabs strip shows it; nothing moves.
+    const waiting = away(this.terminal()) && panes().find((p) => p.terminal === this.term);
+    if (waiting) {
+      const at = Date.now();
+      setShared("nested-tabs.chat-side", { terminal: this.term, at });
+      setShared("nested-tabs.request", { pane: waiting.pane, terminal: this.term, at });
+      run("tab.select", { id: waiting.tab });
+      run("pane.focus", { pane: waiting.pane });
+      return;
     }
     if (this.moving) return;
     this.moving = true;
