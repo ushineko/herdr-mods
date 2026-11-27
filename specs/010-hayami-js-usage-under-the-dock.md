@@ -40,10 +40,17 @@ later, on the same client.
 - **Transport**: Herdr mods run in QuickJS and have no sockets; the only way out
   is `exec(command, args, { on })`. So hayami-js runs one command on the target
   machine per request (corrected 2026-11-27: mods do have network access, a
-  global `fetch`, `net.connect(host, port)` and a `websocket` module, gated by a
-  capability policy. None opens a Unix socket or named pipe, which is all the
-  service listens on, and none reaches another machine as `exec`'s `on` does, so
-  the transport stands; found in the discussion of jira-viewer's spec 026):
+  global `fetch`, `net.connect(host, port)` and a `websocket` module; found in
+  the discussion of jira-viewer's spec 026. None reaches another machine as
+  `exec`'s `on` does, and none opens the service's Unix socket, so the
+  transport stands. Tested the same day with a probe mod shown in the app on
+  njv-cachyos: `fetch` and `net.connect` to a loopback TCP server worked with
+  no grant; the service's socket path given to `net.connect` as the host,
+  bare or as `unix:`/`unix://`, failed as a host-name lookup ("failed to lookup
+  address information"), and `http+unix://`, `unix:` and `unix://` URLs failed
+  in `fetch`'s URL builder. Under `herdr-app check` both are refused until the
+  manifest grants `capabilities.network.hosts`; the app grants without one.
+  The Windows named pipe was not tried):
   - Linux and macOS: `curl --unix-socket <address> http://hayami/v1/…`, the
     address worked out in `/bin/sh` by the contract's rule;
   - Windows: `hayami-tui api get …`, since curl cannot open a named pipe nor
