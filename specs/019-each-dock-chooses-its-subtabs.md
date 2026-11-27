@@ -72,7 +72,7 @@ down the right, and no copy of either where it is not wanted.
 - [x] AC1 Unit: hide refused when the name would be shown nowhere; show,
       move and visibleNames; the fixed subtab's rule (shown when everything
       is hidden).
-- [x] AC2 `herdr-app check` passes; `./run-tests.sh` passes (324).
+- [x] AC2 `herdr-app check` passes; `./run-tests.sh` passes (321 pass, 0 fail).
 - [x] AC3 Real window (njv-cachyos, the work home): nav + git hidden in the
       bottom dock and the Jira tab in the right dock, by command; each dock
       shows its own, both open at once (R8); the choice survived three
