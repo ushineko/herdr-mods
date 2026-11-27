@@ -26,6 +26,7 @@ import { machineColor } from "./lib/machine-color.js";
 import { inboxSections, inboxBadge, inboxRow, sessionOfHome, parseSiblings } from "./lib/inbox.js";
 import { SIBLINGS, SIBLINGS_KEY, siblings, showInWindow, refreshOthers } from "./others.js";
 import * as Switcher from "./switcher.js";
+import { watch } from "./dialogs.js";
 import * as Finder from "./finder.js";
 
 
@@ -100,7 +101,7 @@ export default class SpacesBar extends View {
     // The Ctrl+Tab switcher (spec 015): the shown tab recorded as it changes, and its
     // keys (keys.json: ctrl-tab spaces-bar.switch, ctrl-shift-tab spaces-bar.switch-back);
     // the quick switcher (spec 016): ctrl-space spaces-bar.find.
-    cx.timer.every(400, () => Switcher.recordShown());
+    cx.timer.every(400, () => { Switcher.recordShown(); watch(); });
     // Every 2 s: the other windows' state (for both switchers), and this window's
     // open things published for theirs (the quick switcher, spec 016).
     cx.spawn(async (cx) => { for (;;) { await refreshOthers(); Finder.publish(); await cx.sleep(2000); } });

@@ -12,7 +12,7 @@ import { spaces, panes, terminals, run, theme, props, closeOverlay, shared, setS
 import { tabEntry, recordTab, liveOrder, switcherList } from "./lib/tab-order.js";
 import { machineColor } from "./lib/machine-color.js";
 import { OTHERS, showInWindow } from "./others.js";
-import { openDialog, openKind, dialogClosed } from "./dialogs.js";
+import { openDialog, openKind, dialogClosed, alive } from "./dialogs.js";
 
 // This window's order, in its app home's shared state; the other windows' is read
 // from their homes' shared.json.
@@ -31,7 +31,8 @@ function entries() {
 }
 
 /**
- * Records the shown tab at the front of this window's order when it changed, and
+ * Records the shown tab at the front of this window's order when it changed, drops
+ * tabs that have closed (the other windows read this order as it is), and
  * stamps it again when this window gets the focus: across windows (njv-cachyos's
  * default and work), going back to a window counts as using its tab, so the merged
  * order follows what was used, not only what was switched to.
@@ -44,8 +45,13 @@ export function recordShown() {
   const focused = active && !wasActive;
   wasActive = active;
   if (!t) return;
-  const order = shared(ORDER_KEY) ?? [];
-  if (order[0]?.key === t.id && !focused) return;
+  const recorded = shared(ORDER_KEY) ?? [];
+  const open = new Set(spaces().flatMap((x) => x.tabs.map((y) => y.id)));
+  const order = recorded.filter((e) => open.has(e.key));
+  if (order[0]?.key === t.id && !focused) {
+    if (order.length !== recorded.length) setShared(ORDER_KEY, order);
+    return;
+  }
   setShared(ORDER_KEY, recordTab(order, tabEntry(t, s, panes(), terminals()), Date.now()));
 }
 
@@ -74,7 +80,7 @@ export function initDialog(view, cx) {
   SW.rows = switcherList(liveOrder(shared(ORDER_KEY) ?? [], entries()), others);
   // The most recent other tab (any window's), or the oldest for Ctrl+Shift+Tab.
   SW.sel = props()?.back ? Math.max(0, SW.rows.length - 1) : Math.min(1, SW.rows.length - 1);
-  cx.timer.every(250, () => { if (SW.open) SW.alive = Date.now(); });
+  cx.timer.every(250, () => { if (SW.open) { SW.alive = Date.now(); alive(); } });
 }
 
 // Switches to a row: this window's tab here; another window's there, raised.
@@ -92,14 +98,15 @@ function pick(r) {
 
 function cancel() {
   SW.open = false;
-  dialogClosed("switch");
   closeOverlay(props()?.overlay);
+  dialogClosed("switch", true);
 }
 
 /** The dialog. */
 export function renderDialog(view) {
   const t = theme();
   SW.alive = Date.now();
+  alive();
   const rows = SW.rows;
   const known = spaces().map((s) => s.machine);
   const tag = (text, color, bg) => div().flex_none().max_w(170).truncate().px(6).rounded(5).bg(bg).text_color(color).text_size(11).child(text);

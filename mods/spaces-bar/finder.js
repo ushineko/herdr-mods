@@ -11,7 +11,7 @@ import { findItems, quickFind } from "./lib/quick-find.js";
 import { machineColor } from "./lib/machine-color.js";
 import { ORDER_KEY } from "./switcher.js";
 import { OTHERS, showInWindow } from "./others.js";
-import { openDialog, dialogClosed } from "./dialogs.js";
+import { openDialog, dialogClosed, alive } from "./dialogs.js";
 
 // What this window has open, in its app home's shared state, for the other windows.
 export const ITEMS_KEY = "spaces-bar.find-items";
@@ -40,6 +40,7 @@ export function initDialog(view, cx) {
   view.query.on("change", (_e, cx) => { view.sel = 0; cx.notify(); });
   view.query.on("submit", () => pick(view.results?.[view.sel]));
   cx.timer.after(1, () => view.query.focus());
+  cx.timer.every(250, () => alive());
 }
 
 // Shows an item: here, in order (a nested tab through nested-tabs' request); in
@@ -58,6 +59,7 @@ function pick(it) {
 /** The dialog. */
 export function renderDialog(view) {
   const t = theme();
+  alive();
   const q = view.query.value();
   const results = view.results = quickFind(view.items, q, 40);
   if (view.sel >= results.length) view.sel = Math.max(0, results.length - 1);
@@ -89,7 +91,7 @@ export function renderDialog(view) {
     .bg(t.popover)
     .text_size(13)
     .on_key_down((e, cx) => {
-      if (e.key === "escape") { dialogClosed("find"); return closeOverlay(props()?.overlay); }
+      if (e.key === "escape") { closeOverlay(props()?.overlay); return dialogClosed("find", true); }
       const n = Math.max(1, results.length);
       if (e.key === "down") view.sel = (view.sel + 1) % n;
       else if (e.key === "up") view.sel = (view.sel - 1 + n) % n;
