@@ -15,6 +15,7 @@
 import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { panes, terminals, run, theme, props, openOverlay, closeOverlay, hc, checking, keys, window as win } from "herdr";
+import { keyFor as keyNamed } from "./lib/key-names.js";
 
 // Close an overlay by id; a no-op without one (herdr-app check has none).
 const close = (id) => { if (id) closeOverlay(id); };
@@ -53,22 +54,9 @@ function items(p) {
   return out.filter((it, k, all) => !(it.sep && (k === 0 || k === all.length - 1 || all[k - 1]?.sep)));
 }
 
-// The key bound to an action, as this platform writes it ("⌘⇧Y" on macOS,
-// "Ctrl+Shift+Y" elsewhere), or null.
-function keyFor(action) {
-  // `action` as keys.json writes it ("layout.toggle:dock-right"); keys() may
-  // give it whole or as an action with an id argument.
-  const [cmd, arg] = action.split(":");
-  const k = (keys() ?? []).find((b) => b.action === action || (b.action === cmd && (b.args?.id ?? b.args) === arg))?.keys;
-  if (!k) return null;
-  const parts = k.split("-");
-  if (win()?.platform === "macos") {
-    const MAC = { cmd: "⌘", shift: "⇧", alt: "⌥", ctrl: "⌃" };
-    return parts.map((x) => MAC[x] ?? x.toUpperCase()).join("");
-  }
-  const NAME = { ctrl: "Ctrl", shift: "Shift", alt: "Alt", cmd: "Super" };
-  return parts.map((x) => NAME[x] ?? x.toUpperCase()).join("+");
-}
+// The key bound to an action ("layout.toggle:dock-right"), as this platform
+// writes it (lib/key-names.js), or null.
+const keyFor = (action) => keyNamed(keys(), action, win()?.platform);
 
 const heightOf = (list) => PAD + list.reduce((h, it) => h + (it.sep ? SEP : ROW), 0);
 

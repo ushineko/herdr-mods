@@ -2,8 +2,9 @@
 
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, ScrollHandle } from "gpui-base";
-import { spaces, panes, terminals, run, theme, openOverlay, layout, window as win } from "herdr";
+import { spaces, panes, terminals, run, theme, openOverlay, layout, keys, window as win } from "herdr";
 import { machineColor } from "./lib/machine-color.js";
+import { keyFor, dockTooltip } from "./lib/key-names.js";
 import { closeTab } from "./keep.js";
 import { spaceFolder } from "./lib/location.js";
 
@@ -122,6 +123,40 @@ function iconButton(id, icon, onClick, onRight) {
     .on_click(onClick)
     .when(Boolean(onRight), (el) => el.on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); onRight(); }))
     .child(svg(`mods/terminals-bar-proc/${icon}.svg`).size(16));
+}
+
+const DOCKS = ["dock-right", "dock-bottom"];
+const DOCK_ICON = { "dock-right": "panel-right", "dock-bottom": "panel-bottom" };
+
+// The layout node with this id, or null.
+function findNode(node, id) {
+  if (!node || typeof node !== "object") return null;
+  if (node.id === id) return node;
+  for (const c of node.children ?? []) {
+    const found = findNode(c, id);
+    if (found) return found;
+  }
+  return null;
+}
+
+// A dock's toggle (spec 020): lit while the dock is shown, dim while hidden;
+// the tooltip names the action and the key bound to it.
+function dockButton(dock) {
+  const node = findNode(layout(), dock);
+  const shown = Boolean(node) && !node.hidden;
+  const key = keyFor(keys(), `layout.toggle:${dock}`, win()?.platform);
+  return own(div())
+    .id(`tm-${dock}`)
+    .flex_none()
+    .p(5)
+    .rounded(7)
+    .text_color(shown ? C.text : C.dim)
+    .when(shown, (el) => el.bg(C.chip))
+    .cursor_pointer()
+    .hover((el) => el.bg(C.hover).text_color(C.text))
+    .tooltip(dockTooltip(dock, shown, key))
+    .on_click(() => run("layout.toggle", { id: dock }))
+    .child(svg(`mods/terminals-bar-proc/${DOCK_ICON[dock]}.svg`).size(16));
 }
 
 export default class TerminalsBar extends View {
@@ -290,6 +325,7 @@ export default class TerminalsBar extends View {
           .on_scroll_wheel((e) => this.onWheel(e, shownTabs.length))
           .children(shownTabs.map(tab)),
       )
+      .children(DOCKS.map(dockButton))
       .child(iconButton("tm-keys", "command", () => run("app.palette")))
       .when(Boolean(w.buttons), (el) =>
         el.child(

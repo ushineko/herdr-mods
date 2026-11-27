@@ -1,5 +1,11 @@
 {
   "place": "none",
   "title": "Terminal right-click menu (dock-aware; tab panes get the shipped menu)",
-  "overlay": { "width": 240, "height": 60 }
+  "overlay": {
+    "width": 240,
+    "height": 60
+  },
+  "lib": [
+    "key-names.js"
+  ]
 }
