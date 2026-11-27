@@ -312,9 +312,17 @@ export default class Chat extends View {
   // another window raising this one, a click on its header), not only by pane.go's
   // "focus". Switching windows counts: its pane stays focused in its own window
   // meanwhile. Left alone while the new-chat form or the side question has it.
+  // A switcher (Ctrl+Tab, Ctrl+Space; spaces-bar) also asks for it once it has shown
+  // something ("ushi-naruse.focus-request": when): its dialog had the keyboard, and
+  // gives it back as it closes, so the chat in use then (within 1.5 s) takes it.
   focusInput() {
     const inUse = appWindow()?.active !== false && Boolean(this.myPane()?.focused);
-    if (inUse && !this.wasInUse && !this.dialog && !this.side.open) this.input.focus();
+    const req = Number(shared("ushi-naruse.focus-request")) || 0;
+    const asked = req > (this.focusAsked ?? 0) && Date.now() - req < 1500;
+    if (inUse && (!this.wasInUse || asked) && !this.dialog && !this.side.open) {
+      this.input.focus();
+      if (asked) this.focusAsked = req;
+    }
     this.wasInUse = inUse;
   }
 

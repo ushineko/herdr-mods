@@ -44,3 +44,9 @@ test("switcherList: the shown tab first, then everything by when it was last sho
   const others = [{ window: { title: "Work window" }, order: [{ key: "w1", at: 7 }, { key: "w2", at: 2 }] }];
   assert.deepEqual(switcherList(own, others).map((e) => e.key), ["a", "w1", "b", "w2", "c"]);
 });
+
+test("tabEntry: a title that's only the terminal's address falls back to the program's name", () => {
+  const e = tabEntry({ id: "tbD", name: "4" }, space, [{ tab: "tbD", terminal: "t2d", title: "t2d" }], [{ address: "t2d", title: "t2d", cwd: "/u/git/ag-scripts", program: { name: "zsh" } }]);
+  assert.equal(e.title, "zsh");
+  assert.equal(e.project, "ag-scripts");
+});

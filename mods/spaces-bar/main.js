@@ -24,8 +24,9 @@ import { spaces, terminals, run, theme, props, openOverlay, closeOverlay, hc, ex
 import { allAgents, worst, focusAgent, ORDER, RANK } from "./agents.js";
 import { machineColor } from "./lib/machine-color.js";
 import { inboxSections, inboxBadge, inboxRow, sessionOfHome, parseSiblings } from "./lib/inbox.js";
-import { SIBLINGS, SIBLINGS_KEY, siblings, showInWindow } from "./others.js";
+import { SIBLINGS, SIBLINGS_KEY, siblings, showInWindow, refreshOthers } from "./others.js";
 import * as Switcher from "./switcher.js";
+import * as Finder from "./finder.js";
 
 
 
@@ -71,6 +72,7 @@ function programIcon(p, color) {
 export default class SpacesBar extends View {
   init(_props, cx) {
     if (props()?.switcher) return Switcher.initDialog(this, cx);
+    if (props()?.finder) return Finder.initDialog(this, cx);
     if (props()?.picker || props()?.machines || props()?.group || props()?.inbox) {
       this.at = 0;
       this.handle = cx.focus_handle();
@@ -96,13 +98,17 @@ export default class SpacesBar extends View {
     this.view = 0;
     this.wheelAcc = 0;
     // The Ctrl+Tab switcher (spec 015): the shown tab recorded as it changes, and its
-    // keys (keys.json: ctrl-tab spaces-bar.switch, ctrl-shift-tab spaces-bar.switch-back).
+    // keys (keys.json: ctrl-tab spaces-bar.switch, ctrl-shift-tab spaces-bar.switch-back);
+    // the quick switcher (spec 016): ctrl-space spaces-bar.find.
     cx.timer.every(400, () => Switcher.recordShown());
-    cx.spawn(async (cx) => { for (;;) { await Switcher.readOthers(); await cx.sleep(2000); } });
+    // Every 2 s: the other windows' state (for both switchers), and this window's
+    // open things published for theirs (the quick switcher, spec 016).
+    cx.spawn(async (cx) => { for (;;) { await refreshOthers(); Finder.publish(); await cx.sleep(2000); } });
     cx.spawn(async (cx) => {
       for (;;) {
         const c = await nextCommand();
         if (c === "switch" || c === "switch-back") Switcher.command(c);
+        else if (c === "find") Finder.open();
         cx.notify();
       }
     });
@@ -591,6 +597,7 @@ export default class SpacesBar extends View {
 
   render() {
     if (props()?.switcher) return Switcher.renderDialog(this);
+    if (props()?.finder) return Finder.renderDialog(this);
     if (props()?.inbox) return this.renderInbox();
     if (props()?.group) return this.renderGroup();
     if (props()?.machines) return this.renderMachines();

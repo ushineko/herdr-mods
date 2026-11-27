@@ -9,10 +9,9 @@
 import { svg, image, div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { spaces, panes, terminals, run, theme, props, openOverlay, closeOverlay, shared, setShared, window as win } from "herdr";
-import * as fs from "fs/promises";
 import { tabEntry, recordTab, liveOrder, switcherList } from "./lib/tab-order.js";
 import { machineColor } from "./lib/machine-color.js";
-import { siblings, showInWindow } from "./others.js";
+import { OTHERS, showInWindow } from "./others.js";
 
 // This window's order, in its app home's shared state; the other windows' is read
 // from their homes' shared.json.
@@ -20,7 +19,7 @@ export const ORDER_KEY = "spaces-bar.tab-order";
 
 // The open dialog: its rows, the selected one, and when it last drew (an Esc the
 // app handles closes it without telling us: one not seen for a second is gone).
-const SW = { open: false, alive: 0, rows: [], sel: 0, others: [] };
+const SW = { open: false, alive: 0, rows: [], sel: 0 };
 const isOpen = () => SW.open && Date.now() - SW.alive < 1000;
 const tick = () => setShared("spaces-bar.switcher.tick", Date.now());
 
@@ -62,23 +61,6 @@ function step(d) {
   tick();
 }
 
-/**
- * The other windows' orders, read from their app homes (open windows only, as the
- * inbox lists them) and kept here, so the dialog opens with every window's tabs at
- * once: one read when it opens would come after a quick Ctrl+Tab was already over.
- * Called by the bar copy every 2 s.
- */
-export async function readOthers() {
-  if (win()?.platform === "windows") return;
-  const others = [];
-  for (const w of siblings()) {
-    try {
-      const data = JSON.parse(await fs.readFile(`${w.home}/shared.json`, "utf8"));
-      others.push({ window: w, order: Array.isArray(data?.[ORDER_KEY]) ? data[ORDER_KEY] : [] });
-    } catch {}
-  }
-  SW.others = others;
-}
 
 /** The dialog copy's start: its rows (this window's and the others'), the selection. */
 export function initDialog(view, cx) {
@@ -86,7 +68,9 @@ export function initDialog(view, cx) {
   view.handle.focus();
   SW.open = true;
   SW.alive = Date.now();
-  SW.rows = switcherList(liveOrder(shared(ORDER_KEY) ?? [], entries()), SW.others);
+  // The other windows' orders, as the bar last read them (others.js).
+  const others = OTHERS.list.map((o) => ({ window: o.window, order: Array.isArray(o.data?.[ORDER_KEY]) ? o.data[ORDER_KEY] : [] }));
+  SW.rows = switcherList(liveOrder(shared(ORDER_KEY) ?? [], entries()), others);
   // The most recent other tab (any window's), or the oldest for Ctrl+Shift+Tab.
   SW.sel = props()?.back ? Math.max(0, SW.rows.length - 1) : Math.min(1, SW.rows.length - 1);
   cx.timer.every(250, () => { if (SW.open) SW.alive = Date.now(); });
@@ -100,6 +84,8 @@ function pick(r) {
   if (r.window) return showInWindow(r.window, [["space.select", { id: r.space }], ["tab.select", { id: r.tab }]]);
   run("space.select", { id: r.space });
   run("tab.select", { id: r.tab });
+  // A chat landed on takes the keyboard back from this closing dialog (ushi-naruse).
+  setShared("ushi-naruse.focus-request", Date.now());
 }
 
 function cancel() {

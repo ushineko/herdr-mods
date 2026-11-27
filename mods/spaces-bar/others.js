@@ -1,7 +1,8 @@
 // The other windows on this computer (njv-cachyos runs two: default and work, each
 // its own herdr-core session): reading their agents for the inbox, and showing
 // something in one of them. Shared by the inbox and the Ctrl+Tab switcher.
-import { spaces, exec, shared } from "herdr";
+import { spaces, exec, shared, window as win } from "herdr";
+import * as fs from "fs/promises";
 
 // The other windows on this computer (another herdr-core session with its window
 // open: njv-cachyos's default and work) and their agents, for the inbox: its own and
@@ -71,4 +72,19 @@ fi`;
 export function showInWindow(w, steps) {
   const lines = steps.map(([c, args]) => `${c} ${JSON.stringify(args)}`).join("\n");
   return exec("sh", ["-c", RAISE, "sh", w.home, lines, w.session]).catch(() => {});
+}
+
+/**
+ * The other windows' shared state (their app homes' shared.json, read only), kept
+ * here for the Ctrl+Tab switcher and the quick switcher: [{ window, data }]. Read
+ * every 2 s by the bar copy (refreshOthers), so a dialog opens with it at once.
+ */
+export const OTHERS = { list: [] };
+export async function refreshOthers() {
+  if (win()?.platform === "windows") return;
+  const list = [];
+  for (const w of siblings()) {
+    try { list.push({ window: w, data: JSON.parse(await fs.readFile(`${w.home}/shared.json`, "utf8")) ?? {} }); } catch {}
+  }
+  OTHERS.list = list;
 }

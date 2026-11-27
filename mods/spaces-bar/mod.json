@@ -4,13 +4,19 @@
   "lib": [
     "machine-color.js",
     "inbox.js",
-    "tab-order.js"
+    "tab-order.js",
+    "quick-find.js"
   ],
   "palette": [
     {
       "title": "Switch to a recent tab",
       "command": "spaces-bar.switch",
       "words": "tab switcher recent ctrl-tab mru"
+    },
+    {
+      "title": "Find a tab, nested tab, space or machine",
+      "command": "spaces-bar.find",
+      "words": "quick switcher spotlight find search open go to"
     }
   ]
 }
