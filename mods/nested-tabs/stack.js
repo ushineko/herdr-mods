@@ -4,9 +4,11 @@
 // Membership lives in herdr-core: every extra terminal in a pane's stack is a
 // child of the pane's own terminal (so it belongs to the same tab, without a
 // pane of its own, and ends when the pane does) and carries the label
-// `nt.stack=<pane id>`. Tab order and the shown tab live in shared state, so
-// every copy of this mod sees the same thing. The pane header applies the shown
-// tab with terminal.show.
+// `nt.stack`. A stack is found by that parentage, not by the pane: the pane gets
+// a new id when it moves (a chat's Hide and Show terminal), and another window
+// names it with a machine part (#53). Tab order and the shown tab live in shared
+// state under the pane's own terminal, so every copy of this mod sees the same
+// thing. The pane header applies the shown tab with terminal.show.
 
 import { shared, setShared, terminals, panes, run, hc, home, notify } from "herdr";
 
@@ -14,47 +16,57 @@ const KEY = "nested-tabs.v1";
 export const LABEL = "nt.stack";
 export const TITLE = "nt.title";
 
+const live = (t) => t && t.state === "live";
+
 function store() {
   const s = shared(KEY);
   return s && typeof s === "object" && s.panes ? s : { panes: {} };
 }
 
-export function paneState(pane) {
-  const p = store().panes[pane];
+// Stacks by the pane's own terminal (`stacks`); `panes` is the old keying by pane
+// id, read once for a stack that has no entry of its own yet.
+export function paneState(pane, base) {
+  const s = store();
+  const p = s.stacks?.[base] ?? s.panes[pane];
   return { order: Array.isArray(p?.order) ? p.order : [], shown: p?.shown ?? null };
 }
 
-function setPane(pane, next) {
+function setPane(pane, base, next) {
   const s = store();
-  setShared(KEY, { ...s, panes: { ...s.panes, [pane]: next } });
+  const { [pane]: _old, ...rest } = s.panes;
+  setShared(KEY, { ...s, panes: rest, stacks: { ...(s.stacks ?? {}), [base]: next } });
 }
 
-// Forget panes that no longer exist and have no stacked terminals left.
+// Forget stacks whose terminal has ended, and old pane entries no longer in use.
 export function prune() {
   const s = store();
   const known = new Set(panes().map((p) => p.pane));
-  if (!known.size) return;
-  const stacked = new Set(terminals().filter((t) => t.labels?.[LABEL]).map((t) => t.labels[LABEL]));
-  const keep = Object.fromEntries(Object.entries(s.panes).filter(([id]) => known.has(id) || stacked.has(id)));
-  if (Object.keys(keep).length !== Object.keys(s.panes).length) setShared(KEY, { ...s, panes: keep });
+  const all = terminals();
+  if (!known.size || !all.length) return;
+  const alive = new Set(all.filter(live).map((t) => t.address));
+  const stacks = Object.fromEntries(Object.entries(s.stacks ?? {}).filter(([base]) => alive.has(base)));
+  const old = Object.fromEntries(Object.entries(s.panes).filter(([id]) => known.has(id)));
+  if (Object.keys(stacks).length !== Object.keys(s.stacks ?? {}).length || Object.keys(old).length !== Object.keys(s.panes).length)
+    setShared(KEY, { ...s, panes: old, stacks });
 }
 
-const live = (t) => t && t.state === "live";
+/** Whether terminal `t` is a nested tab in the stack of terminal `base`. */
+export const stackedOn = (t, base) => Boolean(t?.labels?.[LABEL]) && t.parent === base;
 
 // The pane's tabs in order: its own terminal plus every live labelled child.
 export function members(pane, base) {
   const all = terminals();
   const byAddr = new Map(all.map((t) => [t.address, t]));
-  const present = [base, ...all.filter((t) => live(t) && t.labels?.[LABEL] === pane && t.address !== base).map((t) => t.address)];
+  const present = [base, ...all.filter((t) => live(t) && stackedOn(t, base) && t.address !== base).map((t) => t.address)];
   const set = new Set(present);
-  const order = paneState(pane).order.filter((a) => set.has(a));
+  const order = paneState(pane, base).order.filter((a) => set.has(a));
   for (const a of present) if (!order.includes(a)) order.push(a);
   return order.map((a) => ({ address: a, base: a === base, term: byAddr.get(a) ?? null }));
 }
 
 // The address the pane should show: a live member, else its own terminal.
 export function shownOf(pane, base) {
-  const want = paneState(pane).shown;
+  const want = paneState(pane, base).shown;
   if (!want || want === base) return base;
   return members(pane, base).some((m) => m.address === want) ? want : base;
 }
@@ -72,7 +84,7 @@ function apply(pane, base, addr) {
 }
 
 export function select(pane, base, addr) {
-  setPane(pane, { order: members(pane, base).map((m) => m.address), shown: addr === base ? null : addr });
+  setPane(pane, base, { order: members(pane, base).map((m) => m.address), shown: addr === base ? null : addr });
   apply(pane, base, addr);
   run("pane.focus", { pane });
 }
@@ -90,7 +102,7 @@ export function reorder(pane, base, from, to) {
   if (i < 0 || j < 0 || i === j) return;
   order.splice(i, 1);
   order.splice(j, 0, from);
-  setPane(pane, { ...paneState(pane), order });
+  setPane(pane, base, { ...paneState(pane, base), order });
 }
 
 export function move(pane, base, addr, step) {
@@ -98,7 +110,7 @@ export function move(pane, base, addr, step) {
   const i = order.indexOf(addr), j = i + step;
   if (i < 0 || j < 0 || j >= order.length) return;
   [order[i], order[j]] = [order[j], order[i]];
-  setPane(pane, { ...paneState(pane), order });
+  setPane(pane, base, { ...paneState(pane, base), order });
 }
 
 // The folder a new tab starts in: the shown tab's, else the pane's. On
@@ -132,7 +144,7 @@ export async function add(pane, base, command, opts = {}) {
   let r;
   try {
     r = await hc(["run", "--bg", "--json", ...(on ? ["--on", on] : []), "--parent", id,
-      "--no-notify", "--rm", "--keep", "--label", `${LABEL}=${pane}`, ...(cwd ? ["--cwd", cwd] : [])]);
+      "--no-notify", "--rm", "--keep", "--label", `${LABEL}=${id}`, ...(cwd ? ["--cwd", cwd] : [])]);
   } catch (e) { return fail("New nested tab failed", e); }
   if (r.code !== 0) return fail("New nested tab failed", r);
   let addr;
@@ -141,11 +153,11 @@ export async function add(pane, base, command, opts = {}) {
   const order = members(pane, base).map((m) => m.address).filter((a) => a !== addr);
   order.splice(order.indexOf(shownOf(pane, base)) + 1, 0, addr);
   if (show) {
-    setPane(pane, { order, shown: addr });
+    setPane(pane, base, { order, shown: addr });
     apply(pane, base, addr);
     run("pane.focus", { pane });
   } else {
-    setPane(pane, { ...paneState(pane), order });
+    setPane(pane, base, { ...paneState(pane, base), order });
   }
   if (command) await hc(["send", addr, command]);
   return addr;
@@ -161,7 +173,7 @@ export async function rename(addr, text) {
 export async function close(pane, base, addr) {
   if (addr === base) { run("pane.close", { pane }); return; }
   const list = members(pane, base);
-  const st = paneState(pane);
+  const st = paneState(pane, base);
   const order = list.map((m) => m.address).filter((a) => a !== addr);
   let shown = st.shown;
   if (shownOf(pane, base) === addr) {
@@ -170,7 +182,7 @@ export async function close(pane, base, addr) {
     shown = next === base ? null : next;
     apply(pane, base, next);
   }
-  setPane(pane, { order, shown });
+  setPane(pane, base, { order, shown });
   const r = await hc(["kill", addr]);
   if (r.code !== 0) fail("Close nested tab failed", r);
 }
@@ -184,8 +196,8 @@ export async function closeOthers(pane, base, keepAddr) {
 export async function popOut(pane, base, addr, place) {
   if (addr === base) return;
   if (shownOf(pane, base) === addr) apply(pane, base, base);
-  const st = paneState(pane);
-  setPane(pane, { order: st.order.filter((a) => a !== addr), shown: st.shown === addr ? null : st.shown });
+  const st = paneState(pane, base);
+  setPane(pane, base, { order: st.order.filter((a) => a !== addr), shown: st.shown === addr ? null : st.shown });
   await hc(["label", addr, `${LABEL}=`]);
   run("terminal.keep", { terminal: addr, place: place ?? "right" });
 }

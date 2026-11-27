@@ -1,8 +1,10 @@
 // Agents the person should see: the app's own (terminals with a pane) plus
-// nested-tab agents (pane-less terminals the nested-tabs mod labels
-// nt.stack=<pane>), which the app only knows as sub-agents of a parent agent.
+// nested-tab agents (pane-less terminals the nested-tabs mod labels nt.stack,
+// children of their pane's own terminal), which the app only knows as sub-agents
+// of a parent agent.
 
 import { agents, terminals, panes, spaces, run, setShared } from "herdr";
+import { nestedPane } from "./lib/quick-find.js";
 
 export const RANK = { blocked: 4, done: 3, working: 2, idle: 1 };
 export const ORDER = ["blocked", "done", "working", "idle"];
@@ -16,15 +18,15 @@ export function allAgents() {
       pane: a.pane, program: a.program, title: a.pane_name || a.program?.name || a.title, nested: false,
     });
   }
-  const byPane = new Map(panes().map((p) => [p.pane, p]));
+  const all = panes();
   const tabInfo = new Map();
   for (const s of spaces()) for (const t of s.tabs) tabInfo.set(t.id, { space: s.id, tab_name: t.name });
   for (const t of terminals()) {
-    const pane = t.labels?.["nt.stack"];
-    if (!pane || t.state !== "live" || out.has(t.address)) continue;
+    if (t.state !== "live" || out.has(t.address)) continue;
     if (!t.program?.agent && !t.status) continue;
-    const p = byPane.get(pane);
+    const p = nestedPane(t, all);
     if (!p) continue;
+    const pane = p.pane;
     const info = tabInfo.get(p.tab) ?? {};
     out.set(t.address, {
       address: t.address, status: norm(t.status) || "idle", space: info.space, tab: p.tab, tab_name: info.tab_name,

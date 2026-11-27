@@ -45,12 +45,14 @@ function lead(all, id) {
 const RANK = { blocked: 4, done: 3, working: 2, idle: 1 };
 
 // The most urgent agent status in a tab: its panes' agents and their
-// nested-tab agents (pane-less terminals labelled nt.stack=<pane>).
+// nested-tab agents (pane-less terminals labelled nt.stack, children of their
+// pane's own terminal).
 function tabStatus(all, id) {
-  const mine = new Set(all.filter((p) => p.tab === id).map((p) => p.pane));
-  const words = all.filter((p) => mine.has(p.pane)).map((p) => p.status);
+  const here = all.filter((p) => p.tab === id);
+  const words = here.map((p) => p.status);
+  const owners = new Set(here.map((p) => p.terminal).filter(Boolean));
   for (const k of terminals()) {
-    if (k.state === "live" && mine.has(k.labels?.["nt.stack"])) words.push(k.status === "error" ? "blocked" : k.status);
+    if (k.state === "live" && k.labels?.["nt.stack"] && owners.has(k.parent)) words.push(k.status === "error" ? "blocked" : k.status);
   }
   let best = null;
   for (const s of words) if (s && (RANK[s] ?? 0) > (RANK[best] ?? 0)) best = s;

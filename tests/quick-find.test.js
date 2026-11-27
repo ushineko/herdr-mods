@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { findItems, wordScore, quickFind } from "../lib/quick-find.js";
+import { findItems, wordScore, quickFind, nestedPane } from "../lib/quick-find.js";
 
 const spaces = [
   { id: "sp1", name: "herdr-mods", machine: null, tabs: [{ id: "tbA", name: "1" }, { id: "tbS", name: "2", settled: true }] },
@@ -16,7 +16,7 @@ const terms = [
   { address: "t1", title: "~/git/herdr-mods", cwd: "/u/git/herdr-mods", program: { name: "zsh" } },
   { address: "w/t7", title: "ap-25565 upstream mr status", cwd: "/h/git/platform-backend", program: { name: "Claude Code" } },
   { address: "w/t9", title: "jira gate fields", cwd: "/h/git/jira-viewer", program: { name: "Claude Code" } },
-  { address: "t4", state: "live", title: "mr-status.sh", cwd: "/u/git/hayami", labels: { "nt.stack": "p1", "nt.title": "mr-status.sh" }, program: { name: "zsh" } },
+  { address: "t4", parent: "t1", state: "live", title: "mr-status.sh", cwd: "/u/git/hayami", labels: { "nt.stack": "t1", "nt.title": "mr-status.sh" }, program: { name: "zsh" } },
 ];
 const order = [{ key: "w/tbC", at: 30 }, { key: "w/tbB", at: 20 }, { key: "tbA", at: 10 }];
 
@@ -48,4 +48,13 @@ test("quickFind: every word must match; the title ranks first; ties by use; empt
   assert.equal(quickFind(items, "zzz").length, 0);
   assert.deepEqual(quickFind(items, "").slice(0, 3).map((x) => x.key), ["tab:w/tbC", "tab:w/tbB", "tab:tbA"]);
   assert.equal(quickFind(items, "space plat")[0].key, "space:w/sp2");
+});
+
+test("nestedPane: the pane showing a nested tab's parent, whatever its label names (#53)", () => {
+  const ps = [{ pane: "pNew", tab: "T", terminal: "t1" }, { pane: "p2", tab: "U", terminal: "t2" }];
+  assert.equal(nestedPane({ parent: "t1", labels: { "nt.stack": "pOld" } }, ps)?.pane, "pNew", "the pane moved: new id");
+  assert.equal(nestedPane({ parent: "t1", labels: { "nt.stack": "njv-mbp-m1/pOld" } }, ps)?.pane, "pNew", "written by another window");
+  assert.equal(nestedPane({ parent: "t1", labels: {} }, ps), null, "a sub-agent, not a nested tab");
+  assert.equal(nestedPane({ parent: "t1", labels: { "nt.stack": "" } }, ps), null, "popped out");
+  assert.equal(nestedPane({ parent: "t9", labels: { "nt.stack": "x" } }, ps), null, "its pane is hidden or gone");
 });
