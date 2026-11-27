@@ -39,8 +39,11 @@ json_str() {
   printf '"%s"' "$s"
 }
 
-session=default
-if [[ ${HC_TERMINAL_SOCKET:-} =~ /herdr-core/([^/]+)/ ]]; then session=${BASH_REMATCH[1]}; fi
+# The window's session: HC_SESSION when the terminal has it, else from the socket path,
+# a folder per session on macOS (…/herdr-core/<session>/x.sock) and a file per session
+# on Linux (/run/user/<uid>/herdr-core/<session>.sock).
+session=${HC_SESSION:-default}
+if [[ -z ${HC_SESSION:-} && ${HC_TERMINAL_SOCKET:-} =~ /herdr-core/([^/]+)(/|\.sock$) ]]; then session=${BASH_REMATCH[1]}; fi
 
 id="$(date +%s)-$$-${RANDOM}"
 at=$(date -u +%Y-%m-%dT%H:%M:%SZ)

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, mkdirSync, realpathSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, realpathSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,6 +36,8 @@ test("parseRequest: follow needs no path; Windows paths are absolute", () => {
 test("sessionFromSocket, terminalAddress, splitClaimed", () => {
   assert.equal(sessionFromSocket("/Users/n/.local/state/herdr-core/default/default.sock"), "default");
   assert.equal(sessionFromSocket("/run/user/1000/herdr-core/work/x.sock"), "work");
+  assert.equal(sessionFromSocket("/run/user/1000/herdr-core/work.sock"), "work");
+  assert.equal(sessionFromSocket("/run/user/1000/herdr-core/default.sock"), "default");
   assert.equal(sessionFromSocket(""), "default");
   assert.equal(terminalAddress(null, "t13"), "t13");
   assert.equal(terminalAddress("njv-cachyos-default", "t2k"), "njv-cachyos-default/t2k");
@@ -64,6 +66,20 @@ test("herdr-request: refuses control characters, unknown actions and bad lines",
   assert.notEqual(run("herdr-request", ["open", "/tmp/a\nb"]).status, 0);
   assert.notEqual(run("herdr-request", ["delete", "/tmp/a"]).status, 0);
   assert.notEqual(run("herdr-request", ["open", "/tmp/a", "line=0"]).status, 0);
+});
+
+test("herdr-request: the inbox is the asking window's session", { skip: !bash }, () => {
+  const inbox = (env) => {
+    const home = mkdtempSync(join(tmpdir(), "herdr-request-"));
+    try {
+      const r = run("herdr-request", ["open", "/tmp/a"], { HOME: home, HERDR_REQUEST_DRY_RUN: "", HC_SESSION: "", ...env });
+      assert.equal(r.status, 0, r.stderr);
+      return readdirSync(join(home, ".cache/herdr-mods/inbox"));
+    } finally { rmSync(home, { recursive: true, force: true }); }
+  };
+  assert.deepEqual(inbox({ HC_TERMINAL_SOCKET: "/run/user/1000/herdr-core/work.sock" }), ["work"]);
+  assert.deepEqual(inbox({ HC_TERMINAL_SOCKET: "/Users/n/.local/state/herdr-core/default/default.sock" }), ["default"]);
+  assert.deepEqual(inbox({ HC_TERMINAL_SOCKET: "/run/user/1000/herdr-core/default.sock", HC_SESSION: "work" }), ["work"]);
 });
 
 test("herdr-request: off Herdr it sends nothing and exits 2", { skip: !bash }, () => {
