@@ -77,7 +77,9 @@ down the right, and no copy of either where it is not wanted.
       bottom dock and the Jira tab in the right dock, by command; each dock
       shows its own, both open at once (R8); the choice survived three
       reinstalls of dock-tabs (the stacks are rebuilt from the shared
-      state); a shot read back. An app restart is still to be seen.
+      state); a shot read back. App restart seen 2026-11-27: the window
+      closed and relaunched with the choice kept (right dock: nav + git and
+      Jira; bottom dock: Jira alone, hidden), a shot read back.
 - [ ] AC4 Real window: `move-dock-right-panels` moved nav + git to the
       bottom dock and `show-dock-right-panels` brought it back (done by
       command); hiding Jira in the bottom dock while the right dock hid it
