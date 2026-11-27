@@ -308,7 +308,7 @@ export default class SpacesBar extends View {
   // ---- inbox ------------------------------------------------------------------------
   // The app's Agents sidebar in short, for layouts without it: a button at the left
   // of the bar, after +, a red count while agents wait for input, else a dot while some
-  // finished unseen; its dropdown lists Needs you, Done and Working on every machine.
+  // finished unseen; its dropdown lists Working, Needs you and Done on every machine.
 
   inboxButton(t, agents) {
     // This window's agents and the other windows' on this computer.
@@ -332,25 +332,24 @@ export default class SpacesBar extends View {
       .when(badge?.kind === "done", (el) => el.child(div().absolute().top(3).right(2).size(8).rounded_full().bg(t.done ?? t.accent)));
   }
 
-  // Each agent with what its row says (lib/inbox.js inboxRow): the conversation, the
-  // project, what it's doing or asking.
+  // The dropdown's sections (lib/inbox.js): this window's agents, each with what its
+  // row says (inboxRow: the conversation, the project, what it's doing or asking), and
+  // the other windows' on this computer, sorted together by status; where an agent
+  // lives is a tag on its row, not a section.
   inboxRows() {
     const byId = new Map(spaces().map((s) => [s.id, s]));
     const terms = new Map(terminals().map((x) => [x.address, x]));
-    return inboxSections(allAgents().map((a) => ({
-      ...a, ...inboxRow(a, terms.get(a.address)), spaceName: byId.get(a.space)?.name, machine: byId.get(a.space)?.machine ?? null,
-    })));
+    return inboxSections([
+      ...allAgents().map((a) => ({
+        ...a, ...inboxRow(a, terms.get(a.address)), spaceName: byId.get(a.space)?.name, machine: byId.get(a.space)?.machine ?? null,
+      })),
+      ...siblings().flatMap((w) => w.agents.map((a) => ({ ...a, window: w }))),
+    ]);
   }
 
   renderInbox() {
     const t = theme();
-    // This window's sections, then one per other window on this computer ("Work
-    // window"), its agents most urgent first; their rows show the agent over there.
-    const order = { blocked: 0, done: 1, working: 2 };
-    const sections = [...this.inboxRows(), ...siblings().filter((w) => w.agents.length).map((w) => ({
-      status: "window", title: w.title, window: w,
-      agents: [...w.agents].sort((a, b) => (order[a.status] ?? 3) - (order[b.status] ?? 3)).map((a) => ({ ...a, window: w })),
-    }))];
+    const sections = this.inboxRows();
     const flat = sections.flatMap((s) => s.agents);
     if (this.at >= flat.length) this.at = Math.max(0, flat.length - 1);
     let k = -1;
@@ -397,7 +396,8 @@ export default class SpacesBar extends View {
               .child(h_flex().gap(6).items_center()
                 .child(div().flex_1().min_w(0).truncate().font_medium().child(a.title))
                 .when(Boolean(a.project), (el) => el.child(tag(a.project, t.muted, t.raised)))
-                .when(Boolean(a.machine), (el) => el.child(tag(a.machine, mc, mc + "26"))))
+                .when(Boolean(a.machine), (el) => el.child(tag(a.machine, mc, mc + "26")))
+                .when(Boolean(a.window), (el) => el.child(tag(a.window.title, t.accent, t.accent + "26"))))
               .child(div().truncate().text_size(11.5).text_color(a.status === "blocked" ? t.blocked : t.dim)
                 .child(a.doing || a.spaceName || a.where || "")));
         }))));

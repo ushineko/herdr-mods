@@ -4,9 +4,9 @@ import { inboxSections, inboxBadge, inboxRow, sessionOfHome, homeOfSession, pars
 
 const a = (status, title, spaceName) => ({ status, title, spaceName });
 
-test("inboxSections: Needs you, Done, Working in that order; idle and empty sections left out", () => {
+test("inboxSections: Working, Needs you, Done in that order; idle and empty sections left out", () => {
   const got = inboxSections([a("idle", "x", "s"), a("working", "w", "s"), a("blocked", "b2", "zeta"), a("blocked", "b1", "alpha")]);
-  assert.deepEqual(got.map((s) => [s.title, s.agents.map((x) => x.title)]), [["Needs you", ["b1", "b2"]], ["Working", ["w"]]]);
+  assert.deepEqual(got.map((s) => [s.title, s.agents.map((x) => x.title)]), [["Working", ["w"]], ["Needs you", ["b1", "b2"]]]);
 });
 
 test("inboxBadge: waiting agents win; else finished ones; else nothing", () => {
