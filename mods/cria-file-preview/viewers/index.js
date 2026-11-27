@@ -16,5 +16,8 @@ import markdown from "./markdown.js";
 import pdf from "./pdf.js";
 import table from "./table.js";
 import diff from "./diff.js"; // herdr-mods
+import notebook from "./notebook.js"; // herdr-mods (spec 017)
+import document from "./document.js"; // herdr-mods (spec 017)
+import sheet from "./sheet.js"; // herdr-mods (spec 017)
 
-export const VIEWERS = { code, image, json, markdown, pdf, table, diff };
+export const VIEWERS = { code, image, json, markdown, pdf, table, diff, notebook, document, sheet };

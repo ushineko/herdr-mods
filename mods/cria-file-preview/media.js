@@ -10,6 +10,7 @@ import { imageExtension } from "./mime.js";
 import { programs, pictureSize } from "./programs.js";
 import { readText } from "./viewers/text.js";
 import { mermaidFailure } from "./lib/mermaid.js"; // herdr-mods
+import * as fs from "fs/promises"; // herdr-mods
 
 const DIR = () => `${appHome().split("\\").join("/")}/data/cria-file-preview`;
 const here = () => programs(window()?.platform);
@@ -50,6 +51,43 @@ export async function fetchImage(url) {
   const kept = `${DIR()}/${k}.${ext}`;
   await exec(...here().move(tmp, kept));
   return picture(`${k}.${ext}`).catch(async (e) => { await exec(...here().remove(kept)); throw e; });
+}
+
+/**
+ * herdr-mods (spec 017): a picture given as base64 (a notebook's output), cached as
+ * <key of the data>.<ext> once: resolves { path, width, height }.
+ */
+// herdr-mods (spec 017): a file on another machine, copied into the cache here, for the
+// viewers that run this computer's tools on it (PDF, pictures, documents). Its bytes
+// come over as base64 (remote files are always sh); the copy is named by machine,
+// path and content, so a changed file is copied again. Resolves the copy's path.
+const MAX_FETCH = 50 * 1024 * 1024;
+const FETCH = String.raw`[ -f "$1" ] || { echo "This file is gone" >&2; exit 1; }
+[ "$(wc -c < "$1")" -le ${MAX_FETCH} ] || { echo "Too large to copy here (over 50 MB)" >&2; exit 1; }
+base64 < "$1"`;
+export async function fetchHere(file, on) {
+  const r = await exec("sh", ["-c", FETCH, "fetch", file], { on, timeout: 60000 });
+  if (r.code !== 0) throw new Error(r.stderr.trim() || "Cannot copy this file here");
+  const data = r.stdout.replace(/\s+/g, "");
+  await fs.mkdir(DIR(), { recursive: true }).catch(() => {});
+  const copy = `${DIR()}/${key(`${on}:${file}`)}-${key(data)}.${extension(file)}`;
+  if (!(await fs.exists(copy).catch(() => false))) {
+    await fs.writeFile(`${copy}.b64`, data);
+    const d = await exec(...here().decode(`${copy}.b64`, copy));
+    if (d.code !== 0) throw new Error(d.stderr.trim() || "Cannot copy this file here");
+  }
+  return copy;
+}
+
+export async function stageData(ext, data) {
+  const name = `${key(data)}.${ext}`, file = `${DIR()}/${name}`;
+  if (!(await fs.exists(file).catch(() => false))) {
+    await fs.mkdir(DIR(), { recursive: true }).catch(() => {});
+    await fs.writeFile(`${file}.b64`, data);
+    const r = await exec(...here().decode(`${file}.b64`, file));
+    if (r.code !== 0) throw new Error(r.stderr.trim() || "Cannot write this picture");
+  }
+  return picture(name);
 }
 
 /**

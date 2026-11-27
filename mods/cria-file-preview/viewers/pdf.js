@@ -1,13 +1,13 @@
 // PDF: every page, one under the other, in a virtual list (the one view Herdr
 // scrolls from code), so ‹ › and "Go to" can jump to a page. Pages render in
 // batches, starting from the one jumped to; a page not drawn yet holds its place.
-// Files on this computer only: they render here.
+// They render here: a file on another machine is copied here first (herdr-mods).
 import { div, image } from "gpui-kit";
 import { v_flex, h_flex, v_virtual_list, Scrollbar, VirtualListScrollHandle, InputState, Input } from "gpui-base";
 import { theme } from "herdr";
 import { zoomControl } from "./zoom.js";
 import { renderPages } from "../pdf-render.js";
-import { pruneCache } from "../media.js";
+import { pruneCache, fetchHere } from "../media.js";
 
 const BATCH = 6, MAX = 500, GAP = 16;
 let views = 0;
@@ -22,12 +22,12 @@ function jump(state, n) {
 export default {
   id: "pdf",
   async load(file, env, previous) {
-    if (env.on) throw new Error("PDF previews work for files on this computer only");
+    if (env.on) file = await fetchHere(file, env.on); // herdr-mods
     const first = await renderPages(file, 1, BATCH);
     pruneCache();
     const pages = new Array(Math.min(first.count, MAX)).fill(null);
     for (const p of first.pages) pages[p.n - 1] = p;
-    const state = { count: first.count, pages, ratio: first.pages[0].height / first.pages[0].width, zoom: previous?.zoom ?? null,
+    const state = { file, count: first.count, pages, ratio: first.pages[0].height / first.pages[0].width, zoom: previous?.zoom ?? null,
       visible: 0, want: null, stopped: false, error: null, id: `cria-file-preview-pdf-${++views}`,
       scroll: VirtualListScrollHandle.new(), goto: InputState.new({ placeholder: "Go to" }) };
     state.goto.on("submit", (_e, cx) => {
@@ -47,7 +47,7 @@ export default {
         const from = (missing >= 0 ? missing : state.pages.indexOf(null)) + 1;
         if (from === 0) break;
         try {
-          const r = await renderPages(env.file, from, from + BATCH - 1);
+          const r = await renderPages(state.file, from, from + BATCH - 1);
           if (state.stopped) return;
           for (const p of r.pages) state.pages[p.n - 1] = p;
         } catch (e) { state.error = String(e?.message ?? e); break; }

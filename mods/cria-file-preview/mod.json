@@ -1,1 +1,15 @@
-{"place": "none", "lib": ["filetype.js", "diff.js", "external.js", "external-open.js", "editor.js", "edit-open.js", "mermaid.js"]}
+{
+  "place": "none",
+  "lib": [
+    "filetype.js",
+    "diff.js",
+    "external.js",
+    "external-open.js",
+    "editor.js",
+    "edit-open.js",
+    "mermaid.js",
+    "notebook.js",
+    "html-print.js",
+    "fods.js"
+  ]
+}

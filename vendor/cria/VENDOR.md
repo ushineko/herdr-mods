@@ -37,6 +37,17 @@ delete them).
 | `media.js` | `drawMermaid(source, theme)`: runs it, returns the picture at half its pixels (drawn at scale 2). | Spec 012 R2, R4. |
 | `viewers/markdown.js` | Draws diagrams in the background after the document shows; "drawing…", the picture (a click opens it in the image viewer), or the code with why not. | Spec 012 R2–R5. |
 | `mod.json` | `"lib"` adds `"mermaid.js"` (theme choice, failure wording). | Spec 012. |
+| `kinds.js` | `ipynb` → `notebook`; `html`, `htm`, `docx`, `doc`, `odt`, `rtf` → `document`. | Spec 017. |
+| `viewers/notebook.js` (new) | A notebook as Markdown (`lib/notebook.js`), drawn by the Markdown viewer; its pictures staged into the cache. | Spec 017 R1. |
+| `viewers/markdown.js` | `loadText(text, file, env, previous, pictures)` exported (`load` calls it); `nbimg:` picture references resolved through `pictures`. | Spec 017 R1. |
+| `media.js` | `stageData(ext, data)`: base64 text written to the cache, then decoded by `programs.decode`. | Spec 017 R1: a binary `fs.writeFile` leaves an empty file on Windows. |
+| `programs.js` | `decode` (POSIX `base64 -d`, Windows `WriteAllBytes`); `convert`: `CONVERT` (sh) and `CONVERT_WINDOWS` print HTML to PDF with a headless browser (Chromium/Chrome/chrome-headless-shell; Chrome/Edge) and convert Word/RTF/ODT with LibreOffice, into the cache as `<key>-<mtime>.pdf`. | Spec 017 R3–R5. |
+| `viewers/document.js` (new) | HTML and documents through `convert`, then the PDF viewer; HTML gets Rendered/Raw. The browser gets a copy without scripts (`lib/html-print.js`). | Spec 017 R3, R4. |
+| `viewers/diff.js` | Unified or side by side (remembered), word changes, syntax colours, folded context, a commit's file list. | Spec 017 R2. |
+| `viewers/sheet.js` (new) | Spreadsheets: `convert` kind `sheet` (LibreOffice to `.fods`), `lib/fods.js`, drawn by the table viewer; sheets picked in the toolbar. `kinds.js` maps `xlsx`, `xls`, `ods`. | Spec 017 R4a. |
+| `media.js`, `viewers/pdf.js`, `viewers/image.js` | `fetchHere(file, on)`: a remote file copied into the cache (base64 over sh); the PDF and image views use it instead of refusing remote files. | Spec 017 R4b. |
+| `viewers/index.js` | Registers `notebook`, `document` and `sheet`. | Spec 017. |
+| `mod.json` | `"lib"` adds `"notebook.js"`, `"html-print.js"`, `"fods.js"`. | Spec 017. |
 | `vendor/cria/tests/programs.test.mjs` | Prune test is "over a day old"; new tests: keeps newest `KEEP`, stage replaces an older copy. | Follows the prune change. |
 | `vendor/cria/tests/windows.test.mjs` | `linux.prune` is now `sh`, not `find`. | Follows the prune change. |
 

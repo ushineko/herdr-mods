@@ -1,10 +1,11 @@
-// Pictures: fitted to the pane, or zoomed. Files on this computer only.
+// Pictures: fitted to the pane, or zoomed. A file on another machine is copied here
+// first (herdr-mods).
 // Zoomed larger than the pane, a drag or the wheel moves the picture; the wheel
 // with ctrl or cmd held zooms around the pointer.
 import { div, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { theme, settings } from "herdr";
-import { stageImage, pruneCache } from "../media.js";
+import { stageImage, pruneCache, fetchHere } from "../media.js";
 import { zoomControl } from "./zoom.js";
 import { wheelZoom, zoomAt, placed, offsetFor, focusAt } from "../pan-zoom.js";
 
@@ -44,8 +45,7 @@ function wheel(state, env, e) {
 export default {
   id: "image",
   async load(file, env, previous) {
-    if (env.on) throw new Error("Image previews work for files on this computer only");
-    const picture = await stageImage(file);
+    const picture = await stageImage(env.on ? await fetchHere(file, env.on) : file); // herdr-mods
     pruneCache();
     return { picture, zoom: previous?.zoom ?? null, focus: previous?.focus ?? null, drag: null };
   },

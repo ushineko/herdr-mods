@@ -22,6 +22,44 @@ for old in "$dir/$key"-*."$ext"; do
 done
 echo "$name"`;
 
+// herdr-mods (spec 017): `src` converted to a PDF in `dir`, <key>-<mtime>.pdf, once per
+// version; prints the name. "html": by a headless browser (Chromium, Chrome, or
+// Puppeteer's chrome-headless-shell from mermaid-cli), given a copy without scripts
+// (lib/html-print.js: turning them off in the browser stops it printing); "office" (Word,
+// RTF, OpenDocument): by LibreOffice, in a profile of its own (an open LibreOffice
+// would block it); "sheet" (Excel, OpenDocument spreadsheets): by LibreOffice to flat
+// OpenDocument, <key>-<mtime>.fods, for lib/fods.js. No converter: __no_browser__ or
+// __no_office__ on stderr, exit 127.
+const CONVERT = String.raw`
+kind=$1 src=$2 dir=$3 key=$4
+[ -f "$src" ] || { echo "${GONE}" >&2; exit 1; }
+fmt=pdf; [ "$kind" = sheet ] && fmt=fods
+name="$key-${MTIME}.$fmt"
+mkdir -p "$dir" || exit 1
+[ -f "$dir/$name" ] && { echo "$name"; exit 0; }
+tmp="$dir/convert-$$"; rm -rf "$tmp"; mkdir -p "$tmp" || exit 1
+case $kind in
+html)
+  b=$(command -v chromium || command -v chromium-browser || command -v google-chrome-stable || command -v google-chrome)
+  if [ -z "$b" ]; then
+    for c in "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" "/Applications/Chromium.app/Contents/MacOS/Chromium" "$HOME"/.cache/puppeteer/chrome-headless-shell/*/*/chrome-headless-shell; do
+      [ -x "$c" ] && b=$c
+    done
+  fi
+  [ -n "$b" ] || { rm -rf "$tmp"; echo "__no_browser__" >&2; exit 127; }
+  "$b" --headless --disable-gpu --no-first-run --no-default-browser-check --user-data-dir="$tmp/profile" --no-pdf-header-footer --print-to-pdf-no-header --print-to-pdf="$tmp/out.pdf" "file://$src" >/dev/null 2>&1 ;;
+*)
+  o=$(command -v soffice || command -v libreoffice)
+  [ -n "$o" ] || { [ -x /Applications/LibreOffice.app/Contents/MacOS/soffice ] && o=/Applications/LibreOffice.app/Contents/MacOS/soffice; }
+  [ -n "$o" ] || { rm -rf "$tmp"; echo "__no_office__" >&2; exit 127; }
+  in="$tmp/in.$(printf %s "$src" | sed 's/.*[.]//')"
+  cp "$src" "$in" && "$o" "-env:UserInstallation=file://$tmp/profile" --headless --convert-to "$fmt" --outdir "$tmp" "$in" >/dev/null 2>&1
+  mv -f "$tmp/in.$fmt" "$tmp/out.$fmt" 2>/dev/null ;;
+esac
+[ -s "$tmp/out.$fmt" ] || { rm -rf "$tmp"; echo "The conversion failed" >&2; exit 1; }
+mv -f "$tmp/out.$fmt" "$dir/$name"; rm -rf "$tmp"
+echo "$name"`;
+
 // herdr-mods: the cache is bounded: nothing older than a day, at most KEEP files (newest).
 export const KEEP = 200;
 const PRUNE = String.raw`
@@ -60,6 +98,40 @@ if (-not [IO.File]::Exists($out)) {
 }
 # herdr-mods: older copies of the same file go (untested on Windows).
 Get-ChildItem -LiteralPath $dir -File -Filter ($key + '-*.' + $ext) | Where-Object { $_.Name -ne $name -and $_.Name -notmatch '-p\d+\.' } | Remove-Item -Force -ErrorAction SilentlyContinue
+$name`;
+
+// herdr-mods (spec 017): CONVERT for Windows: Edge or Chrome for HTML, LibreOffice's
+// soffice.exe for documents.
+const CONVERT_WINDOWS = String.raw`
+$kind, $src, $dir, $key = $args
+if (-not [IO.File]::Exists($src)) { throw '${GONE}' }
+$fmt = 'pdf'; if ($kind -eq 'sheet') { $fmt = 'fods' }
+$name = $key + '-' + ${STAMP} + '.' + $fmt
+[void][IO.Directory]::CreateDirectory($dir)
+$out = $dir + '\' + $name
+if ([IO.File]::Exists($out)) { return $name }
+$tmp = $dir + '\convert-' + $PID
+Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+[void][IO.Directory]::CreateDirectory($tmp)
+$pdf = $tmp + '\out.' + $fmt
+if ($kind -eq 'html') {
+  # Each path in parentheses: PowerShell's comma binds tighter than +.
+  $b = @(($env:ProgramFiles + '\Google\Chrome\Application\chrome.exe'), (${'$'}{env:ProgramFiles(x86)} + '\Microsoft\Edge\Application\msedge.exe'), ($env:ProgramFiles + '\Microsoft\Edge\Application\msedge.exe')) | Where-Object { [IO.File]::Exists($_) } | Select-Object -First 1
+  if (-not $b) { Remove-Item -LiteralPath $tmp -Recurse -Force; throw '__no_browser__' }
+  $url = ([Uri]$src).AbsoluteUri
+  $p = Start-Process -FilePath $b -ArgumentList @('--headless', '--disable-gpu', '--no-first-run', ('--user-data-dir=' + $tmp + '\profile'), '--no-pdf-header-footer', ('--print-to-pdf=' + $pdf), $url) -Wait -PassThru -WindowStyle Hidden
+} else {
+  $o = @(($env:ProgramFiles + '\LibreOffice\program\soffice.exe'), (${'$'}{env:ProgramFiles(x86)} + '\LibreOffice\program\soffice.exe')) | Where-Object { [IO.File]::Exists($_) } | Select-Object -First 1
+  if (-not $o) { Remove-Item -LiteralPath $tmp -Recurse -Force; throw '__no_office__' }
+  $in = $tmp + '\in' + [IO.Path]::GetExtension($src)
+  Copy-Item -LiteralPath $src -Destination $in
+  $profile = ([Uri]($tmp + '\profile')).AbsoluteUri
+  $p = Start-Process -FilePath $o -ArgumentList @(('-env:UserInstallation=' + $profile), '--headless', '--convert-to', $fmt, '--outdir', $tmp, $in) -Wait -PassThru -WindowStyle Hidden
+  if ([IO.File]::Exists($tmp + '\in.' + $fmt)) { Move-Item -LiteralPath ($tmp + '\in.' + $fmt) -Destination $pdf -Force }
+}
+if (-not [IO.File]::Exists($pdf) -or (Get-Item -LiteralPath $pdf).Length -eq 0) { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue; throw 'The conversion failed' }
+Move-Item -LiteralPath $pdf -Destination $out -Force
+Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
 $name`;
 
 // `file --mime-type` for what the preview draws: the type of the bytes in $tmp. An SVG's
@@ -282,6 +354,9 @@ const POSIX = {
   prune: (dir) => ["sh", ["-c", PRUNE, "prune", dir, String(KEEP)]],
   move: (from, to) => ["mv", ["-f", from, to]],
   remove: (file) => ["rm", ["-f", file]],
+  convert: (kind, src, dir, key) => ["sh", ["-c", CONVERT, "convert", kind, src, dir, key]], // herdr-mods (spec 017)
+  // herdr-mods (spec 017): base64 text in $1 written as bytes to $2 (then $1 removed).
+  decode: (b64, out) => ["sh", ["-c", 'base64 -d < "$1" > "$2.tmp" && mv -f "$2.tmp" "$2"; s=$?; rm -f "$1"; exit $s', "decode", b64, out]],
   mermaid: (dir, key, theme, source) => ["sh", ["-c", MERMAID, "mermaid", dir, key, theme, source]], // herdr-mods
   pdf: (file, dir, key, from, to, wide) => ["sh", ["-c", POPPLER, "pdf", file, dir, key, String(from), String(to), String(wide)]],
   pages: (r, key) => r.code === 0 ? popplerPages(r.stdout, key) : failed(/password/i.test(r.stderr) ? "This PDF is password protected" : r.stderr),
@@ -303,6 +378,9 @@ const WINDOWS = {
   prune: (dir) => powershell(PRUNE_WINDOWS, win(dir), String(KEEP)),
   move: (from, to) => powershell("Move-Item -LiteralPath $args[0] -Destination $args[1] -Force", win(from), win(to)),
   remove: (file) => powershell("Remove-Item -LiteralPath $args[0] -Force -ErrorAction SilentlyContinue", win(file)),
+  convert: (kind, src, dir, key) => powershell(CONVERT_WINDOWS, kind, win(src), win(dir), key), // herdr-mods (spec 017)
+  // herdr-mods (spec 017): a binary fs.writeFile leaves an empty file on Windows.
+  decode: (b64, out) => powershell("[IO.File]::WriteAllBytes($args[1], [Convert]::FromBase64String([IO.File]::ReadAllText($args[0]))); Remove-Item -LiteralPath $args[0] -Force", win(b64), win(out)),
   mermaid: (dir, key, theme, source) => powershell(MERMAID_WINDOWS, win(dir), key, theme, source), // herdr-mods
   pdf: (file, dir, key, from, to, wide) => powershell(PDF_WINDOWS, win(file), win(dir), key, String(from), String(to), String(wide)),
   pages: (r) => r.code === 0 ? JSON.parse(r.stdout.trim()) : failed(r.stderr),

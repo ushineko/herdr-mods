@@ -1,0 +1,5 @@
+Machine,System,CPU,Cores,Memory (GB),Disk (GB),Role,Added
+njv-mbp-m1,macOS 27.2,Apple M1 Max,10,32,926,"Laptop, daily driver",2021-11-02
+njv-cachyos,CachyOS,AMD Ryzen 9 7950X,16,64,3726,"Desktop, VM host",2024-03-18
+win11-kvm,Windows 11,QEMU (host passthrough),8,16,256,"Windows test VM, Herdr app",2026-11-20
+naruse,Linux,Intel N100,4,16,512,"Home server ""naruse""",2025-06-07

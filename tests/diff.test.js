@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseDiff, untrackedDiff } from "../lib/diff.js";
+import { parseDiff, untrackedDiff, sideBySide, wordChanges, foldContext, syntaxRuns, paintLine } from "../lib/diff.js";
 
 const SAMPLE = `diff --git a/f.txt b/f.txt
 index 1111111..2222222 100644
@@ -60,4 +60,34 @@ test("untracked file: every line added", () => {
   assert.equal(d.removed, 0);
   assert.deepEqual(d.rows[1], { kind: "add", text: "a", old: null, new: 1 });
   assert.deepEqual(d.rows[2], { kind: "add", text: "b", old: null, new: 2 });
+});
+
+test("sideBySide: removed and added runs paired line by line; context on both sides", () => {
+  const { rows } = parseDiff("@@ -1,4 +1,4 @@\n a\n-b\n-c\n+B\n d\n+e\n");
+  const pairs = sideBySide(rows);
+  assert.deepEqual(pairs.map((p) => p.hunk ? "hunk" : `${p.left?.text ?? "∅"}|${p.right?.text ?? "∅"}`), ["hunk", "a|a", "b|B", "c|∅", "d|d", "∅|e"]);
+});
+
+test("wordChanges: the changed words of a pair; a rewrite marked whole", () => {
+  assert.deepEqual(wordChanges("const total = a + b;", "const total = a - b;"), { old: [[16, 17]], new: [[16, 17]] });
+  assert.deepEqual(wordChanges("return x", "return x, y"), { old: [], new: [[8, 11]] });
+  assert.deepEqual(wordChanges("alpha beta", "gamma delta epsilon"), { old: [[0, 10]], new: [[0, 19]] });
+});
+
+test("foldContext: a long unchanged run folds, keeping 3 lines each side; an opened fold stays open", () => {
+  const ctx = Array.from({ length: 20 }, (_, i) => ({ kind: "ctx", text: `l${i}`, old: i + 1, new: i + 1 }));
+  const rows = [{ kind: "hunk", text: "@@" }, ...ctx, { kind: "add", text: "x", old: null, new: 21 }];
+  const folded = foldContext(rows);
+  const fold = folded.find((r) => r.kind === "fold");
+  assert.equal(fold.count, 14);
+  assert.equal(folded.length, 1 + 3 + 1 + 3 + 1);
+  assert.equal(foldContext(rows, new Set([fold.id])).length, rows.length);
+  assert.equal(foldContext(rows.slice(0, 8)).some((r) => r.kind === "fold"), false, "a short run stays");
+});
+
+test("syntaxRuns and paintLine: keywords, strings, numbers, comments; changed ranges cut the runs", () => {
+  assert.deepEqual(syntaxRuns('if x == "a" { return 42 } // done', "go").map((r) => [r.text, r.kind]),
+    [["if", "keyword"], [" x == ", null], ['"a"', "string"], [" { ", null], ["return", "keyword"], [" ", null], ["42", "number"], [" } ", null], ["// done", "comment"]]);
+  assert.deepEqual(paintLine("return x", "js", [[7, 8]]), [{ text: "return", kind: "keyword", changed: false }, { text: " ", kind: null, changed: false }, { text: "x", kind: null, changed: true }]);
+  assert.deepEqual(syntaxRuns("# note", "py"), [{ text: "# note", kind: "comment" }]);
 });

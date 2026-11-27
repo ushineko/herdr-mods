@@ -21,6 +21,33 @@ import { mermaidTheme } from "../lib/mermaid.js"; // herdr-mods
 
 let views = 0;
 
+/**
+ * herdr-mods (spec 017): the viewer's state for Markdown `text` belonging to `file`
+ * (links and pictures resolve against it). A notebook is shown this way, its pictures
+ * given by `pictures(ref)` for ![…](nbimg:<ref>).
+ */
+export async function loadText(text, file, env, previous, pictures = null) {
+  const blocks = splitBlocks(text);
+  for (const block of blocks) {
+    if (!block.image) continue;
+    if (pictures && block.image.src.startsWith("nbimg:")) {
+      block.image.picture = await pictures(block.image.src.slice(6)).catch((e) => { block.image.failed = String(e?.message ?? e); return null; });
+      continue;
+    }
+    const to = resolveLink(file, block.image.src);
+    if (to.url) block.image.url = to.url;
+    else if (to.file && !env.on) block.image.picture = await stageImage(to.file).catch((e) => { block.image.failed = String(e?.message ?? e); return null; });
+    else if (to.error) block.image.failed = to.error;
+  }
+  if (blocks.some((b) => b.image)) pruneCache(); // herdr-mods: Markdown pictures are cached too
+  const raw = previous?.raw ?? false;
+  const state = { text, blocks, raw, editor: raw ? codeState(text, "markdown") : null, from: null,
+    contents: previous?.contents ?? false, web: previous?.web === "loaded" ? "loading" : "ask", id: `cria-file-preview-md-${++views}` };
+  const anchor = previous?.from ?? env.anchor;
+  if (anchor && state.blocks.some((b) => b.heading?.slug === anchor)) state.from = anchor;
+  return state;
+}
+
 function jump(state, anchor) {
   if (state.blocks.some((b) => b.heading?.slug === anchor)) { state.from = anchor; state.raw = false; return true; }
   notify({ title: "No such heading here", body: `#${anchor}`, level: "info", timeout: 3000 });
@@ -70,21 +97,7 @@ function drawDiagrams(state, cx) {
 export default {
   id: "markdown",
   async load(file, env, previous) {
-    const text = await readText(file, env.on), blocks = splitBlocks(text);
-    for (const block of blocks) {
-      if (!block.image) continue;
-      const to = resolveLink(file, block.image.src);
-      if (to.url) block.image.url = to.url;
-      else if (to.file && !env.on) block.image.picture = await stageImage(to.file).catch((e) => { block.image.failed = String(e?.message ?? e); return null; });
-      else if (to.error) block.image.failed = to.error;
-    }
-    if (blocks.some((b) => b.image)) pruneCache(); // herdr-mods: Markdown pictures are cached too
-    const raw = previous?.raw ?? false;
-    const state = { text, blocks, raw, editor: raw ? codeState(text, "markdown") : null, from: null,
-      contents: previous?.contents ?? false, web: previous?.web === "loaded" ? "loading" : "ask", id: `cria-file-preview-md-${++views}` };
-    const anchor = previous?.from ?? env.anchor;
-    if (anchor && state.blocks.some((b) => b.heading?.slug === anchor)) state.from = anchor;
-    return state;
+    return loadText(await readText(file, env.on), file, env, previous);
   },
 
   // Web images the person already let through come back after a reload.

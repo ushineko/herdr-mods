@@ -25,6 +25,14 @@ a GitHub issue and a spec (`specs/NNN-…md`) when work starts.
   Code sessions that aren't open, from each project's session list, opened as a new
   chat.
 - **Fake fullscreen** (UX question raised, deferred).
+- **Web sites in the viewer** (operator deferred, 2026-11-26; spec 017 shows HTML
+  files only, printed once to PDF, scripts out). Options weighed: (1) a URL snapshot:
+  the headless browser, scripts on, run on the machine the site is reachable from (a
+  remote dev server's localhost), screenshot or PDF copied here (`fetchHere`),
+  Refresh; small. (2) A live pane: a helper keeps a headless Chromium on the Chrome
+  DevTools Protocol, writes screenshots and takes clicks and keys through files (a
+  mod can't hold a socket); a few frames a second. (3) That pane attached to the
+  Chromium an agent drives (`chrome-devtools-mcp`), to watch and take over.
 - **TODO: hayami-js details and drills** (operator, 2026-11-26: to be done later).
   Specs 010 and 011 draw the sections only. The service lists each section's
   details (`details` in a Section: the cooler's cpu, gpu, memory and io; the

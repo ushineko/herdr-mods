@@ -7,6 +7,9 @@ export const VIEWER_OF = {
   pdf: "pdf",
   csv: "table", tsv: "table",
   json: "json",
+  ipynb: "notebook", // herdr-mods (spec 017)
+  html: "document", htm: "document", docx: "document", doc: "document", odt: "document", rtf: "document", // herdr-mods (spec 017)
+  xlsx: "sheet", xls: "sheet", ods: "sheet", // herdr-mods (spec 017)
   png: "image", jpg: "image", jpeg: "image", gif: "image", webp: "image", svg: "image", bmp: "image", tiff: "image", heic: "image",
 };
 
