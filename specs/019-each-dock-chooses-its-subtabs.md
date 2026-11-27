@@ -2,7 +2,7 @@
 
 **Issue**: none (operator, 2026-11-27)
 
-## Status: INCOMPLETE (implemented 2026-11-27; AC4's second half and AC5 wait on the operator)
+## Status: COMPLETE
 
 ## Context
 
@@ -80,14 +80,14 @@ down the right, and no copy of either where it is not wanted.
       state); a shot read back. App restart seen 2026-11-27: the window
       closed and relaunched with the choice kept (right dock: nav + git and
       Jira; bottom dock: Jira alone, hidden), a shot read back.
-- [ ] AC4 Real window: `move-dock-right-panels` moved nav + git to the
+- [x] AC4 Real window: `move-dock-right-panels` moved nav + git to the
       bottom dock and `show-dock-right-panels` brought it back (done by
       command); hiding Jira in the bottom dock while the right dock hid it
       was refused (done). Closing a hidden subtab's terminal and a new
-      shell from **+** appearing in both: the operator drives these.
-- [ ] AC5 Real window: the chip menu's "Hide in this dock" / "Move to the
+      shell from **+** appearing in both: the operator drives these. Operator, 2026-11-27: "everything confirmed".
+- [x] AC5 Real window: the chip menu's "Hide in this dock" / "Move to the
       other dock" and the strip's "Show here: …" entries (the operator
-      drives these; the commands behind them are AC3 and AC4's).
+      drives these; the commands behind them are AC3 and AC4's). Operator, 2026-11-27: "everything confirmed".
 
 ## Risks & Assumptions
 
