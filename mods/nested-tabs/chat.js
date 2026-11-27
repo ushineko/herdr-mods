@@ -5,8 +5,8 @@
 // The agent's shell carries CHAT_LABEL=<chat pane> once the chat pane exists, so
 // it ends when the chat (or its tab) is closed (sweep).
 
-import { knownAgents, exec, hc, panes, spaces, terminals, run, window, notify, setShared } from "herdr";
-import { chatEntries, strayChats, orphanedHidden, toSettle, toRename, localId, newChatId, ID_LABEL, visibleNeighbour, CHAT_LABEL, HIDDEN_LABEL, OWNER_LABEL, AGENT_LOOKUP, parseAgentLookup, withLoginAgents, hasChatAgent, platformOf } from "./lib/chat-entries.js";
+import { knownAgents, exec, hc, panes, spaces, terminals, run, window, notify, shared, setShared } from "herdr";
+import { chatEntries, strayChats, orphanedHidden, toSettle, toRename, localId, newChatId, ID_LABEL, returnTab, SHOWN_KEY, CHAT_LABEL, HIDDEN_LABEL, OWNER_LABEL, AGENT_LOOKUP, parseAgentLookup, withLoginAgents, hasChatAgent, platformOf } from "./lib/chat-entries.js";
 
 const where = (base) => {
   const i = base.indexOf("/");
@@ -100,13 +100,15 @@ async function openChat(addr, make, more = []) {
 /**
  * Closes pane `pane`. When it is the shown tab's last pane, the tab closes with it and
  * the app picks a neighbour itself, a chat's hidden (settled) terminal tab included,
- * which flashed up: a visible neighbour is shown first.
+ * which flashed up: the tab shown before it (the tab bar's history), else a visible
+ * neighbour, is shown first.
  */
 export function closePane(pane, cx) {
   const me = panes().find((p) => p.pane === pane);
   const last = me && !panes().some((p) => p.tab === me.tab && p.pane !== pane);
-  const tabs = spaces().find((s) => s.tabs?.some((t) => t.id === me?.tab))?.tabs ?? [];
-  const next = last && tabs.find((t) => t.id === me.tab)?.active ? visibleNeighbour(tabs, me.tab) : null;
+  const space = spaces().find((s) => s.tabs?.some((t) => t.id === me?.tab));
+  const tabs = space?.tabs ?? [];
+  const next = last && tabs.find((t) => t.id === me.tab)?.active ? returnTab(tabs, me.tab, shared(SHOWN_KEY)?.[space.id]) : null;
   if (!next) { run("pane.close", { pane }); return; }
   run("tab.select", { id: next });
   cx.spawn(async (cx) => {

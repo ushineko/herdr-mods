@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chatEntries, strayChats, orphanedHidden, toSettle, toRename, localId, agentsToKeep, visibleNeighbour, parseAgentLookup, withLoginAgents, platformFrom, platformOf } from "../lib/chat-entries.js";
+import { chatEntries, strayChats, orphanedHidden, toSettle, toRename, localId, agentsToKeep, visibleNeighbour, noteShown, returnTab, parseAgentLookup, withLoginAgents, platformFrom, platformOf } from "../lib/chat-entries.js";
 
 const claude = { key: "claude", name: "Claude Code", installed: true, run: ["claude"] };
 const codex = { key: "codex", name: "Codex", installed: true, run: ["codex", "--no-daemon"] };
@@ -130,6 +130,20 @@ test("closing the shown tab shows a visible neighbour, never a hidden terminal's
   assert.equal(visibleNeighbour(tabs, "chat"), "readme", "right past the hidden tab");
   assert.equal(visibleNeighbour([{ id: "x" }, { id: "h", settled: true }], "x"), null);
   assert.equal(visibleNeighbour(tabs, "nope"), null);
+});
+
+test("closing the shown tab goes back to the tab shown before it", () => {
+  const tabs = [{ id: "a" }, { id: "b" }, { id: "hidden", settled: true }, { id: "new" }, { id: "c" }];
+  assert.equal(returnTab(tabs, "new", ["new", "a", "c"]), "a", "not the neighbour c");
+  assert.equal(returnTab(tabs, "new", ["new", "gone", "hidden", "b"]), "b", "past closed and hidden tabs");
+  assert.equal(returnTab(tabs, "new", ["new"]), "c", "no history: a visible neighbour");
+  assert.equal(returnTab(tabs, "closed", ["closed", "b"]), "b", "the closed tab already gone from the list");
+});
+
+test("noteShown: latest first, once each, closed tabs dropped", () => {
+  assert.deepEqual(noteShown(["b", "a", "c"], "a", new Set(["a", "b"])), ["a", "b"]);
+  assert.deepEqual(noteShown(undefined, "x"), ["x"]);
+  assert.equal(noteShown(["1", "2", "3"], "0", null, 2).length, 2);
 });
 
 test("parseAgentLookup: absolute paths of the chat agents only", () => {

@@ -2,8 +2,8 @@
 // terminal) would end that session (spec 008 R12). The agent moves to a tab of its own,
 // named like the closing tab, first; then the tab closes. The chat closes with it.
 
-import { panes, spaces, terminals, hc, run, notify } from "herdr";
-import { agentsToKeep, localId, visibleNeighbour } from "./lib/chat-entries.js";
+import { panes, spaces, terminals, hc, run, notify, shared, setShared } from "herdr";
+import { agentsToKeep, localId, returnTab, noteShown, SHOWN_KEY } from "./lib/chat-entries.js";
 
 const machinePart = (id) => (String(id).includes("/") ? String(id).slice(0, String(id).lastIndexOf("/") + 1) : "");
 const wait = (cx, ms) => new Promise((done) => cx.timer.after(ms, () => done()));
@@ -28,15 +28,42 @@ async function moveOut(addr, space, name, cx) {
   return true;
 }
 
+const historyOf = (space) => shared(SHOWN_KEY)?.[space] ?? [];
+const record = (space, history) => setShared(SHOWN_KEY, { ...(shared(SHOWN_KEY) ?? {}), [space]: history });
+
 /**
- * Before the shown tab closes, shows a visible neighbour and waits for it: the app
- * would pick one itself, a chat's hidden (settled) terminal tab included, which
- * flashed up until the chat sent it back.
+ * Records the shown space's shown tab (SHOWN_KEY). When the tab recorded last there
+ * has closed some other way (a key, its program exiting), the app showed a neighbour
+ * of its choosing: the tab shown before it comes back instead.
+ */
+export function followShown() {
+  const space = spaces().find((s) => s.active);
+  const tab = space?.tabs?.find((t) => t.active);
+  if (!tab) return;
+  const history = historyOf(space.id);
+  if (history[0] === tab.id) return;
+  const open = new Set(spaces().flatMap((s) => (s.tabs ?? []).map((t) => t.id)));
+  if (history[0] && !open.has(history[0])) {
+    const back = returnTab(space.tabs, history[0], history);
+    if (back && back !== tab.id) {
+      run("tab.select", { id: back });
+      record(space.id, noteShown(history, back, open));
+      return;
+    }
+  }
+  record(space.id, noteShown(history, tab.id, open));
+}
+
+/**
+ * Before the shown tab closes, shows the tab shown before it (else a visible
+ * neighbour) and waits for it: the app would pick a neighbour itself, a chat's hidden
+ * (settled) terminal tab included, which flashed up until the chat sent it back.
  */
 export async function leaveTab(tab, cx) {
-  const tabs = spaces().find((s) => s.tabs?.some((t) => t.id === tab))?.tabs ?? [];
+  const space = spaces().find((s) => s.tabs?.some((t) => t.id === tab));
+  const tabs = space?.tabs ?? [];
   if (!tabs.find((t) => t.id === tab)?.active) return;
-  const next = visibleNeighbour(tabs, tab);
+  const next = returnTab(tabs, tab, historyOf(space.id));
   if (!next) return;
   run("tab.select", { id: next });
   const shown = () => spaces().some((s) => s.tabs?.some((t) => t.id === next && t.active));

@@ -5,7 +5,7 @@ import { h_flex, ScrollHandle } from "gpui-base";
 import { spaces, panes, terminals, run, theme, openOverlay, layout, keys, window as win } from "herdr";
 import { machineColor } from "./lib/machine-color.js";
 import { keyFor, dockTooltip } from "./lib/key-names.js";
-import { closeTab } from "./keep.js";
+import { closeTab, followShown } from "./keep.js";
 import { spaceFolder } from "./lib/location.js";
 
 const C = {
@@ -160,10 +160,12 @@ function dockButton(dock) {
 }
 
 export default class TerminalsBar extends View {
-  init() {
+  init(_props, cx) {
     this.scroll = ScrollHandle.new();
     this.revealed = null;
     this.wheel = 0;
+    // Closing the shown tab goes back to the one shown before it (keep.js).
+    cx.timer.every(300, () => followShown());
   }
 
   // The wheel over the strip moves along it a tab at a time.
