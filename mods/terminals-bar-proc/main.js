@@ -182,6 +182,7 @@ export default class TerminalsBar extends View {
     // A remote space's machine colour (lib/machine-color.js), as on its spaces-bar chip.
     const mc = space?.machine ? machineColor(space.machine, spaces().map((x) => x.machine)) ?? t.accent : null;
     if (!space) return div();
+    const hl = mc ?? t.accent;
     const all = panes();
     const w = win() ?? {};
     const edges = paneEdges(layout()) ?? {};
@@ -223,7 +224,10 @@ export default class TerminalsBar extends View {
         .items_center()
         .cursor_pointer()
         .text_size(13)
-        .when(c.active, (el) => el.h(BAR_H).rounded_t(9).border_t_1().border_l_1().border_r_1().border_color(edge))
+        // Marked by a bar along its top and a tint in the accent (the machine's colour in
+        // a remote space), so the shown tab stands out from the rest (operator, 2026-11-27).
+        .when(c.active, (el) => el.relative().h(BAR_H).rounded_t(9).border_t_1().border_l_1().border_r_1().border_color(edge).bg(hl + "24")
+          .child(div().absolute().top(0).left(6).right(6).h(2).rounded_b(2).bg(hl)))
         .when(!c.active, (el) => el.h(BAR_H - 6).mt(3).rounded(8).bg(C.tab).hover((s) => s.bg(C.hover)))
         .when(target, (el) => el.border_1().border_color(t.accent))
         .when(this.drag === c.id && Boolean(this.over) && this.over.id !== c.id, (el) => el.opacity(0.55))
