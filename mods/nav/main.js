@@ -4,7 +4,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, ScrollHandle } from "gpui-base";
 import { exec, watchFolder, window, theme, settings, home, notify, nextCommand, checking, shared, setShared, props, openOverlay, closeOverlay } from "herdr";
-import { breadcrumb, parentOf, childOf, parseListing, sortEntries, filterEntries, parsePorcelain, marksFor, keyAction } from "./lib/nav.js";
+import { breadcrumb, parentOf, childOf, parseListing, sortEntries, filterEntries, parsePorcelain, marksFor, keyAction, columnLayout, parseDetails, sizeText, whenText } from "./lib/nav.js";
 import { fileType } from "./lib/filetype.js";
 import { openExternal, openDefault, externalRule } from "./lib/external-open.js";
 import { editFile } from "./lib/edit-open.js";
@@ -17,7 +17,9 @@ const REMOTE_POLL = 5000;
 // A local folder is also listed again on a timer (#14): the folder watch can be reclaimed.
 const LOCAL_POLL = 10000;
 const ROW = 26;
-const CELL = 240; // a grid cell's width in the horizontal layout
+// The list fills its height first, then takes another column (at least this wide),
+// as many as needed and no more, stretched across the width (operator, 2026-11-27).
+const CELL = 200;
 const READ = ["--no-optional-locks", "-c", "core.fsmonitor=false"];
 
 // NUL-separated kind/name pairs, .git skipped, one past the cap so overflow shows.
@@ -34,6 +36,25 @@ foreach ($e in [IO.Directory]::EnumerateFileSystemEntries($p)) {
   $n++; if ($n -gt ${PER_FOLDER}) { break }
 }
 [Console]::Out.Write($out.ToString())`;
+
+// A file's details for the context menu (lib/nav.js parseDetails): one line, size|
+// modified (Unix seconds)|mode|owner|group|link target|item count (folders only).
+// GNU stat first, then BSD's (macOS); a link is described by what it points to.
+const DETAILS_SH = `p=$1
+s=$(stat -L -c '%s|%Y|%A|%U|%G' -- "$p" 2>/dev/null) || s=$(stat -L -f '%z|%m|%Sp|%Su|%Sg' -- "$p") || exit 1
+l=; [ -L "$p" ] && l=$(readlink -- "$p")
+c=; [ -d "$p" ] && c=$(ls -A -- "$p" | wc -l | tr -d ' ')
+printf '%s|%s|%s\\n' "$s" "$l" "$c"`;
+// The same in PowerShell: attributes for the mode, the owner from its ACL, no group.
+const DETAILS_PS = `[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$i = Get-Item -LiteralPath $args[0] -Force -ErrorAction Stop
+$t = [DateTimeOffset]::new($i.LastWriteTimeUtc).ToUnixTimeSeconds()
+$o = try { (Get-Acl -LiteralPath $i.FullName).Owner } catch { '' }
+$d = $i.PSIsContainer
+$n = if ($d) { @(Get-ChildItem -LiteralPath $i.FullName -Force -ErrorAction SilentlyContinue).Count } else { '' }
+$s = if ($d) { '' } else { $i.Length }
+$l = if ($i.LinkTarget) { $i.LinkTarget } elseif ($i.Target) { "$($i.Target)" } else { '' }
+[Console]::Out.Write("$s|$t|$($i.Attributes)|$o||$l|$n")`;
 
 // Per machine: { platform, home }. "" is this computer.
 const machineCache = new Map();
@@ -204,13 +225,20 @@ export default class Nav extends View {
     if (!rows.some((e) => e.name === this.selected)) this.selected = rows[0]?.name ?? null;
   }
 
+  // The list's own size, for how many rows a column holds.
+  listSized(size, cx) {
+    if (this.listSize?.height === size.height && this.listSize?.width === size.width) return;
+    this.listSize = size;
+    cx.notify();
+  }
+
   move(by, cx) {
     const rows = this.rows();
     if (!rows.length) return;
     let i = rows.findIndex((e) => e.name === this.selected);
     i = by === Infinity ? rows.length - 1 : by === -Infinity ? 0 : Math.max(0, Math.min(rows.length - 1, (i < 0 ? 0 : i) + by));
     this.selected = rows[i].name;
-    this.scroll.scroll_to_item(i);
+    this.scroll.scroll_to_item(this.cellOf ? this.cellOf(i) : i);
     cx.notify();
   }
 
@@ -285,6 +313,43 @@ export default class Nav extends View {
     this.handle = cx.focus_handle();
     this.handle.focus();
     if (!p.dir) cx.spawn(async (cx) => { this.rule = await externalRule(p.path, p.on ?? null); cx.notify(); });
+    // The file's details, above the entries (operator, 2026-11-27).
+    cx.spawn(async (cx) => {
+      try {
+        const m = await machineOf(p.on ?? null);
+        const r = m.platform === "windows"
+          ? await exec("powershell", ["-NoProfile", "-NonInteractive", "-Command", `& { ${DETAILS_PS} } '${p.path.replace(/'/g, "''")}'`], { on: p.on ?? null })
+          : await exec("sh", ["-c", DETAILS_SH, "nav", p.path], { on: p.on ?? null });
+        this.details = r.code === 0 ? parseDetails(r.stdout) : null;
+      } catch { this.details = null; }
+      this.detailsDone = true;
+      cx.notify();
+    });
+  }
+
+  // The details block: the name, then what kind it is, its size or item count, when it
+  // changed, its permissions and owner, and a link's target.
+  detailsView(t) {
+    const p = props();
+    const name = p.path.split(/[\\/]/).filter(Boolean).pop() ?? p.path;
+    const ext = !p.dir && /\.([^.\\/]+)$/.exec(name)?.[1];
+    const d = this.details;
+    const lines = [["Kind", p.dir ? "Folder" : ext ? `${ext.toUpperCase()} file` : "File"]];
+    if (d) {
+      if (d.count !== null) lines.push(["Items", String(d.count)]);
+      if (d.size !== null) lines.push(["Size", d.size >= 1000 ? `${sizeText(d.size)} (${d.size.toLocaleString()} bytes)` : sizeText(d.size)]);
+      if (d.modified !== null) lines.push(["Modified", whenText(d.modified)]);
+      if (d.mode) lines.push([/^[-dlbcps]/.test(d.mode) ? "Permissions" : "Attributes", d.mode]);
+      if (d.owner) lines.push(["Owner", d.group ? `${d.owner} · ${d.group}` : d.owner]);
+      if (d.link) lines.push(["Links to", d.link]);
+    } else if (this.detailsDone) lines.push(["", "No details for this file"]);
+    if (p.on) lines.push(["On", p.on]);
+    return v_flex().px(9).pt(6).pb(8).gap(3).text_size(11.5)
+      .child(div().pb(3).text_size(12.8).font_semibold().truncate().child(name))
+      .children(lines.map(([k, v]) => h_flex().gap(8).items_start()
+        .child(div().w(76).flex_none().text_color(t.dim).child(k))
+        .child(div().flex_1().min_w(0).text_color(t.muted).when(k === "Permissions", (el) => el.font_family("monospace")).child(v))))
+      .when(!this.detailsDone, (el) => el.child(div().text_color(t.dim).child("Reading…")));
   }
 
   menuItems() {
@@ -328,6 +393,8 @@ export default class Nav extends View {
         else return;
         cx.notify();
       })
+      .child(this.detailsView(t))
+      .child(div().mx(7).mb(4).h(1).bg(t.border))
       .children(items.map((it, k) => it.sep
         ? div().mx(7).my(4).h(1).bg(t.border)
         : h_flex().id(`nav-mi-${k}`).h(30).px(9).rounded(6).items_center()
@@ -347,7 +414,7 @@ export default class Nav extends View {
 
   openMenu(entry) {
     const full = childOf(this.path, entry.name);
-    openOverlay({ mod: "nav", kind: "popup", width: 250,
+    openOverlay({ mod: "nav", kind: "popup", width: 320,
       props: { menu: true, path: full, on: this.on, dir: entry.dir, repo: this.repo ?? null, from: this.copyId } });
   }
 
@@ -367,6 +434,13 @@ export default class Nav extends View {
     const wide = Boolean(this.size) && this.size.width / zoom > 1.8 * (this.size.height / zoom);
     const crumbs = this.path ? breadcrumb(this.path, this.home) : [];
     const rows = this.rows();
+    // The list's columns (lib/nav.js columnLayout): the rows its height holds, the
+    // columns its width holds (less the padding and a scrollbar's room).
+    const room = this.size ? this.size.width / zoom - 20 : 0;
+    const fit = this.listSize ? Math.floor((this.listSize.height / zoom - 8) / ROW) : rows.length;
+    const grid = columnLayout(rows.length, fit, Math.floor(room / CELL));
+    const cols = grid.cols;
+    const cell = cols > 1 ? Math.floor(room / cols) : 0;
     const lit = this.follow;
 
     const light = div().id("nav-follow").size(14).flex_none().rounded(7).cursor_pointer()
@@ -402,7 +476,7 @@ export default class Nav extends View {
       const tint = e.dir ? t.ansi4 : kind === "markdown" ? t.ansi6 : kind === "image" ? t.ansi3 : t.muted;
       const m = e.dir ? null : this.marks.files[e.name];
       const count = e.dir ? this.marks.folders[e.name] : 0;
-      return h_flex().id(`nav-row-${i}`).h(ROW).flex_none().px(8).gap(8).items_center().rounded(6).cursor_pointer().when(wide, (el) => el.w(CELL))
+      return h_flex().id(`nav-row-${i}`).h(ROW).flex_none().px(8).gap(8).items_center().rounded(6).cursor_pointer().when(cols > 1, (el) => el.w(cell))
         .when(sel, (el) => el.bg(t.selected)).hover((s) => s.bg(sel ? t.selected : t.hover))
         // A click right after a right-click is the same press: the menu, not "open".
         .on_click((_e, cx) => { if (Date.now() - (this.rightAt ?? 0) < 500) return; this.selected = e.name; this.activate(e, cx); cx.notify(); })
@@ -419,9 +493,14 @@ export default class Nav extends View {
         ? div().p(12).text_size(12).text_color(t.dim).child("Focus a terminal to show its folder")
         : !rows.length
           ? div().p(12).text_size(12).text_color(t.dim).child(this.loading ? "Loading…" : this.query ? "Nothing matches" : "Empty folder")
-          : wide
-            ? h_flex().id("nav-list").flex_1().min_h(0).p(4).flex_wrap().content_start().items_start().overflow_y_scrollbar().track_scroll(this.scroll).children(rows.map(row))
-            : v_flex().id("nav-list").flex_1().min_h(0).p(4).overflow_y_scrollbar().track_scroll(this.scroll).children(rows.map(row));
+          : cols > 1
+            ? h_flex().id("nav-list").flex_1().min_h(0).p(4).flex_wrap().content_start().items_start().overflow_y_scrollbar().track_scroll(this.scroll)
+              .on_size_change((size, cx) => this.listSized(size, cx))
+              .children(grid.cells.map((k) => (k === null ? div().w(cell).h(ROW).flex_none() : row(rows[k], k))))
+            : v_flex().id("nav-list").flex_1().min_h(0).p(4).overflow_y_scrollbar().track_scroll(this.scroll)
+              .on_size_change((size, cx) => this.listSized(size, cx))
+              .children(rows.map(row));
+    this.cellOf = (i) => (cols > 1 ? grid.cells.indexOf(i) : i);
 
     const footer = h_flex().h(28).flex_none().px(10).gap(8).items_center().border_t(1).border_color(t.border).text_size(11).text_color(t.dim)
       .when(this.filtering || Boolean(this.query), (el) => el.child(Input.new(this.filter).flex_1().h(22).px(6).rounded(5).border_1().border_color(t.input).bg(t.background).text_size(12)))

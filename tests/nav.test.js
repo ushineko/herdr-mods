@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { splitPath, parentOf, childOf, breadcrumb, parseListing, sortEntries, filterEntries, parsePorcelain, marksFor, keyAction } from "../lib/nav.js";
+import { splitPath, parentOf, childOf, breadcrumb, parseListing, sortEntries, filterEntries, parsePorcelain, marksFor, keyAction, columnLayout, parseDetails, sizeText, whenText } from "../lib/nav.js";
 
 test("splitPath: POSIX and Windows", () => {
   assert.deepEqual(splitPath("/a/b"), { root: "/", parts: ["a", "b"], sep: "/" });
@@ -108,4 +108,38 @@ test("keyAction: yazi-style keys, shift by character, modifiers ignored", () => 
   assert.equal(keyAction({ key: ".", key_char: "." }), "hidden");
   assert.equal(keyAction({ key: "j", key_char: "j", modifiers: { control: true } }), null);
   assert.equal(keyAction({ key: "q", key_char: "q" }), null);
+});
+
+test("columnLayout: each column filled to the foot before the next, as ls does", () => {
+  assert.deepEqual(columnLayout(5, 11, 3), { cols: 1, rows: 5, cells: [0, 1, 2, 3, 4] });
+  // 16 entries, 11 rows fit: a full column of 11, then 5 in the next.
+  const two = columnLayout(16, 11, 3);
+  assert.equal(two.cols, 2);
+  assert.equal(two.rows, 11);
+  assert.deepEqual(two.cells.slice(0, 4), [0, 11, 1, 12]);
+  assert.deepEqual(two.cells.slice(-2), [10, null]);
+  // Too many to fit: every column there is, longer than the block, and it scrolls.
+  assert.deepEqual([columnLayout(100, 10, 3).cols, columnLayout(100, 10, 3).rows], [3, 34]);
+  assert.equal(columnLayout(0, 10, 3).cols, 1);
+});
+
+test("parseDetails: a file, a folder, a link; nothing for odd output", () => {
+  assert.deepEqual(parseDetails("1234|1764280000|-rw-r--r--|n|staff||\n"),
+    { size: 1234, modified: 1764280000000, mode: "-rw-r--r--", owner: "n", group: "staff", link: null, count: null });
+  const dir = parseDetails("4096|1764280000|drwxr-xr-x|n|staff||17");
+  assert.equal(dir.size, null);
+  assert.equal(dir.count, 17);
+  assert.equal(parseDetails("10|1764280000|-rw-r--r--|n|staff|../a/b.md|").link, "../a/b.md");
+  assert.equal(parseDetails("Archive, ReadOnly|x"), null);
+  assert.equal(parseDetails(""), null);
+});
+
+test("sizeText and whenText", () => {
+  assert.equal(sizeText(1), "1 byte");
+  assert.equal(sizeText(999), "999 bytes");
+  assert.equal(sizeText(1234), "1.2 KB");
+  assert.equal(sizeText(34_000_000), "34 MB");
+  const at = new Date(2026, 10, 27, 14, 5).getTime();
+  assert.equal(whenText(at, at + 3 * 3600_000), "2026-11-27 14:05 · 3 h ago");
+  assert.equal(whenText(at, at + 400 * 86400_000), "2026-11-27 14:05");
 });
