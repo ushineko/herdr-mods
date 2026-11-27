@@ -8,10 +8,11 @@
 // share this module's SW, so a second Ctrl+Tab steps the open dialog.
 import { svg, image, div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { spaces, panes, terminals, run, theme, props, openOverlay, closeOverlay, shared, setShared, window as win } from "herdr";
+import { spaces, panes, terminals, run, theme, props, closeOverlay, shared, setShared, window as win } from "herdr";
 import { tabEntry, recordTab, liveOrder, switcherList } from "./lib/tab-order.js";
 import { machineColor } from "./lib/machine-color.js";
 import { OTHERS, showInWindow } from "./others.js";
+import { openDialog, openKind, dialogClosed } from "./dialogs.js";
 
 // This window's order, in its app home's shared state; the other windows' is read
 // from their homes' shared.json.
@@ -51,8 +52,8 @@ export function recordShown() {
 /** A key command (from the bar copy): opens the dialog, or steps the open one. */
 export function command(c) {
   const d = c === "switch-back" ? -1 : 1;
-  if (isOpen()) { step(d); return; }
-  openOverlay({ mod: "spaces-bar", kind: "dialog", width: 640, props: { switcher: true, back: d < 0 } });
+  if (isOpen() && openKind() === "switch") { step(d); return; }
+  openDialog("switch", { mod: "spaces-bar", kind: "dialog", width: 640, props: { switcher: true, back: d < 0 } }, () => { SW.open = false; });
 }
 
 function step(d) {
@@ -79,6 +80,7 @@ export function initDialog(view, cx) {
 // Switches to a row: this window's tab here; another window's there, raised.
 function pick(r) {
   SW.open = false;
+  dialogClosed("switch");
   closeOverlay(props()?.overlay);
   if (!r) return;
   if (r.window) return showInWindow(r.window, [["space.select", { id: r.space }], ["tab.select", { id: r.tab }]]);
@@ -90,6 +92,7 @@ function pick(r) {
 
 function cancel() {
   SW.open = false;
+  dialogClosed("switch");
   closeOverlay(props()?.overlay);
 }
 

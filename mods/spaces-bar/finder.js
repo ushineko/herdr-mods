@@ -6,11 +6,12 @@
 // the dialog is another copy of this mod (props.finder).
 import { svg, image, div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
-import { spaces, panes, terminals, run, theme, props, openOverlay, closeOverlay, shared, setShared } from "herdr";
+import { spaces, panes, terminals, run, theme, props, closeOverlay, shared, setShared } from "herdr";
 import { findItems, quickFind } from "./lib/quick-find.js";
 import { machineColor } from "./lib/machine-color.js";
 import { ORDER_KEY } from "./switcher.js";
 import { OTHERS, showInWindow } from "./others.js";
+import { openDialog, dialogClosed } from "./dialogs.js";
 
 // What this window has open, in its app home's shared state, for the other windows.
 export const ITEMS_KEY = "spaces-bar.find-items";
@@ -25,7 +26,7 @@ export function publish() {
 }
 
 export function open() {
-  openOverlay({ mod: "spaces-bar", kind: "dialog", width: 680, props: { finder: true } });
+  openDialog("find", { mod: "spaces-bar", kind: "dialog", width: 680, props: { finder: true } });
 }
 
 /** The dialog copy's start: the box (focused), this window's items and the others'. */
@@ -45,6 +46,7 @@ export function initDialog(view, cx) {
 // another window through its CLI, that window brought forward.
 function pick(it) {
   closeOverlay(props()?.overlay);
+  dialogClosed("find");
   if (!it) return;
   if (it.window) return showInWindow(it.window, it.steps);
   for (const [c, args] of it.steps) run(c, args);
@@ -87,7 +89,7 @@ export function renderDialog(view) {
     .bg(t.popover)
     .text_size(13)
     .on_key_down((e, cx) => {
-      if (e.key === "escape") return closeOverlay(props()?.overlay);
+      if (e.key === "escape") { dialogClosed("find"); return closeOverlay(props()?.overlay); }
       const n = Math.max(1, results.length);
       if (e.key === "down") view.sel = (view.sel + 1) % n;
       else if (e.key === "up") view.sel = (view.sel - 1 + n) % n;
