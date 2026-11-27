@@ -2,7 +2,7 @@
 
 **Issue**: #51
 
-## Status: INCOMPLETE
+## Status: COMPLETE
 
 ## Executive Summary
 
@@ -37,14 +37,21 @@ this computer (as the inbox and the Ctrl+Tab switcher reach them, #48, spec 015)
 
 ## Acceptance Criteria
 
-- [ ] R1/R2: unit tests: the items built from the app's lists (tabs, nested tabs,
-  spaces, machines; settled tabs out), and the matching and ranking.
-- [ ] R3: in the window: Ctrl+Space, type, Enter switches; Up/Down; Esc.
-- [ ] R4: on njv-cachyos, a work-window tab found from the default window, and
-  switched to there.
-- [ ] R5: rows as described.
-- [ ] Keys in each machine's keys.json and its dotfiles snapshot; `herdr-app
-  check` passes; tests pass on macOS, Linux and Windows.
+- [x] R1/R2: unit tests: the items built from the app's lists (tabs, nested tabs,
+  spaces, machines; settled tabs out), and the matching and ranking
+  (`tests/quick-find.test.js`; a title that's only a terminal's address is named
+  after its program, `tests/tab-order.test.js`).
+- [x] R3: in the window: Ctrl+Space, type, Enter switches; Up/Down; Esc (operator,
+  2026-11-26). A chat landed on takes the keyboard (both switchers post
+  `ushi-naruse.focus-request` once their dialog has closed).
+- [x] R4: on njv-cachyos, a work-window tab found from the default window, and
+  switched to there (operator). Each window publishes its items (24 and 17 when
+  first checked); one cached read of the other windows (others.js) now serves both
+  switchers.
+- [x] R5: rows as described (operator).
+- [x] Keys in each machine's keys.json and its dotfiles snapshot (dotfiles
+  1835d64); `herdr-app check` passes on every machine; tests pass: macOS 302,
+  Linux 303, Windows 298 of 316 (18 skipped), no failures.
 
 ## Test approach
 
