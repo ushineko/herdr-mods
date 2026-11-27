@@ -9,13 +9,13 @@ JavaScript panels drawn natively by Herdr's GPUI shell.
 
 | Mod | What it does |
 |---|---|
-| `spaces-bar` | Horizontal spaces bar along the top; remote machines fold into one chip with a dropdown. Each space lists its agents (a chat's agent shows as its chat, with the cow) |
-| `terminals-bar-proc` | The tab bar: each tab shows the program running in it; the shown tab joins its pane like a file tab; scrolls when tabs don't fit. **+** at the left: click for a shell, right-click for an agent or a chat. Closing a tab moves a chat's agent out first, so its session isn't ended |
-| `nested-tabs` | Pane header with nested tabs (port of the herdr TUI fork's pane stacks), and the per-tab nav/git panel. Right-click **+** for an agent or a chat; the cow button opens a running Claude Code or Codex terminal as a chat |
+| `spaces-bar` | Horizontal spaces bar along the top: this computer's spaces, a divider, then one chip per other machine (with a dropdown of its spaces), each machine in its own colour, filled while one of its spaces is shown. Each space lists its agents (a chat's agent shows as its chat, with the cow). Also: the **inbox** (after **+**: a red count of agents waiting for input, a dot for ones that finished; a dropdown of Needs you / Done / Working on every machine), the **Ctrl+Tab switcher** (recent tabs, Vivaldi-style: hold Ctrl, Tab to move, release to switch; spec 015) and the **quick switcher** (Ctrl+Space: find any open tab, nested tab, space or machine by name; spec 016). The inbox and both switchers include the other windows on this computer (njv-cachyos's default and work) |
+| `terminals-bar-proc` | The tab bar: each tab shows the program running in it; the shown tab joins its pane like a file tab; scrolls when tabs don't fit; drag a tab to reorder it (palette: Tab: move left/right). **+** at the left: click for a shell (in the shown tab's folder), right-click for an agent or a chat. A remote space's machine pill is in the machine's colour. Closing a tab moves a chat's agent out first, so its session isn't ended |
+| `nested-tabs` | Pane header with nested tabs (port of the herdr TUI fork's pane stacks; drag to reorder), and the per-tab nav/git panel. Right-click **+** for an agent or a chat; the cow button opens a running Claude Code or Codex terminal as a chat. A chat's own header (agent, conversation, its tools) is drawn in this row, so a chat pane has one header |
 | `dock-tabs` | Tab strip for the window-level dock; its fixed tab holds nav and git as a split, with hayami's block under them; **+** adds shells, agents and chats as subtabs |
-| `dock-follow` | Keeps the dock's nav and git on the focused pane's folder (a chat counts as its agent's folder); handles agent requests (`herdr-open`, `herdr-nav`) |
+| `dock-follow` | Keeps the dock's nav and git on the focused pane's folder (a chat counts as its agent's folder); handles agent requests (`herdr-open`, `herdr-nav`); after a herdr-core restart (a reboot) resumes the Claude Code conversations it ended (`claude.session` labels from a SessionStart hook; `claude --resume` on Windows) |
 | `nav` | Folder panel (spec 002): follows the focused terminal's folder, breadcrumbs, git marks, opens files in the viewer, right-click menu (open, edit, open in app, copy path) |
-| `git` | Repository panel (spec 003): branch and upstream, worktrees with a light per agent (writes locked while an agent works there), changes with diffs, recent commits with their authors, drill-down and **Load 50 more** (**expand** makes the list fill the panel), lazygit keys. **Clean up…** (spec 007) removes worktrees that are clean and pushed, with a checkbox each; root-owned files (Docker writing to a mapped volume) are handed back through default Docker; a kept worktree can be removed anyway with **Really remove…**, which says what is lost |
+| `git` | Repository panel (spec 003): branch and upstream, worktrees with a light per agent (writes locked while an agent works there), changes with diffs, recent commits with their authors, drill-down (the message reflowed to the panel's width) and **Load 50 more** (**expand** makes the list fill the panel), lazygit keys, its own text size (A−/A+, keys `-` `=` `0`). **Clean up…** (spec 007) removes worktrees that are clean and pushed, with a checkbox each; root-owned files (Docker writing to a mapped volume) are handed back through default Docker; a kept worktree can be removed anyway with **Really remove…**, which says what is lost |
 | `hayami` | hayami's readings under the dock's nav and git (specs 010, 011): usage (one line and one meter per account, as hayami draws it), bandwidth, cooler, peripherals and clock, from the hayami service on the shown space's machine, local or remote, through `lib/hayami.js` (hayami-js, below). Side by side in the bottom dock, stacked in the right one, the block sized to fit. **☰** in its header, a right-click, or the palette (`hayami: show/hide …`) chooses the sections, once per app home |
 | `cria-file-preview` | File viewer in a tab (vendored from gsydler/herdr-cria, Apache-2.0; see `vendor/cria/VENDOR.md`): Markdown with images, links and Mermaid diagrams (needs `mmdc`, mermaid-cli), PDF, images, CSV/TSV, JSON, code, plus local diff view and "Open in <app>" |
 | `ushi-naruse`, `ushi-naruse-file` | A chat view for Claude Code and Codex: our fork of naruse/herdr-chat, see [ushi-naruse](#ushi-naruse-chat-a-fork-of-naruseherdr-chat) |
@@ -61,27 +61,43 @@ puts the session back in its terminal, still running.
 What we changed from upstream:
 
 - **Layout**: your messages on the left, like the replies and Claude Code's terminal;
-  tool calls in smaller text, their output as plain monospace lines; the conversation
-  fills the pane instead of a centered 900 px column; a cow icon.
+  tool calls in smaller text, their output in monospace as written; the conversation
+  fills the pane instead of a centered 900 px column; a cow icon. Its header folds
+  into the pane's header row (nested-tabs) in a tab.
+- **What Claude shows**: its thinking (as Claude Code's terminal does), Mermaid
+  diagrams in replies (drawn with mermaid-cli), a context meter (used / window)
+  beside the model, bare URLs as links.
+- **Copying**: a selection is copied when it's released (as in the herdr TUI), with a
+  "Copied" pill; tool output is selectable too. A terminal panel (`/login`) has Copy
+  link / Open link (its wrapping undone), and text typed with it open goes to its
+  prompt; a /command typed then runs as a command.
+- **History**: Up/Down in an empty box recalls what you sent.
 - **Claude's suggested next message** (drawn only in its terminal, never logged) shows
-  above the message box; click or Tab takes it. Before sending, the agent's input line
-  is emptied so nothing is sent in front of the message.
+  above the message box; click or Tab takes it to edit, **Send ↑** sends it as it is.
+  Before sending, the agent's input line is emptied so nothing is sent in front of the
+  message.
 - **Parked sessions**: a Claude Code session parked as a background job is found
   through its job (upstream showed nothing).
 - **Background work** (Claude Code): a background subagent or script shows running until
   Claude Code reports it done, with a subagent's tool count and step or a script's
   latest output; a strip above the message box lists what still runs (click to open
   its row, × to stop it); right-click a running row for **Stop**, which asks Claude
-  to stop it.
+  to stop it. **Background N** (or the "still running" line) opens a dialog of all of
+  it: each command (with Copy), how long it has run, its latest output.
 - **Back to terminal**, and a `hide` prop that hides the terminal behind the chat when it
   opens (Open as chat).
 - **One chat in every window**: the agent is found by a label (`ushi.id`), not by its
   address, which differs between windows (a machine's own window and another
   computer's window on it); and it
   hides its terminal when another mod asks (`×` on that terminal).
+- **The cursor follows**: the message box takes the keyboard when the chat becomes
+  the one in use (its pane focused in the active window: a switch, the inbox,
+  another window raising this one).
+- **Windows** (spec 014): in a Windows window, and for agents on Windows, with
+  PowerShell where macOS and Linux use sh and python3.
 
 What the other mods add around it: the menu entries, hidden only where the chat can't
-run (Windows, no `python3`, the agent not installed); an agent started for a chat ends
+run (macOS or Linux without `python3`, Codex on Windows, the agent not installed); an agent started for a chat ends
 when its chat closes, a hidden terminal comes back as a tab when its chat closes, and
 `×` on a chat's terminal hides it instead of ending the session; nav and git follow a
 chat; the agents list opens it.
@@ -119,7 +135,7 @@ go where agents run. A window without these mods works as plain Herdr.
 
 `bin/herdr-open`, `bin/herdr-nav` (on `bin/herdr-request`) let a Claude session in a
 Herdr terminal show a file (viewer, diff, editor, external app) or point the nav and
-git panels (spec 005). The skills in `skills/` tell agents when to use them. The source
+git panels (spec 005). They are bash: macOS and Linux only for now. The skills in `skills/` tell agents when to use them. The source
 lives here; `install.sh` symlinks `bin/*` into `~/.local/bin` and `skills/*` into
 `~/.claude/skills`. Per-machine external apps: `~/.config/herdr-mods/external.json`
 (see `config/external.example.json`).
@@ -127,8 +143,20 @@ lives here; `install.sh` symlinks `bin/*` into `~/.local/bin` and `skills/*` int
 ## Tests
 
 ```sh
-npm test    # ./run-tests.sh: ours + the vendored cria tests, under a throwaway TMPDIR
+npm test               # ./run-tests.sh: ours + the vendored cria tests, under a throwaway TMPDIR
+tools/test-windows.sh  # the same on win11-kvm (run on njv-cachyos; pushed HEAD)
 ```
+
+## Keys
+
+The mods' key commands, bound in each app home's `keys.json` (`global`; the
+machines' own files are snapshotted in dotfiles):
+
+| Key | Command |
+|---|---|
+| Ctrl+Tab / Ctrl+Shift+Tab | `spaces-bar.switch` / `spaces-bar.switch-back`: recent tabs |
+| Ctrl+Space | `spaces-bar.find`: the quick switcher (on macOS, its input-source shortcut takes Ctrl+Space first when it has several input sources) |
+| Ctrl+Shift+A, Ctrl+Shift+←/→ | `nested-tabs.add`, `.next`, `.prev` (Cmd on macOS) |
 
 ## Requirements
 
@@ -157,6 +185,12 @@ A missing program shows as a note where it's needed ("Mermaid isn't installed
 # Two app homes on one machine: the first gets copies, the second links to them
 ./install.sh --home ~/.config/herdr-app --link ~/.config/herdr-app-second
 ```
+
+On Windows, run it in Git Bash with `--no-agent` (the agent commands are bash
+scripts), and install the sign-in tasks that keep herdr-core where the app can reach
+it, from an elevated PowerShell:
+`powershell -ExecutionPolicy Bypass -File tools\windows\install-logon-tasks.ps1`
+(spec 013: a core an SSH connection starts is elevated, and the app can't open it).
 
 Herdr does not hot-reload a mod reached through a symlink, so the app home
 gets real copies. Edit here, then run `./install.sh`; Herdr reloads the

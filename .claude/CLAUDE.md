@@ -96,6 +96,7 @@ tests/           node --test unit tests for lib/
 bin/             herdr-open, herdr-nav (agent CLIs; spec 005)
 skills/          Claude Code skills for those CLIs
 config/          example per-machine config (external.json)
+tools/           gallery.sh (screenshots), test-windows.sh, windows/ (sign-in tasks)
 specs/           specs
 install.sh       copies mods (and lib/) into an app home
 ```
@@ -134,9 +135,16 @@ install.sh       copies mods (and lib/) into an app home
 
 - **Windows test host: win11-kvm**, a Windows 11 VM on njv-cachyos (ssh host
   `win11-kvm` there, user `nvere`; not reachable from the Mac). It has node,
-  git, PowerShell 5.1 and pwsh, the herdr TUI and `hc`; not the Herdr app yet.
-  `tools/test-windows.sh` runs the unit tests there (from the Mac:
+  git, PowerShell 5.1 and pwsh, the herdr TUI and `hc`, and the Herdr app (spec
+  013): app home `C:\Users\nvere\.config\herdr-app`, checkout `~\git\herdr-mods`
+  (install with Git Bash: `./install.sh --no-agent`), the sign-in tasks from
+  `tools/windows/install-logon-tasks.ps1`. `tools/test-windows.sh` runs the unit
+  tests there (from the Mac:
   `hc exec --on njv-cachyos-default -- bash -c "$(cat tools/test-windows.sh)"`).
+  Over SSH: `herdr-app check` needs the desktop session (run it through a one-off
+  scheduled task, interactive); `git` over Windows' OpenSSH hangs from a
+  non-interactive session (copy files over instead); PowerShell 5.1 strips double
+  quotes from native arguments (send scripts as `-EncodedCommand`).
 
 - njv-mbp-m1 (macOS): app home `~/.config/herdr-app`, one window.
 - njv-cachyos (CachyOS): app homes `~/.config/herdr-app` (default) and

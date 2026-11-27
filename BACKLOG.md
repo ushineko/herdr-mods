@@ -1,6 +1,6 @@
 # Backlog
 
-Open items to come back to (updated 2026-11-25, after specs 008 and 006). Each new feature gets
+Open items to come back to (updated 2026-11-26, after specs 013 to 016). Each new feature gets
 a GitHub issue and a spec (`specs/NNN-…md`) when work starts.
 
 ## Features, parked by the operator
@@ -9,12 +9,21 @@ a GitHub issue and a spec (`specs/NNN-…md`) when work starts.
   `~/.cache/herdr-mods/inbox/<session>/`; with no herdr-app window running these mods,
   nothing claims it and the agent believes it worked. Idea: wait ~2 s for a claim and
   otherwise say "no Herdr window with herdr-mods picked this up".
-- **ushi-naruse without python3** (spec 008; operator kept python3 required, 2026-11-25).
-  python3 only brokers stdio for `claude -p` stream-json and `codex app-server` JSON-RPC
-  (side chat, info cards, resume list) and reads image sizes. Options: a soft dependency
-  (entries always shown, those features say "needs python3", image size in JS); node
-  helpers; Go helpers, worth it mainly for Windows (no python3 there; one .exe per
-  machine, built or shipped).
+- **ushi-naruse without python3 on macOS and Linux** (spec 008; operator kept python3
+  required, 2026-11-25). Since spec 014, Windows uses PowerShell instead, and image
+  sizes are read in JS everywhere; on macOS and Linux python3 still brokers stdio for
+  `claude -p` stream-json and `codex app-server` JSON-RPC (side chat, info cards,
+  resume list). Options: a soft dependency (those features say "needs python3"), or
+  the PowerShell bridge's approach (the JSON side in `lib/chat-sdk.js`) with sh.
+- **Codex chats on Windows** (spec 014): the Codex bridge (`codex app-server`) has no
+  PowerShell form, so Windows offers Claude Code's chat only. Codex isn't installed on
+  win11-kvm.
+- **`herdr-open` / `herdr-nav` on Windows** (spec 013): bash scripts, so not installed
+  there (`install.sh --no-agent`); a PowerShell form if Claude sessions on Windows
+  should point the panels.
+- **Quick switcher: past conversations** (spec 016 chose open things only): Claude
+  Code sessions that aren't open, from each project's session list, opened as a new
+  chat.
 - **Fake fullscreen** (UX question raised, deferred).
 - **TODO: hayami-js details and drills** (operator, 2026-11-26: to be done later).
   Specs 010 and 011 draw the sections only. The service lists each section's
@@ -58,6 +67,10 @@ a GitHub issue and a spec (`specs/NNN-…md`) when work starts.
   desktop windows) and a pane-less chat agent show on the phone.
 - **Gallery shots that need a click**: the + right-click menu and a git commit
   drill-down; `tools/gallery.sh` can't open them (no command takes their props).
+- **The gallery is out of date** (2026-11-26): the shots predate the top bar's zones,
+  machine colours and inbox, the compact tab bar, and the chat's header in the pane
+  row. Run `tools/gallery.sh` again; new candidates: the inbox's dropdown, the Ctrl+Tab
+  and Ctrl+Space dialogs (each opened by a command, so the script can take them).
 - **A shallower terminals-dock layout.** It is 16 levels deep since the "work" column
   (#10), past the limit of a mod's `run()` arguments; dock-tabs falls back to the
   herdr-app CLI (#15). Flattening the layout would remove the need.
@@ -89,6 +102,14 @@ New shell; 005 yazi-here retired, skills on both machines; 007 right-click plans
 worktree, clean-up of all of platform-backend including Fix ownership and Really remove.
 
 ## Housekeeping
+
+- win11-kvm's checkout (`~\git\herdr-mods`) was set up from a bundle and kept current
+  by copying files over it (`git clone` hangs from a non-interactive SSH session
+  there, spec 013): bring it in line from a Windows terminal with `git fetch` and
+  `git reset --hard origin/main`.
+- win11-kvm crashed once (bugcheck 0x50, 2026-11-26 14:59); the minidump in
+  `C:\Windows\Minidump` would name the driver (the SR-IOV Intel graphics driver is
+  the first suspect).
 
 - njv-cachyos `/home/nverenin/git/platform-backend.worktrees/` still holds folders git no
   longer knows as worktrees (only the main worktree is registered now):
