@@ -3,7 +3,7 @@
 **Issue**: none (operator, 2026-11-27: "i think we need a UI way to hide and
 show the docks")
 
-## Status: INCOMPLETE
+## Status: COMPLETE
 
 ## Context
 
@@ -78,9 +78,9 @@ visible whatever the docks do.
       Done by command 2026-11-27 (the three states read back from shots: right
       lit and bottom dim; both lit with the bottom dock open on its subtabs;
       bottom dim again). The operator, 2026-11-27: "the dock buttons work".
-- [ ] AC4 Real window: the tooltips read "Hide the right dock (Ctrl+Shift+Y)"
+- [x] AC4 Real window: the tooltips read "Hide the right dock (Ctrl+Shift+Y)"
       on the lit button and "Show the bottom dock (Alt+Shift+Y)" on the dim
-      one (operator).
+      one (operator, 2026-11-27: "tooltips are right").
 
 ## Risks & Assumptions
 
@@ -100,7 +100,7 @@ On njv-cachyos's work window, after `./install.sh --no-agent
 terminals-bar-proc term-menu` from the worktree: shots of the bar in the
 three states of AC3, the toggles sent with `herdr-app do layout.toggle --id
 <dock>` and read back from the shots; the key form and the tooltips are the
-operator's (AC3's key half, AC4).
+operator's (AC3's key half, AC4), confirmed 2026-11-27.
 
 ### Prod visibility
 
