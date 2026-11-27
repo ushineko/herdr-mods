@@ -10,6 +10,10 @@
 // shown space's machine's. yazi and lazygit are no longer started here; a dock
 // still holding their blocks is rewritten (migrated) when it is shown.
 //
+// A **mod subtab** (spec 018) holds a mod's block instead of a terminal: a mod whose
+// mod.json has a "dock" entry (lib/dock-mods.js) is offered under "+", shows as its
+// icon alone, and belongs to no machine, so every machine's strip shows it.
+//
 // Props (pane header copies): { dock, stack, other }.
 // Popup menu copies:          { menu: "tab" | "new", dock, stack, other, target? }.
 // Rename dialog copies:       { rename: true, target, value }.
@@ -23,10 +27,11 @@ import { View, div, svg, image } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
 import {
   layout, terminals, focused, run, hc, exec, home, theme, shared, setShared, notify, window,
-  openOverlay, closeOverlay, knownAgents, checking, props, nextCommand, spaces, machines,
+  openOverlay, closeOverlay, knownAgents, checking, props, nextCommand, spaces, machines, appHome, readTextFile,
 } from "herdr";
 import { chatEntries, newChatId, ID_LABEL, AGENT_LOOKUP, parseAgentLookup, withLoginAgents, hasChatAgent, platformOf } from "./lib/chat-entries.js";
 import { machineColor } from "./lib/machine-color.js";
+import { modTabName, isModTab, modOfTab, dockMods, dockModIcon, LIST_MODS, modNamesFrom } from "./lib/dock-mods.js";
 
 const ICON = (n) => `mods/dock-tabs/${n}.svg`;
 const DOCKS = ["dock-right", "dock-bottom"];
@@ -73,6 +78,7 @@ const tree = () => JSON.parse(JSON.stringify(layout() ?? {}));
 const machineOf = (name) => (name && name.includes("/") ? name.slice(0, name.indexOf("/")) : null);
 const baseOf = (name) => (name && name.includes("/") ? name.slice(name.indexOf("/") + 1) : name);
 const childId = (dock, name) => {
+  if (isModTab(name)) return `${dock}-mod-${modOfTab(name).replace(/[^A-Za-z0-9_-]/g, "_")}`;
   const m = machineOf(name);
   return `${dock}-${baseOf(name).replace(/^dock-/, "")}${m ? "@" + m.replace(/[^A-Za-z0-9_-]/g, "_") : ""}`;
 };
@@ -82,6 +88,8 @@ const nameOf = (child) => child?.content?.terminal ?? child?.content?.props?.doc
 const chatOf = (child) => (child?.content?.mod === "ushi-naruse" ? child.content.props?.terminal ?? null : null);
 const chatIdOf = (child) => (child?.content?.mod === "ushi-naruse" ? child.content.props?.id ?? null : null);
 const modOf = (child) => child?.content?.mod ?? null;
+// A mod subtab's block: its mod, by the dockName it was given (spec 018).
+const modTabOf = (child) => (isModTab(child?.content?.props?.dockName) && child?.content?.mod ? modOfTab(child.content.props.dockName) : null);
 const currentMachine = () => spaces().find((s) => s.active)?.machine ?? null;
 
 // The live terminal for a subtab name, here or on its machine.
@@ -99,9 +107,10 @@ function tabs(dock, machine) {
   const list = (st?.children ?? []).map((c) => {
     const fixed = FIXED.find((f) => c.id === fixedId(dock, f.key));
     if (fixed) return { id: c.id, fixed };
+    if (modTabOf(c)) return { id: c.id, name: nameOf(c), mod: modTabOf(c), machine: null, term: null };
     return { id: c.id, name: nameOf(c), chat: chatOf(c), chatId: chatIdOf(c), machine: machineOf(nameOf(c)), term: termOf(all, nameOf(c)) };
   });
-  return machine === undefined ? list : list.filter((t) => t.fixed || t.machine === machine);
+  return machine === undefined ? list : list.filter((t) => t.fixed || t.mod || t.machine === machine);
 }
 
 // The added (non-fixed) subtabs' terminal names, in order, without retired blocks.
@@ -133,8 +142,11 @@ function setTabs(names, active, chats = {}) {
       ...names.map((n) => ({
         id: childId(dock, n),
         type: "block",
-        // A chat set to null in `chats` turns back into its terminal (Back to terminal).
-        content: chat[n] ? { mod: "ushi-naruse", props: { terminal: chat[n].address ?? chat[n], ...(chat[n].id ? { id: chat[n].id } : {}), dockName: n } } : { terminal: n },
+        // A mod subtab's block knows its dock, stack and own id, so the mod can tell
+        // when it is shown; a chat set to null in `chats` turns back into its terminal
+        // (Back to terminal).
+        content: isModTab(n) ? { mod: modOfTab(n), props: { dock, stack: STACK(dock), id: childId(dock, n), dockName: n } }
+          : chat[n] ? { mod: "ushi-naruse", props: { terminal: chat[n].address ?? chat[n], ...(chat[n].id ? { id: chat[n].id } : {}), dockName: n } } : { terminal: n },
       })),
     ];
     const want = active?.[dock];
@@ -176,11 +188,12 @@ function needsMigration(dock) {
   const first = kids[0];
   const splitOk = first?.id === fixedId(dock, "panels") && first.type === panelsNode(dock).type
     && Boolean(find(first, `${dock}-nav`)) && find(first, `${dock}-hayami`)?.content?.props?.dock === dock;
-  return !splitOk || kids.some((c, i) => i > 0 && ((modOf(c) && !chatOf(c)) || RETIRED.test(baseOf(nameOf(c) ?? ""))));
+  return !splitOk || kids.some((c, i) => i > 0 && ((modOf(c) && !chatOf(c) && !modTabOf(c)) || RETIRED.test(baseOf(nameOf(c) ?? ""))));
 }
 
 function label(tab) {
   if (tab.fixed) return tab.fixed.label;
+  if (tab.mod) return tab.title ?? tab.mod;
   const t = tab.term;
   if (tab.chat) return t?.labels?.[TITLE] || `${t?.program?.name ?? "Agent"} chat`;
   return t?.labels?.[TITLE] || t?.title || t?.program?.name || baseOf(tab.name);
@@ -254,6 +267,37 @@ async function addTab(dock, command, { chat = false } = {}) {
   if (command) await hc(["send", name, command]);
 }
 
+// A mod's subtab (spec 018): shown if it is already there, else added after the
+// active subtab. It belongs to no machine, so it is in every machine's strip.
+function addModTab(dock, mod) {
+  const name = modTabName(mod);
+  const names = ownNames(dock);
+  if (!names.includes(name)) {
+    const at = names.indexOf(nameOf(find(layout(), activeOf(dock))));
+    names.splice(at < 0 ? names.length : at + 1, 0, name);
+  }
+  setTabs(names, { [dock]: name });
+  remember({ name, machine: null });
+}
+
+// The installed mods that offer a dock subtab: each mod.json under the app home's
+// mods folder that has a "dock" entry (lib/dock-mods.js). Listed with sh: a mod has
+// no folder listing of its own. Windows has no sh and no Herdr app yet.
+async function installedDockMods() {
+  const dir = `${appHome()}/mods`;
+  let names = [];
+  try {
+    const r = await exec("sh", ["-c", LIST_MODS, "dock-tabs", dir], { timeout: 5000 });
+    names = modNamesFrom(r.stdout, dir);
+  } catch { return []; }
+  const entries = [];
+  for (const name of names) {
+    const json = await readTextFile(`${dir}/${name}/mod.json`).catch(() => null);
+    if (json) entries.push({ name, json });
+  }
+  return dockMods(entries);
+}
+
 async function closeTab(dock, tab) {
   if (tab.fixed) return;
   const list = tabs(dock, tab.machine);
@@ -319,6 +363,7 @@ export default class DockTabs extends View {
     else if (c === "chat") chatOptions(currentMachine()).then(([e]) => e && addTab(dock, e.run.join(" "), { chat: true }))
       .catch((e) => fail("New chat failed", `${e?.message ?? e}`));
     else if (c === "close") { const t = tabs(dock).find((x) => x.id === activeOf(dock)); if (t && !t.fixed) closeTab(dock, t); }
+    else if (/^mod-[A-Za-z0-9._-]+$/.test(c)) addModTab(dock, c.slice(4)); // `herdr-app do dock-tabs.mod-<mod>`
   }
 
   shownNow() {
@@ -374,21 +419,23 @@ export default class DockTabs extends View {
     const g = tab.term?.program;
     // The fixed subtab shows its panels' icons only (folder, branch); its name is the tooltip.
     const icon = tab.fixed ? h_flex().flex_none().gap(5).items_center().children(tab.fixed.icons.map((n) => svg(ICON(n)).size(15).flex_none().text_color(active ? t.accent : t.muted)))
+      : tab.mod ? svg(tab.iconPath ?? dockModIcon({ mod: tab.mod, icon: "icon" })).size(15).flex_none().text_color(active ? t.accent : t.muted)
       : tab.chat ? svg(ICON("cow")).size(15).flex_none().text_color(active ? t.foreground : t.muted)
       : g?.icon ? (g.tint ? svg(g.icon).size(15).flex_none().text_color(active ? t.foreground : t.muted) : image(g.icon).w(15).h(15).flex_none()) : null;
     const name = label(tab);
-    return h_flex().id(`dt-${dock}-${tab.id}`).flex_shrink(1).min_w(56).max_w(220).h(28).pl(8).pr(tab.fixed ? 8 : 3).gap(6)
+    // A mod subtab is its icon alone (spec 018), its title the tooltip, as the fixed one.
+    return h_flex().id(`dt-${dock}-${tab.id}`).flex_shrink(1).min_w(tab.mod ? 0 : 56).max_w(220).h(28).pl(8).pr(tab.fixed ? 8 : 3).gap(6)
       .items_center().rounded(8).border_1().cursor_pointer().text_size(13)
       .when(active, (el) => el.bg(t.raised).border_color(t.border).text_color(t.foreground))
       .when(!active, (el) => el.border_color("#00000000").text_color(t.muted).hover((s) => s.bg(t.hover)))
-      .when(!tab.fixed && !tab.term, (el) => el.opacity(0.5))
-      .tooltip(tab.fixed ? `${name} (always here)` : `${name} · ${tab.name}`)
+      .when(!tab.fixed && !tab.mod && !tab.term, (el) => el.opacity(0.5))
+      .tooltip(tab.fixed ? `${name} (always here)` : tab.mod ? name : `${name} · ${tab.name}`)
       .on_click((e) => { if (e.click_count >= 2 && !tab.fixed) this.rename(tab); else show(dock, tab); })
       .on_mouse_down("middle", (_e, cx) => { cx.stop_propagation(); closeTab(dock, tab); })
       .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); this.menu("tab", tab.id); })
       .child(div().flex_none().text_size(11).text_color(t.dim).child(String(i + 1)))
       .when(Boolean(icon), (el) => el.child(icon))
-      .when(!tab.fixed, (el) => el.child(div().truncate().child(name)))
+      .when(!tab.fixed && !tab.mod, (el) => el.child(div().truncate().child(name)))
       .when(!tab.fixed, (el) => el.child(
         div().id(`dt-x-${dock}-${tab.id}`).flex_none().p(3).rounded(5).text_color(t.dim)
           .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Close tab")
@@ -441,6 +488,7 @@ export default class DockTabs extends View {
     this.at = 0;
     this.agents = [];
     this.chats = [];
+    this.dockMods = [];
     this.busy = false;
     this.handle = cx.focus_handle();
     this.handle.focus();
@@ -448,6 +496,8 @@ export default class DockTabs extends View {
       try { this.agents = (await knownAgents()).filter((a) => a.installed && a.run?.length).slice(0, 4); } catch { this.agents = []; }
       cx.notify();
       this.chats = await chatOptions(currentMachine());
+      cx.notify();
+      this.dockMods = await installedDockMods();
       cx.notify();
     });
   }
@@ -458,6 +508,7 @@ export default class DockTabs extends View {
       { label: "New tab", icon: "terminal", act: () => addTab(dock) },
       ...this.agents.map((a) => ({ label: `New ${a.name} tab`, icon: "terminal", act: () => addTab(dock, a.run.join(" ")) })),
       ...this.chats.map((c) => ({ label: c.label, icon: "layers", act: () => addTab(dock, c.run.join(" "), { chat: true }) })),
+      ...this.dockMods.map((m) => ({ label: `${m.title} tab`, iconPath: dockModIcon(m), act: () => addModTab(dock, m.mod) })),
     ];
     if (menu !== "tab") return news;
     const list = tabs(dock, currentMachine());
@@ -508,7 +559,7 @@ export default class DockTabs extends View {
         : h_flex().id(`dt-mi-${k}`).h(31).px(8).gap(9).rounded(7).items_center().text_color(t.foreground)
             .when(k === this.at, (el) => el.bg(t.selected)).hover((s) => s.bg(t.hover))
             .on_click((_e, cx) => this.choose(it, cx))
-            .child(svg(ICON(it.icon)).size(14).flex_none().text_color(t.muted))
+            .child(svg(it.iconPath ?? ICON(it.icon)).size(14).flex_none().text_color(t.muted))
             .child(div().flex_1().truncate().child(it.label))));
   }
 
