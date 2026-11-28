@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseDiff, untrackedDiff, sideBySide, wordChanges, foldContext, syntaxRuns, paintLine } from "../lib/diff.js";
+import { parseDiff, untrackedDiff, sideBySide, wordChanges, foldContext, syntaxRuns, paintLine, patchText, createdText } from "../lib/diff.js";
 
 const SAMPLE = `diff --git a/f.txt b/f.txt
 index 1111111..2222222 100644
@@ -90,4 +90,24 @@ test("syntaxRuns and paintLine: keywords, strings, numbers, comments; changed ra
     [["if", "keyword"], [" x == ", null], ['"a"', "string"], [" { ", null], ["return", "keyword"], [" ", null], ["42", "number"], [" } ", null], ["// done", "comment"]]);
   assert.deepEqual(paintLine("return x", "js", [[7, 8]]), [{ text: "return", kind: "keyword", changed: false }, { text: " ", kind: null, changed: false }, { text: "x", kind: null, changed: true }]);
   assert.deepEqual(syntaxRuns("# note", "py"), [{ text: "# note", kind: "comment" }]);
+});
+
+// Claude Code's structuredPatch as logged for an Edit (spec 025 R4), drawn through parseDiff.
+test("patchText: an edit's hunks read back with their line numbers", () => {
+  const hunks = [{ oldStart: 224, oldLines: 3, newStart: 224, newLines: 4, lines: [" a", "-b", "+B", "+c", " d"] }];
+  const { rows, added, removed } = parseDiff(patchText(hunks));
+  assert.equal(added, 2);
+  assert.equal(removed, 1);
+  assert.deepEqual(rows.map((r) => [r.kind, r.old, r.new, r.text]), [
+    ["hunk", null, null, "@@ -224,3 +224,4 @@"],
+    ["ctx", 224, 224, "a"], ["del", 225, null, "b"], ["add", null, 225, "B"], ["add", null, 226, "c"], ["ctx", 226, 227, "d"],
+  ]);
+  assert.equal(patchText(null), "");
+});
+
+test("createdText: a new file as added lines from 1, cut at max", () => {
+  const { rows, added } = parseDiff(createdText("x\ny\nz\n", 2));
+  assert.deepEqual(rows.filter((r) => r.kind === "add").map((r) => [r.new, r.text]), [[1, "x"], [2, "y"]]);
+  assert.equal(added, 2);
+  assert.equal(rows[0].text, "@@ -0,0 +1,3 @@");
 });

@@ -3,6 +3,7 @@
 // Images come out as { data (base64) | path, ext } for the view to cache.
 import { unwrapPastes } from "./lib/chat-text.js";
 import { launchOf, stoppedBy, parseNotification, ended } from "./lib/chat-tasks.js";
+import { patchText, createdText } from "./lib/diff.js";
 
 const MAX_RESULT = 6000;
 
@@ -185,9 +186,13 @@ export class Transcript {
     return last;
   }
 
-  toolResult(id, content, error) {
+  toolResult(id, content, error, extra) {
     const item = this.tools.get(id);
     if (!item) return;
+    // An edit's change (herdr-mods spec 025 R4): Claude Code's patch, or a new file's text.
+    const done = extra && typeof extra === "object" ? extra : null;
+    if (done?.filePath && Array.isArray(done.structuredPatch) && done.structuredPatch.length) item.patch = { file: done.filePath, text: patchText(done.structuredPatch) };
+    else if (done?.filePath && done.type === "create" && typeof done.content === "string") item.patch = { file: done.filePath, text: createdText(done.content), created: true };
     const parts = Array.isArray(content) ? content : [content];
     for (const p of parts) {
       if (p?.type === "image" && p.source?.data) item.images.push({ data: p.source.data, ext: extOf(p.source.media_type) });
@@ -277,7 +282,7 @@ export class Transcript {
       for (const b of c) {
         if (b.type === "text") texts.push(b.text);
         else if (b.type === "image" && b.source?.data) images.push({ data: b.source.data, ext: extOf(b.source.media_type) });
-        else if (b.type === "tool_result") this.toolResult(b.tool_use_id, b.content, b.is_error);
+        else if (b.type === "tool_result") this.toolResult(b.tool_use_id, b.content, b.is_error, d.toolUseResult);
       }
       if (texts.length || images.length) this.user(texts.join("\n"), images);
     } else if (d.type === "assistant") {

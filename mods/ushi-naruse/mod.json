@@ -47,6 +47,7 @@
     "powershell.js",
     "image-size.js",
     "chat-entries.js",
-    "chat-sdk.js"
+    "chat-sdk.js",
+    "diff.js"
   ]
 }

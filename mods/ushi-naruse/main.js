@@ -18,6 +18,7 @@ import { subagentProgress, stopMessage, lastLines, elapsed } from "./lib/chat-ta
 import { contextMeter } from "./lib/chat-context.js";
 import { MERMAID_SH, MERMAID_WINDOWS, mermaidTheme, mermaidFailure } from "./lib/mermaid.js";
 import { powershell, win } from "./lib/powershell.js";
+import { parseDiff } from "./lib/diff.js";
 import { plainText, quote, commandOf, menuFor, keepLineBreaks, joinLines, sentHistory, recallStep, panelLinks, linkBareUrls, literalMarkdown, plainSpaces } from "./lib/chat-text.js";
 import { Tail, locate, agentKind, machineOf, subagentLog, onAgent } from "./source.js";
 import { catalog, launchArgv, modelName, switchModel } from "./models.js";
@@ -2596,7 +2597,9 @@ export default class Chat extends View {
       .when(Boolean(i.bg?.summary || progress), (el) => el.child(div().text_size(tsz(TOOL_TEXT)).text_color(i.bg?.status && !["running", "completed"].includes(i.bg.status) ? t.blocked : t.dim)
         .child(progress ?? i.bg.summary)))
       .when(i.images.length > 0, (el) => el.child(h_flex().flex_wrap().gap(6).children(i.images.map((im) => this.img(im.ref, t, 280, 200)))))
-      .when(result.join("").trim() !== "", (el) => el.child(
+      // An edit's change as a diff (spec 025 R4), in place of Claude Code's note about it.
+      .when(Boolean(i.patch), (el) => el.child(this.diffView(`diff-${key}-${n}`, i.patch.text, t)))
+      .when(!i.patch && result.join("").trim() !== "", (el) => el.child(
         // ushi-naruse: monospace text, not a Markdown code block, which keeps its own (larger) size.
         v_flex().px(10).py(8).rounded(6).border_1().border_color(i.error ? t.blocked : t.border).bg(t.surface)
           .text_size(tsz(TOOL_OUTPUT)).text_color(t.muted)
@@ -2606,6 +2609,32 @@ export default class Chat extends View {
           .when(Boolean(settings().font_family), (d) => d.font_family(settings().font_family))
           // ushi-naruse: selectable, still as written (lib/chat-text.js literalMarkdown).
           .child(this.literal(`out-${key}-${n}`, clipped.join("\n")))));
+  }
+
+  // A diff's rows (lib/diff.js parseDiff): old and new line numbers, removed lines on a
+  // red tint, added on a green one, each hunk's header dim; the first 30 rows, then how
+  // many more (spec 025 R4).
+  diffView(id, text, t) {
+    const { rows, added, removed } = parseDiff(text);
+    const shown = rows.filter((r) => r.kind !== "meta");
+    const clipped = shown.slice(0, 30);
+    const red = t.ansi1 ?? t.blocked, green = t.ansi2 ?? t.accent;
+    const mono = settings().font_family;
+    const lh = Math.ceil(tsz(TOOL_OUTPUT) * 1.5);
+    const num = (v) => div().w(34).flex_none().text_right().text_color(t.dim).child(v == null ? "" : String(v));
+    return v_flex().id(id).w_full().min_w(0).py(4).rounded(6).border_1().border_color(t.border).bg(t.surface).overflow_hidden()
+      .text_size(tsz(TOOL_OUTPUT)).line_height(`${lh}px`).text_color(t.muted)
+      .when(Boolean(mono), (d) => d.font_family(mono))
+      .child(h_flex().px(10).pb(2).gap(8).text_color(t.dim)
+        .child(div().text_color(green).child(`+${added}`)).child(div().text_color(red).child(`−${removed}`)))
+      .children(clipped.map((r) => h_flex().w_full().min_w(0).gap(6).px(4)
+        .when(r.kind === "add", (el) => el.bg(green + "22").text_color(t.foreground))
+        .when(r.kind === "del", (el) => el.bg(red + "22").text_color(t.foreground))
+        .when(r.kind === "hunk" || r.kind === "note", (el) => el.text_color(t.dim))
+        .child(num(r.old)).child(num(r.new))
+        .child(div().w(10).flex_none().text_color(r.kind === "add" ? green : r.kind === "del" ? red : t.dim).child(r.kind === "add" ? "+" : r.kind === "del" ? "−" : ""))
+        .child(div().flex_1().min_w(0).truncate().child(r.text || " "))))
+      .when(shown.length > clipped.length, (el) => el.child(div().px(10).pt(2).text_color(t.dim).child(`… ${shown.length - clipped.length} more lines`)));
   }
 
   // Model and effort picks, for a new chat or the running one.

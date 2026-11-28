@@ -88,7 +88,7 @@ What the session log has (checked 2026-11-27 in a Claude Code log):
 - [ ] AC2: a permission prompt for `rm -rf <dir>` (a command Claude Code
   can't verify) shows the command in a code block, its description and the
   warning, each on its own lines; choosing an option answers it (R3).
-- [ ] AC3: an Edit's row expands to a red/green diff with line numbers; a
+- [x] AC3: an Edit's row expands to a red/green diff with line numbers; a
   Write's to its first lines (R4).
 - [ ] AC4: `git diff` run through Bash draws as a diff; a failing command's
   output is on the error colour (R5).
@@ -115,6 +115,12 @@ What the session log has (checked 2026-11-27 in a Claude Code log):
     options. The log, when it has the call, adds what the screen can't show
     (descriptions it truncates, previews, the exact command).
   - Real screens kept as fixtures (`tests/fixtures/claude-*.txt`).
+- 2026-11-27, P2 on the Mac (a throwaway Claude Code editing a file and writing
+  another): the Edit's row is a diff with `+1 −1`, its hunk header, old and new
+  line numbers, the removed line on a red tint and the added one on a green
+  tint; the Write's is its three lines, `+3 −0`, numbered from 1. The patch
+  comes from `toolUseResult` (`structuredPatch`, or `content` for a created
+  file) through `lib/diff.js` (`patchText`, `createdText`, `parseDiff`).
 
 ## E2E
 
