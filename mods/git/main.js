@@ -1078,10 +1078,11 @@ export default class Git extends View {
     const items = this.items();
     if (this.cursor >= items.length) this.cursor = Math.max(0, items.length - 1);
 
+    // Lights and the busy dot hold still: an animation (.loop) makes the app lay out the
+    // whole window at display rate (see ushi-naruse WORKING).
     const lightColor = { working: t.accent, blocked: t.blocked, done: t.done ?? t.ansi2, idle: t.dim };
     const agentLight = (a, i) => div().id(`git-agent-${a.address}-${i}`).size(9).rounded(5).cursor_pointer()
       .bg(lightColor[a.status] ?? t.dim)
-      .when(a.status === "working", (el) => el.loop("opacity", { from: 0.3, to: 1, period: 1400 }))
       .tooltip(`${a.name} · ${a.status} (by ${a.source === "label" ? "its herdr-nav label" : a.source === "program" ? "its program's folder" : "its terminal's folder"})`)
       .on_click((_e, cx) => { run("agent.focus", { terminal: a.address }); cx.stop_propagation(); });
 
@@ -1096,7 +1097,7 @@ export default class Git extends View {
         .child(div().flex_1().min_w(0).truncate().font_semibold().child(this.root ? base(this.root) : ""))
         .when(Boolean(lock), (el) => el.child(div().id("git-lock").px(6).h(z(20)).flex().items_center().rounded(10).bg(t.raised).text_size(z(11)).text_color(t.working)
           .tooltip(`Locked: ${lock.name} is working in this worktree`).child("🔒 locked")))
-        .when(Boolean(this.busy) || Boolean(this.loading), (el) => el.child(div().size(8).rounded(4).bg(t.accent).loop("opacity", { from: 0.2, to: 1, period: 700 })));
+        .when(Boolean(this.busy) || Boolean(this.loading), (el) => el.child(div().size(8).rounded(4).bg(t.accent)));
     const branchRow = b && h_flex().gap(8).items_center().text_size(z(12))
         .child(h_flex().gap(5).items_center().px(7).h(z(20)).rounded(10).bg(t.raised)
           .child(div().text_color(t.muted).child("⎇"))

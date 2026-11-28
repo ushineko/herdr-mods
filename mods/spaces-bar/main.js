@@ -58,7 +58,9 @@ function own(el) {
 
 function glyph(t, status, size = 12) {
   if (!status) return null;
-  if (status === "working") return svg(ICON("spinner")).size(size).flex_none().text_color(t.working).spin(900);
+  // Not spun: an animation makes the app lay out the whole window at display rate
+  // while an agent works (see ushi-naruse WORKING).
+  if (status === "working") return svg(ICON("spinner")).size(size).flex_none().text_color(t.working);
   return div().flex_none().text_size(size).text_color(t[status] ?? t.dim).child(GLYPH[status] ?? "·");
 }
 

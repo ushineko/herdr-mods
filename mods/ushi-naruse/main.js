@@ -59,7 +59,10 @@ const tsz = (n) => Math.round(n * SCALE * 10) / 10;
 const termFont = () => Number(settings()?.font_size) || BASE_TEXT;
 const chatFont = () => Number(shared(FONT_KEY)) || termFont();
 const PAGE = 60;
-const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+// A still mark for "working", not a spinner: any animation on screen (.frames, .loop,
+// .spin) makes the app lay out the whole window at display rate while an agent works
+// (2026-11-28: Herdr 23% CPU / 44% of its main thread drawing, 8% / 9% without).
+const WORKING = "●";
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp|tiff?|heic)$/i;
 const AGENTS = { claude: "Claude Code", codex: "Codex" };
 
@@ -619,7 +622,7 @@ export default class Chat extends View {
     const out = r.out.slice(-LINES);
     return v_flex().w_full().gap(6).px(12).py(9).rounded(10).border_1().border_color(t.border).bg(t.surface)
       .child(h_flex().h(Math.ceil(tsz(12.5) * 1.6)).gap(8).items_center()
-        .child(div().flex_none().text_color(t.working).frames(SPINNER, 90))
+        .child(div().flex_none().text_color(t.working).child(WORKING))
         .child(div().flex_1().min_w(0).truncate().text_size(tsz(12.5)).font_medium().when(Boolean(mono), (d) => d.font_family(mono)).child(r.title))
         .when(Boolean(r.time), (el) => el.child(div().flex_none().text_size(tsz(11.5)).text_color(t.dim).child(r.time))))
       .child(v_flex().h(LINES * LH + 12).px(10).py(6).rounded(6).bg(t.background).overflow_hidden().justify_end()
@@ -1250,7 +1253,7 @@ export default class Chat extends View {
     const bubble = (x, i) => v_flex().gap(8)
       .child(h_flex().w_full().justify_start().child(div().max_w(w - 70).px(12).py(8).rounded(14).bg(t.raised).text_size(tsz(12.5)).child(x.q)))
       .child(x.pending
-        ? h_flex().gap(8).items_center().text_size(tsz(12)).text_color(t.muted).child(div().text_color(t.working).frames(SPINNER, 90)).child("Thinking…")
+        ? h_flex().gap(8).items_center().text_size(tsz(12)).text_color(t.muted).child(div().text_color(t.working).child(WORKING)).child("Thinking…")
         : x.error ? div().text_size(tsz(12)).text_color(t.blocked).child(x.error)
         : div().text_size(tsz(12.5)).child(this.markdown(`side-${i}`, x.a)));
     const content = v_flex().id("side-content").absolute().left(0).right(0).bottom(-S.off).px(14).py(14).gap(18)
@@ -1648,7 +1651,7 @@ export default class Chat extends View {
     return h_flex().id("working-line").w_full().max_w(COLUMN).px(6).gap(8).items_center().text_size(tsz(12)).text_color(t.muted)
       .when(opens, (el) => el.cursor_pointer().rounded(6).hover((s) => s.bg(t.hover).text_color(t.foreground))
         .tooltip("Show what runs in the background").on_click((_e, cx) => { this.shells = true; this.sdOff = 0; cx.notify(); }))
-      .child(div().flex_none().text_color(t.working).frames(SPINNER, 90))
+      .child(div().flex_none().text_color(t.working).child(WORKING))
       .child(div().flex_1().min_w(0).truncate().child(msg))
       .when(opens, (el) => el.child(div().flex_none().text_color(t.dim).child("details")));
   }
@@ -1675,7 +1678,7 @@ export default class Chat extends View {
       const progress = shell ? null : this.progressOf(item);
       return v_flex().flex_none().gap(6).p(12).rounded(10).border_1().border_color(t.border).bg(t.background)
         .child(h_flex().gap(8).items_center()
-          .child(div().flex_none().text_color(t.working).frames(SPINNER, 90))
+          .child(div().flex_none().text_color(t.working).child(WORKING))
           .child(div().flex_none().px(6).rounded(4).bg(t.raised).text_size(tsz(11)).text_color(t.dim).child(shell ? "shell" : "agent"))
           .child(div().flex_1().min_w(0).truncate().font_semibold().child(item.summary || item.name))
           .child(div().flex_none().text_size(tsz(11.5)).text_color(t.dim).child(stopping ? "stopping…" : elapsed(now - (item.bg.started ?? now)))))
@@ -1744,7 +1747,7 @@ export default class Chat extends View {
         .child(h_flex().id(`bg-${item.id}`).min_w(0).gap(6).pl(8).pr(4).py(3).rounded(8).cursor_pointer().hover((s) => s.bg(t.hover))
           .tooltip("Show it in the chat")
           .on_click((_e, cx) => { this.open.add(key); this.seek = key; cx.notify(); })
-          .child(div().flex_none().text_color(t.working).frames(SPINNER, 90))
+          .child(div().flex_none().text_color(t.working).child(WORKING))
           .child(div().flex_none().text_color(t.dim).child(item.bg.kind === "agent" ? "agent" : "script"))
           .child(div().min_w(0).truncate().child(item.summary || item.name))
           .child(div().flex_none().text_color(t.dim).child(this.stopping.has(item.id) ? "stopping…" : elapsed(now - (item.bg.started ?? now)))))
@@ -2461,7 +2464,7 @@ export default class Chat extends View {
       .child(div().h_full().rounded(3).bg(color).w(`${Math.max(0, Math.min(100, pct))}%`));
     const row = (k, v) => h_flex().gap(12).text_size(tsz(12.5)).child(div().w(110).flex_none().text_color(t.muted).child(k)).child(div().flex_1().min_w(0).child(String(v)));
     if (e.loading) return box(e.title ?? (e.card === "usage" ? "Usage" : e.card === "status" ? "Status" : "Context"))
-      .child(h_flex().gap(8).text_size(tsz(12)).text_color(t.muted).child(div().text_color(t.working).frames(SPINNER, 90)).child("Asking Claude…"));
+      .child(h_flex().gap(8).text_size(tsz(12)).text_color(t.muted).child(div().text_color(t.working).child(WORKING)).child("Asking Claude…"));
     if (e.error) return box(e.title ?? "Usage").child(div().text_size(tsz(12)).text_color(t.blocked).child(e.error));
     if (e.card === "context") {
       const COLORS = { "System prompt": t.dim, "System tools": t.muted, "MCP tools": t.ansi2, "MCP server instructions": t.ansi2, "Memory files": t.ansi3,
@@ -2577,7 +2580,7 @@ export default class Chat extends View {
         .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(progress ?? ""))
         .when(Boolean(over) && !failed, (el) => el.child(div().flex_none().text_color(over.status === "completed" ? t.dim : t.blocked)
           .child(`${over.status === "completed" ? "done" : over.status}${over.ended && over.started ? " · " + elapsed(over.ended - over.started) : ""}`)))
-        .when(running, (el) => el.child(div().flex_none().text_color(t.working).frames(SPINNER, 90)))
+        .when(running, (el) => el.child(div().flex_none().text_color(t.working).child(WORKING)))
         .when(failed, (el) => el.child(div().flex_none().text_color(t.blocked).child(one?.bg ? one.bg.status : "error"))))
       .when(!open && thumbs.length > 0, (el) => el.child(h_flex().pl(16).gap(6).children(thumbs.map((i) => this.img(i.ref, t, 160, 110)))))
       .when(open, (el) => el.children(e.items.map((i, n) => this.tool(e.key, n, i, t))));
