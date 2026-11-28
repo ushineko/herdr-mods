@@ -5,6 +5,13 @@ const MARKER = /^(\s*)([❯›>])\s+/;
 const NUMBER = /^\s*\d+[.)]\s+/;
 const HINT = /(Enter to (confirm|select)|Esc to (cancel|exit)|↑\/↓|to navigate)/i;
 const RULE = /^\s*[─━—\-▔▁═]{8,}\s*$/;
+// A dashed rule: Claude Code draws a command between two of them (herdr-mods spec 025).
+const DASHED = /^\s*[╌┄┈╍]{8,}\s*$/;
+// An option's preview, in a box to the right of the options; and the box's own lines.
+const PREVIEW_BOX = /\s{2,}[┌│└].*$/;
+const BOX_LINE = /^\s*([┌│└].*|Notes: press n to add notes)$/;
+// A line drawn rather than written (spec 025 R6): box drawing, ASCII art, or columns.
+const DRAWN = /[┌┐└┘├┤┬┴┼║╔╗╚╝]|^\s*[+|].*[+|]\s*$|[-=]{3,}[+>|]|[+<|][-=]{3,}|\S {3,}\S/;
 // ushi-naruse: a command's output under its echo ("❯ /login" then "⎿ Login
 // interrupted"): never a choice, so an echo and its answer don't read as a menu.
 const OUTPUT = /^\s*[⎿└]/;
@@ -41,12 +48,15 @@ function parseTabs(line) {
 // question" then "→ answer"), and the question itself. A "│" bar the form draws at
 // the left of a line is not text.
 function aboveMenu(lines) {
-  let tabs = null, split = -1;
+  let tabs = null, split = -1, fenced = false;
   const text = [], review = [];
   for (const raw of lines) {
     const t = parseTabs(raw);
     if (t) { tabs = t; continue; }
-    const l = raw.replace(/^\s*│\s?/, " ");
+    // Between dashed rules: a command, as written (a "\u0001" mark keeps it whole).
+    if (DASHED.test(raw)) { fenced = !fenced; continue; }
+    const l = raw.replace(/^\s*│\s?/, " ").replace(/\s+│\s*$/, "");
+    if (fenced) { text.push("\u0001" + l); continue; }
     const q = /^\s*●\s+(.*)$/.exec(l), a = /^\s*→\s+(.*)$/.exec(l);
     if (q) {
       if (split < 0) split = text.length;
@@ -60,8 +70,8 @@ function aboveMenu(lines) {
   }
   // Text before the review list is its title; after it, the question.
   return review.length
-    ? { tabs, title: reflow(text.slice(0, split)), review, question: reflow(text.slice(split)) }
-    : { tabs, title: "", review, question: reflow(text) };
+    ? { tabs, title: reflow(text.slice(0, split)), review, question: layout(text.slice(split)), lines: text.slice(split) }
+    : { tabs, title: "", review, question: layout(text), lines: text };
 }
 
 // { question, options: [text], selected } or null when the screen has no menu. A
@@ -79,8 +89,15 @@ export function parsePrompt(screen) {
     current.add(i);
     return m[1] + "  " + l.slice(m[0].length);
   });
-  const at = lines.findLastIndex((l) => MARKER.test(l) && !HINT.test(l));
+  let at = lines.findLastIndex((l) => MARKER.test(l) && !HINT.test(l));
   if (at < 0) return null;
+  // A preview's box beside the options (spec 025): off the option lines, and its own
+  // lines under them dropped.
+  for (let i = at; i < lines.length; i++) {
+    if (MARKER.test(lines[i]) || NUMBER.test(lines[i])) lines[i] = lines[i].replace(PREVIEW_BOX, "");
+    else if (BOX_LINE.test(lines[i]) && lines[i].length - lines[i].trimStart().length > 8) lines[i] = "";
+  }
+  for (let i = at - 1; i >= 0 && (NUMBER.test(lines[i]) || /^\s+\d+[.)]\s/.test(lines[i])); i--) lines[i] = lines[i].replace(PREVIEW_BOX, "");
   // Unselected options sit where the marker's text starts; deeper lines continue one.
   // (The marker and one space: on a pick-any question's Next, more spaces follow it.)
   const indent = /^\s*[❯›>]\s/.exec(lines[at])[0].length;
@@ -133,6 +150,76 @@ export function parsePrompt(screen) {
   if (next) out.next = true;
   if (above.tabs) out.tabs = above.tabs;
   if (above.review.length) Object.assign(out, { title: above.title, review: above.review });
+  // The text above the choices as read, for withCall (not drawn).
+  Object.defineProperty(out, "lines", { value: above.lines, enumerable: false });
+  return out;
+}
+
+// Lines as Markdown (spec 025 R6): runs of drawn lines (and a command between dashed
+// rules) in a monospace block, as written less their common indent; the rest as
+// paragraphs, terminal-wrapped lines joined.
+export function layout(lines) {
+  const out = [];
+  let prose = [], code = [];
+  const flushProse = () => { if (prose.length) out.push(reflow(prose)); prose = []; };
+  const flushCode = () => {
+    if (!code.length) return;
+    const indent = Math.min(...code.filter((l) => l.trim()).map((l) => l.length - l.trimStart().length));
+    out.push("~~~~text\n" + code.map((l) => l.slice(Number.isFinite(indent) ? indent : 0).replace(/\s+$/, "")).join("\n") + "\n~~~~");
+    code = [];
+  };
+  // A fenced block already in the text (a Mermaid diagram, code) passes through as
+  // written.
+  let fence = null;
+  for (const raw of lines) {
+    const open = /^\s*(`{3,}|~{3,})/.exec(raw);
+    if (fence) { code.push(raw); if (open && open[1][0] === fence[0] && open[1].length >= fence.length && !raw.trim().slice(open[1].length).trim()) { out.push(code.join("\n")); code = []; fence = null; } continue; }
+    if (open) { flushProse(); flushCode(); fence = open[1]; code.push(raw); continue; }
+    const marked = raw.startsWith("\u0001"), l = marked ? raw.slice(1) : raw;
+    if (marked || (l.trim() && DRAWN.test(l))) { flushProse(); code.push(l); }
+    else { flushCode(); prose.push(l); }
+  }
+  if (fence) { out.push(code.join("\n")); code = []; }
+  flushProse(); flushCode();
+  return out.filter(Boolean).join("\n\n");
+}
+
+const squash = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
+
+// A question read off the screen, filled in from the tool call it asks about (spec 025
+// R1-R3): the call as the agent wrote it, the screen for the choices. `call`: { name,
+// input } of the session log's pending tool call. The screen's question unchanged when
+// the call isn't the one on screen.
+export function withCall(q, call) {
+  if (!q || !call?.name || q.review) return q;
+  const shown = q.options.map((o) => o.replace(/ ✓$/, ""));
+  if (call.name === "AskUserQuestion") {
+    const qs = call.input?.questions ?? [];
+    const at = q.tabs ? Math.max(0, q.tabs.filter((x) => x.label).findIndex((x) => x.current)) : 0;
+    const one = qs[Math.min(at, qs.length - 1)];
+    const opts = one?.options ?? [];
+    const of = (o) => opts.find((x) => x.label && (o === x.label || o.startsWith(x.label + " ")));
+    if (!one || !shown.some(of)) return q;
+    const details = shown.map((o, n) => of(o)?.description ?? q.details?.[n] ?? "");
+    const previews = shown.map((o) => of(o)?.preview ?? "");
+    const out = { ...q, question: layout(String(one.question ?? "").split("\n")) };
+    if (details.some(Boolean)) out.details = details;
+    if (previews.some(Boolean)) out.previews = previews;
+    return out;
+  }
+  // A permission prompt: the call's own input, and what else the screen says.
+  const i = call.input ?? {};
+  const said = (q.lines ?? []).map((l) => l.replace(/^\u0001/, ""));
+  const screen = squash(said.join(" "));
+  const command = typeof i.command === "string" ? i.command : null;
+  const file = i.file_path ?? i.notebook_path ?? i.path ?? null;
+  const mine = command ? screen.includes(squash(command).slice(0, 40)) : file ? screen.includes(String(file).split("/").pop()) : false;
+  if (!mine) return q;
+  const cmd = squash(command), about = squash(i.description);
+  // The screen's own lines less the call: its title, the command and the description.
+  const first = said.findIndex((l) => l.trim());
+  const rest = said.filter((l, n) => n !== first && l.trim() && !(command && cmd.includes(squash(l))) && squash(l) !== about);
+  const out = { ...q, call: { name: call.name, title: first >= 0 ? said[first].trim() : call.name, command, description: i.description ?? null, file, input: i }, question: rest.map((l) => l.trim()).join("\n\n") };
   return out;
 }
 

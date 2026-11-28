@@ -177,6 +177,14 @@ export class Transcript {
     if (id) this.tools.set(id, item);
   }
 
+  // The last tool call without a result yet (a question or permission prompt asks
+  // about it, herdr-mods spec 025): { name, input }, or null.
+  pending() {
+    let last = null;
+    for (const item of this.tools.values()) if (item.result === null && !item.bg) last = item;
+    return last;
+  }
+
   toolResult(id, content, error) {
     const item = this.tools.get(id);
     if (!item) return;

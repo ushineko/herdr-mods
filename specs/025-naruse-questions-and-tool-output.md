@@ -98,6 +98,24 @@ What the session log has (checked 2026-11-27 in a Claude Code log):
   drawing data, the diff detection and the fallback reflow; `npm test`,
   `./run-tests.sh`, `tools/test-windows.sh` pass; `herdr-app check` passes.
 
+## Progress
+
+- 2026-11-27, P1 on the Mac with a throwaway Claude Code (v2.1.326):
+  - A question with an ASCII diagram and previews: diagram as a block,
+    descriptions, the selected option's preview. A question with a Mermaid
+    block: rendered as a diagram (twice). An `rm` it can't check: "Bash
+    command", the command in a code block, its description, the tip, the
+    warning and "Do you want to proceed?" each apart.
+  - **The log doesn't always have the pending call.** Claude Code logged the
+    call before the answer for the first `rm` and one question, but not for two
+    other questions (one the session's first, one later), where it appeared
+    only once answered. So the screen reading (R6) is what draws many
+    questions: it now keeps diagrams, a fenced block (Mermaid included) and a
+    command between dashed rules as written, and cuts preview boxes off the
+    options. The log, when it has the call, adds what the screen can't show
+    (descriptions it truncates, previews, the exact command).
+  - Real screens kept as fixtures (`tests/fixtures/claude-*.txt`).
+
 ## E2E
 
 On the Mac and njv-cachyos: ask Claude (in a chat) a question with a diagram

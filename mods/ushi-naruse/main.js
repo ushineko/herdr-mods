@@ -22,7 +22,7 @@ import { plainText, quote, commandOf, menuFor, keepLineBreaks, joinLines, sentHi
 import { Tail, locate, agentKind, machineOf, subagentLog, onAgent } from "./source.js";
 import { catalog, launchArgv, modelName, switchModel } from "./models.js";
 import { emojify, PICKER, emojiMatches } from "./emoji.js";
-import { parsePrompt, choose, menuAtBottom } from "./prompt.js";
+import { parsePrompt, choose, menuAtBottom, withCall } from "./prompt.js";
 import { loadCommands, matchCommands } from "./commands.js";
 import { askSide, sessionOf, control, listSessions, askCodexSide, codexCalls } from "./sdk.js";
 import { copyText, pasteImage, openFile, pickFiles, imageSize } from "./platform.js";
@@ -175,6 +175,12 @@ const ago = (ms) => {
   const m = Math.round((Date.now() - ms) / 60000);
   return m < 1 ? "just now" : m < 60 ? `${m}m ago` : m < 1440 ? `${Math.round(m / 60)}h ago` : `${Math.round(m / 1440)}d ago`;
 };
+
+// Where `hc put` says a file landed: it prints {"bytes", "path"}; the JSON itself was
+// once sent to the agent as the path.
+function landedPath(stdout) {
+  try { return JSON.parse(stdout)?.path ?? null; } catch { return stdout.trim() || null; }
+}
 
 export default class Chat extends View {
   init(_props, cx) {
@@ -606,15 +612,18 @@ export default class Chat extends View {
     const r = this.running;
     const mono = settings().font_family;
     // Always the same height, its lines never wrapping: the page doesn't move.
-    const LINES = 6, LH = 17;
+    // A line's height follows the text size: a fixed 17 px cut off the bottoms of the
+    // terminal font's p, g and _ (Victor Mono's descenders are deep).
+    const LINES = 6, LH = Math.ceil(tsz(11.5) * 1.5);
     const out = r.out.slice(-LINES);
     return v_flex().w_full().gap(6).px(12).py(9).rounded(10).border_1().border_color(t.border).bg(t.surface)
-      .child(h_flex().h(20).gap(8).items_center()
+      .child(h_flex().h(Math.ceil(tsz(12.5) * 1.6)).gap(8).items_center()
         .child(div().flex_none().text_color(t.working).frames(SPINNER, 90))
         .child(div().flex_1().min_w(0).truncate().text_size(tsz(12.5)).font_medium().when(Boolean(mono), (d) => d.font_family(mono)).child(r.title))
         .when(Boolean(r.time), (el) => el.child(div().flex_none().text_size(tsz(11.5)).text_color(t.dim).child(r.time))))
       .child(v_flex().h(LINES * LH + 12).px(10).py(6).rounded(6).bg(t.background).overflow_hidden().justify_end()
         .text_size(tsz(11.5)).text_color(t.muted).when(Boolean(mono), (d) => d.font_family(mono))
+        .line_height(`${LH}px`)
         .children(out.map((l) => div().h(LH).flex_none().truncate().child(l || " "))));
   }
 
@@ -1284,7 +1293,7 @@ export default class Chat extends View {
         // Closed once its hints go away, or never opened (the command just ran).
         if ((panel.seen && panel.gone >= (panel.closing ? 1 : 2)) || (!panel.seen && Date.now() - panel.at > (maybe ? 2500 : 6000))) { this.panel = null; cx.notify(); break; }
         panel.screen = screen;
-        panel.q = open ? parsePrompt(tail) : null;
+        panel.q = open ? this.asked(parsePrompt(tail)) : null;
         cx.notify();
       }
     });
@@ -1475,6 +1484,7 @@ export default class Chat extends View {
         const r = await hc(["read", this.term, "--lines", "40"]);
         this.screen = r.stdout.replace(/\s+$/, "");
         this.trustFolder();
+        this.cacheShown(cx);
         cx.notify();
       });
     } else if (this.t && ["idle", "done"].includes(term?.status) && !this.panelLive()) {
@@ -1874,6 +1884,9 @@ export default class Chat extends View {
         for (const part of splitCode(e.text)) if (part.lang?.toLowerCase() === "mermaid") this.drawDiagram(part.code, cx);
       }
     }
+    // And in a question the agent asks (spec 025).
+    const asking = this.screen ? this.asked(parsePrompt(this.screen))?.question : null;
+    if (asking && /mermaid/i.test(asking)) for (const part of splitCode(asking)) if (part.lang?.toLowerCase() === "mermaid") this.drawDiagram(part.code, cx);
   }
 
   // A diagram's state by its text and theme: { drawing } | { rel, abs, w, h } | { failed }.
@@ -1980,7 +1993,7 @@ export default class Chat extends View {
       // An agent on another machine needs the file there.
       if (machineOf(this.term)) {
         const r = await hc(["put", this.term, f]);
-        paths.push(r.code === 0 ? r.stdout.trim() : f);
+        paths.push((r.code === 0 && landedPath(r.stdout)) || f);
       } else paths.push(f);
     }
     const message = [...paths.map(shellEscape), text].filter(Boolean).join(" ");
@@ -2587,6 +2600,9 @@ export default class Chat extends View {
         // ushi-naruse: monospace text, not a Markdown code block, which keeps its own (larger) size.
         v_flex().px(10).py(8).rounded(6).border_1().border_color(i.error ? t.blocked : t.border).bg(t.surface)
           .text_size(tsz(TOOL_OUTPUT)).text_color(t.muted)
+          // The terminal's font (Victor Mono's descenders are deep): a line tall enough
+          // for it, not the chat text's, which cut off the bottoms of p, g and _.
+          .line_height(`${Math.ceil(tsz(TOOL_OUTPUT) * 1.5)}px`)
           .when(Boolean(settings().font_family), (d) => d.font_family(settings().font_family))
           // ushi-naruse: selectable, still as written (lib/chat-text.js literalMarkdown).
           .child(this.literal(`out-${key}-${n}`, clipped.join("\n")))));
@@ -2918,7 +2934,9 @@ export default class Chat extends View {
           .child(h_flex().w_full().min_w(0).gap(6).items_start().text_size(tsz(12.5))
             .child(div().flex_none().text_color(t.accent).child("→"))
             .child(div().flex_1().min_w(0).child(r.answer || "(no answer)")))))))
-      .when(Boolean(q.question), (el) => el.child(div().w_full().min_w(0).text_size(tsz(12.5)).child(this.markdown(`${id}-q`, q.question))))
+      .when(Boolean(q.call), (el) => el.child(this.callView(q.call, id, t)))
+      // Drawn as a reply is (spec 025): a Mermaid block as its diagram, code with Copy.
+      .when(Boolean(q.question), (el) => el.child(div().w_full().min_w(0).text_size(tsz(12.5)).child(this.reply({ key: `${id}-q`, text: q.question }, t))))
       .child(v_flex().w_full().min_w(0).gap(6).when(Boolean(form), (el) => el.min_h(Math.max(0, this.formRoom.rows - (q.review?.length ?? 0)) * (row + 6)))
         .children(q.options.map((o, n) => id === "choice" && this.typing?.n === n && OWN_ANSWER.test(o)
           // "Type something." chosen: the row is the answer's field.
@@ -2942,6 +2960,10 @@ export default class Chat extends View {
             .child(v_flex().flex_1().min_w(0).gap(2)
               .child(div().w_full().min_w(0).text_size(tsz(12.5)).child(o))
               .when(Boolean(q.details?.[n]), (d) => d.child(div().w_full().min_w(0).text_size(tsz(11.5)).text_color(t.dim).child(q.details[n]))))))
+        // The selected choice's preview, as written (spec 025 R2).
+        .when(Boolean(q.previews?.[q.selected]), (el) => el.child(div().w_full().min_w(0).text_size(tsz(11.5)).text_color(t.muted)
+          .when(Boolean(settings().font_family), (d) => d.font_family(settings().font_family))
+          .child(this.markdown(`${id}-preview`, "~~~~text\n" + q.previews[q.selected] + "\n~~~~"))))
         // A pick-any question goes on with its own item under the choices.
         .when(Boolean(q.next), (el) => el.child(h_flex().w_full().justify_end()
           .child(h_flex().id(`${id}-next`).px(14).py(6).gap(6).items_center().rounded(8).cursor_pointer().border_1()
@@ -2950,6 +2972,25 @@ export default class Chat extends View {
             .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
             .on_click((_e, cx) => { if (!busy) pick(q.options.length, cx); })
             .child("Next").child(div().text_color(t.dim).child("→"))))));
+  }
+
+  // What a permission prompt asks about, as the agent wrote it (spec 025 R3): the tool,
+  // a command in a code block with its description, a file and its change or text, or
+  // the input's fields.
+  callView(c, id, t) {
+    const i = c.input ?? {};
+    let body;
+    if (c.command) body = "```sh\n" + c.command + "\n```" + (c.description ? "\n\n" + c.description : "");
+    else if (typeof i.old_string === "string" || typeof i.new_string === "string") {
+      const lines = (s, p) => String(s ?? "").split("\n").map((l) => p + l);
+      body = "`" + c.file + "`\n\n```diff\n" + [...lines(i.old_string, "-"), ...lines(i.new_string, "+")].join("\n") + "\n```";
+    } else if (typeof i.content === "string") {
+      const all = i.content.split("\n"), head = all.slice(0, 12);
+      body = "`" + c.file + "`\n\n~~~~text\n" + head.join("\n") + (all.length > 12 ? `\n… ${all.length - 12} more lines` : "") + "\n~~~~";
+    } else body = "~~~~text\n" + Object.entries(i).map(([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`).join("\n") + "\n~~~~";
+    return v_flex().w_full().min_w(0).gap(6).px(12).py(10).rounded(8).bg(t.surface)
+      .child(div().text_size(tsz(11.5)).font_semibold().text_color(t.muted).child(c.title || c.name))
+      .child(div().w_full().min_w(0).text_size(tsz(12.5)).child(this.markdown(`${id}-call`, body)));
   }
 
   // The typed answer for "Type something.": the selection moved to that choice, then
@@ -2992,11 +3033,17 @@ export default class Chat extends View {
     });
   }
 
+  // A question read off the screen, filled in from the tool call it asks about (spec
+  // 025): Claude Code logs the call before it asks. Codex's questions as read.
+  asked(q) {
+    return q && this.current().kind === "claude" ? withCall(q, this.t?.pending?.()) : q;
+  }
+
   // A question on the agent's terminal: its text, and its choices as buttons
   // that move the selection there and confirm. Without a menu, the screen itself.
   promptBox(title, t) {
     const form = this.idleAsk === "form";
-    const q = form ? null : parsePrompt(this.screen);
+    const q = form ? null : this.asked(parsePrompt(this.screen));
     const key = (k, label) => this.button(`key-${k}`, label, (_e, cx) => this.answer([k], cx), t);
     const mono = settings().font_family;
     const lines = (this.screen ?? "").split("\n").filter((l, i, a) => l.trim() || (i > 0 && a[i - 1].trim()));

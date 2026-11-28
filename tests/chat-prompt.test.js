@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parsePrompt } from "../mods/ushi-naruse/prompt.js";
+import { parsePrompt, withCall, layout } from "../mods/ushi-naruse/prompt.js";
+import fs from "node:fs";
 
 test("parsePrompt: a menu's question, options and the selected one", () => {
   const screen = [
@@ -127,4 +128,63 @@ test("parsePrompt: a pick-any question's boxes, and Next as its own item", () =>
   assert.equal(n.next, true);
   assert.equal(n.selected, 3);
   assert.deepEqual(n.options, ["Height change", "Raw text", "Type something"]);
+});
+
+// Real Claude Code screens (v2.1.326, 2026-11-27): a permission prompt for a command
+// it can't check, and a question with an ASCII diagram and option previews (spec 025).
+const fixture = (name) => fs.readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8");
+const RM = "rm -rf /tmp/naruse-probe/victim && echo $(ls /tmp/naruse-probe | wc -l) > /dev/null";
+const ASK = {
+  question: "+-----+     +-----+\n| app | --> | api |\n+-----+     +-----+\nWhich layer first?",
+  options: [
+    { label: "App", description: "Start with the UI", preview: "fn app() {\n    ui();\n}" },
+    { label: "API", description: "Start with the server", preview: "fn api() {\n    serve();\n}" },
+  ],
+};
+
+test("parsePrompt reading a permission prompt keeps the command between dashed rules whole", () => {
+  const q = parsePrompt(fixture("claude-permission-rm.txt"));
+  assert.deepEqual(q.options, ["Yes", "Yes, and switch to auto mode · auto mode handles these prompts for you", "No"]);
+  assert.ok(q.question.includes("~~~~text\n" + RM + "\n~~~~"), q.question);
+  assert.ok(q.question.endsWith("A nested command in this command can't be checked before it runs\n\nDo you want to proceed?"));
+});
+
+test("withCall: a permission prompt as the call wrote it, the screen's other lines kept apart", () => {
+  const q = withCall(parsePrompt(fixture("claude-permission-rm.txt")), { name: "Bash", input: { command: RM, description: "Delete the victim directory and count remaining entries" } });
+  assert.equal(q.call.title, "Bash command");
+  assert.equal(q.call.command, RM);
+  assert.equal(q.call.description, "Delete the victim directory and count remaining entries");
+  assert.equal(q.question, "Tip: auto mode handles these prompts for you — choose \"switch to auto mode\" below\n\nA nested command in this command can't be checked before it runs\n\nDo you want to proceed?");
+  assert.equal(q.selected, 0);
+});
+
+test("parsePrompt reading a question: the diagram as a block, previews off the options", () => {
+  const q = parsePrompt(fixture("claude-question-preview.txt"));
+  assert.deepEqual(q.options, ["App", "API"]);
+  assert.ok(q.question.includes("~~~~text\n+-----+     +-----+\n| app | --> | api |\n+-----+     +-----+\n~~~~\n\nWhich layer first?"), q.question);
+});
+
+test("withCall: a question's text, descriptions and previews from its call", () => {
+  const q = withCall(parsePrompt(fixture("claude-question-preview.txt")), { name: "AskUserQuestion", input: { questions: [ASK] } });
+  assert.equal(q.question, "~~~~text\n+-----+     +-----+\n| app | --> | api |\n+-----+     +-----+\n~~~~\n\nWhich layer first?");
+  assert.deepEqual(q.details, ["Start with the UI", "Start with the server"]);
+  assert.deepEqual(q.previews, [ASK.options[0].preview, ASK.options[1].preview]);
+});
+
+test("withCall: a call that isn't the one on screen changes nothing", () => {
+  const rm = parsePrompt(fixture("claude-permission-rm.txt"));
+  assert.equal(withCall(rm, { name: "Bash", input: { command: "ls -la" } }), rm);
+  assert.equal(withCall(rm, { name: "AskUserQuestion", input: { questions: [ASK] } }), rm);
+  const ask = parsePrompt(fixture("claude-question-preview.txt"));
+  assert.equal(withCall(ask, { name: "AskUserQuestion", input: { questions: [{ question: "?", options: [{ label: "Other" }] }] } }), ask);
+  assert.equal(withCall(ask, null), ask);
+});
+
+test("layout: prose joined, drawn lines kept as written", () => {
+  assert.equal(layout(["one", "two", "", "  a   b", "  c   d", "three"]), "one two\n\n~~~~text\na   b\nc   d\n~~~~\n\nthree");
+});
+
+test("layout: a fenced block in a question (a Mermaid diagram) passes through as written", () => {
+  const md = layout(["Pick a flow:", "```mermaid", "graph LR", "  A[app] --> B[api]", "```", "Which first?"]);
+  assert.equal(md, "Pick a flow:\n\n```mermaid\ngraph LR\n  A[app] --> B[api]\n```\n\nWhich first?");
 });
