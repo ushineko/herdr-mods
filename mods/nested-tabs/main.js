@@ -253,6 +253,7 @@ export default class NestedTabs extends View {
         .child(this.button(`nt-chat-${pane}`, "cow", "Back to the chat", () => Chat.toChat(pair.chatTab, pair.chatPane)))
         .child(this.button(`nt-add-${pane}`, "plus", "New nested tab (right-click: start an agent)",
           () => S.add(pane, base), () => this.menu("new", pane, base)))
+        .children([this.fontTools(me)].filter(Boolean))
         .child(this.button(`nt-r-${pane}`, "split-right", "Split right", () => run("pane.split", { direction: "right", pane })))
         .child(this.button(`nt-d-${pane}`, "split-down", "Split down", () => run("pane.split", { direction: "down", pane })))
         .child(this.button(`nt-z-${pane}`, me.zoomed ? "unzoom" : "zoom", me.zoomed ? "Unzoom" : "Zoom", () => run("pane.zoom", { pane })))
@@ -273,6 +274,7 @@ export default class NestedTabs extends View {
       .when(Boolean(base), (el) =>
         el.child(this.button(`nt-add-${pane}`, "plus", "New nested tab (right-click: start an agent)",
           () => (nativeHere(me) ? Native.add(pane, null) : S.add(pane, base)), () => this.menu("new", pane, base))))
+      .children([this.fontTools(me)].filter(Boolean))
       .child(this.button(`nt-r-${pane}`, "split-right", "Split right", () => run("pane.split", { direction: "right", pane })))
       .child(this.button(`nt-d-${pane}`, "split-down", "Split down", () => run("pane.split", { direction: "down", pane })))
       .child(this.button(`nt-z-${pane}`, me.zoomed ? "unzoom" : "zoom", me.zoomed ? "Unzoom" : "Zoom", () => run("pane.zoom", { pane })))
@@ -368,10 +370,7 @@ export default class NestedTabs extends View {
     const tool = (id, icon, tip, on, action) => this.button(`nt-${id}-${pane}`, null, tip, action)
       .when(on, (el) => el.bg(t.hover).text_color(t.foreground))
       .child(svg(NARUSE_ICON(icon)).size(15));
-    const text = (id, label, tip, action, color) => div().id(`nt-${id}-${pane}`).flex_none().px(5).py(2).rounded(5).cursor_pointer()
-      .text_color(color ?? t.dim).hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip(tip)
-      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
-      .on_click((_e, cx) => { cx.stop_propagation(); action(); }).child(label);
+    const text = (id, label, tip, action, color) => this.textButton(`nt-${id}-${pane}`, label, tip, action, color);
     return h_flex().flex_none().gap(1).items_center()
         .child(tool("search", "search", "Search the chat", head.searching, chat("search")))
         .child(text("font-down", "A−", "Smaller text in chats", chat("font-smaller")))
@@ -382,6 +381,34 @@ export default class NestedTabs extends View {
         .child(tool("term", "terminal-side", head.termOn ? "Hide the agent's terminal (the chat keeps the session)" : "Show the agent's terminal",
           head.termOn, chat("terminal")))
         .child(tool("back", "terminal-window", "Close this chat and continue in the terminal (the session keeps running)", false, chat("back")));
+  }
+
+  // A word as a button (A−, a size, A+), as the chat's text size controls.
+  textButton(id, label, tip, action, color) {
+    const t = theme();
+    return div().id(id).flex_none().px(5).py(2).rounded(5).cursor_pointer()
+      .text_color(color ?? t.dim).hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip(tip)
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .on_click((_e, cx) => { cx.stop_propagation(); action(); }).child(label);
+  }
+
+  // A terminal pane's own text size (spec 024; the fork's pane.font, its spec 002):
+  // A−, the size, A+, for the pane a stack shows. Nothing on the released app (no
+  // `font` in panes()) or for a pane without a terminal.
+  fontTools(me) {
+    const target = (me?.stack && panes().find((p) => p.stack?.id === me.stack.id && p.stack.shown)) || me;
+    const font = target?.font;
+    if (!font) return null;
+    const t = theme();
+    const pane = target.pane;
+    const app = font.size - font.offset;
+    const step = (n) => () => run("pane.font", { pane, step: n });
+    return h_flex().flex_none().gap(1).items_center().text_size(13)
+      .child(this.textButton(`nt-font-down-${me.pane}`, "A−", "Smaller text in this pane", step(-1)))
+      .child(this.textButton(`nt-font-size-${me.pane}`, String(Math.round(font.size)),
+        font.offset ? `Text ${font.size} px in this pane (app ${app}): click to match the app` : `Text matches the app (${font.size} px)`,
+        () => run("pane.font", { pane, reset: true }), font.offset ? t.foreground : t.dim))
+      .child(this.textButton(`nt-font-up-${me.pane}`, "A+", "Larger text in this pane", step(1)));
   }
 
   chip(m, index, ctx) {
