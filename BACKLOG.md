@@ -52,8 +52,9 @@ a GitHub issue and a spec (`specs/NNN-…md`) when work starts.
 - **Done: hayami-js on a pushed stream** (spec 022, 2026-11-27): hayami 0.24.0
   serves the readings on a loopback TCP port as a WebSocket, and the block on this
   computer follows them there. Another machine is still read with commands; its port
-  is that machine's loopback. Left: a reload leaves the old build's WebSocket open
-  (hayami #424 proposes the service closing a client that sends nothing).
+  is that machine's loopback. A reload's old WebSocket is closed by hayami 0.24.1,
+  which closes a client that sends nothing for 90 s; the block resends its
+  subscription every 30 s (hayami spec 118).
 
 ## Ideas from spec 006 (not yet asked for)
 

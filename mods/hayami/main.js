@@ -53,6 +53,9 @@ const WS_LONGEST_WAIT = 600_000;
 // never less than this, is taken for dead (R5): a service that went away does not
 // always say so.
 const WS_QUIET_LIMIT = 90_000;
+// How often the block resends its subscription (hayami spec 118: a client that sends
+// nothing for 90 s is closed).
+const WS_RESUBSCRIBE = 30_000;
 const sha256 = (b) => new Uint8Array(crypto.createHash("sha256").update(b).digest());
 
 const randomBytes = (n) => new Uint8Array(crypto.randomBytes(n));
@@ -101,6 +104,7 @@ export default class Hayami extends View {
     this.wsWait = WS_FIRST_WAIT;
     this.wsNext = 0; // when to try the WebSocket again (ms)
     this.wsHeard = 0; // when it last sent anything (ms)
+    this.wsSent = 0; // when the block last sent its subscription (ms)
     this.wsKeys = ""; // the sections it follows, joined
     cx.timer.every(1000, (cx) => {
       if (window()?.visible === false || this.on === undefined) {
@@ -204,12 +208,15 @@ export default class Hayami extends View {
     });
   }
 
-  // Follows the shown sections on the open WebSocket, when they changed (R4).
+  // Follows the shown sections on the open WebSocket (R4): sent when they change,
+  // and again every 30 s, since hayami closes a client that sends nothing for 90 s
+  // (hayami spec 118): a reload's old build, which sends nothing, is closed so.
   resubscribe() {
     const keys = shown();
     const joined = keys.join(",");
-    if (!this.ws || joined === this.wsKeys) return;
+    if (!this.ws || (joined === this.wsKeys && Date.now() - this.wsSent < WS_RESUBSCRIBE)) return;
     this.wsKeys = joined;
+    this.wsSent = Date.now();
     this.ws.subscribe(keys).catch(() => {});
   }
 

@@ -125,8 +125,9 @@ through its real port in an integration test.
   is read with commands, as before.
 - A key file the account can read is what any program of the account can
   read; the mod holds the token in memory only while it connects.
-- **A reload leaves a connection open** (Results): harmless but wasteful
-  until the app restarts; hayami #424.
+- **A reload leaves a connection open** (Results): from hayami 0.24.1 the
+  service closes it within 90 s, since the block resends its subscription
+  every 30 s and the old build sends nothing (hayami spec 118, #424).
 - **Rollback**: revert; the block reads with commands, as before.
 
 ## E2E Test Plan
