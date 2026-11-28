@@ -57,7 +57,10 @@ const WS_QUIET_LIMIT = 90_000;
 // How often the block resends its subscription (hayami spec 118: a client that sends
 // nothing for 90 s is closed).
 const WS_RESUBSCRIBE = 30_000;
-const sha256 = (b) => new Uint8Array(crypto.createHash("sha256").update(b).digest());
+// The bytes go to createHash as an ArrayBuffer: Herdr on Windows hashes a Uint8Array or
+// a Buffer as if it were empty, and every proof made so was refused (found on the
+// Windows VM, 2026-11-27); an ArrayBuffer is hashed rightly on Windows and Linux.
+const sha256 = (b) => new Uint8Array(crypto.createHash("sha256").update(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength)).digest());
 
 const randomBytes = (n) => new Uint8Array(crypto.randomBytes(n));
 
