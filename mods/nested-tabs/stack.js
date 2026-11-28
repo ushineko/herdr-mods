@@ -79,8 +79,15 @@ export function label(m, paneTitle) {
   return t?.title || t?.program?.name || t?.argv?.[0] || m.address;
 }
 
+// Shows `addr` in the pane and gives the pane the keyboard. terminal.show of another
+// terminal focuses the pane itself; pane.focus would put the pane's own terminal back
+// (the app clears a pane's stand-in when it's focused), which drew the first tab
+// between two others until the header showed the right one again (operator,
+// 2026-11-27). Back to the pane's own terminal, terminal.show doesn't focus it, so
+// pane.focus does, and its reset is what's asked for there.
 function apply(pane, base, addr) {
-  run("terminal.show", addr && addr !== base ? { terminal: addr, pane } : { pane });
+  if (addr && addr !== base) run("terminal.show", { terminal: addr, pane });
+  else { run("terminal.show", { pane }); run("pane.focus", { pane }); }
 }
 
 // A chat as a nested tab (spec 021): the pane may sit in its chat's hidden tab. A
@@ -106,11 +113,17 @@ export function expireChatSide() {
   if (!shown) setShared(CHAT_SIDE, null);
 }
 
+/** Gives pane `pane` (own terminal `base`) the keyboard, keeping the nested tab it shows. */
+export function focus(pane, base) {
+  const shown = base ? shownOf(pane, base) : null;
+  if (shown && shown !== base) run("terminal.show", { terminal: shown, pane });
+  else run("pane.focus", { pane });
+}
+
 export function select(pane, base, addr) {
   setPane(pane, base, { order: members(pane, base).map((m) => m.address), shown: addr === base ? null : addr });
   reveal(pane);
   apply(pane, base, addr);
-  run("pane.focus", { pane });
 }
 
 export function cycle(pane, base, step) {
@@ -180,7 +193,6 @@ export async function add(pane, base, command, opts = {}) {
     setPane(pane, base, { order, shown: addr });
     reveal(pane);
     apply(pane, base, addr);
-    run("pane.focus", { pane });
   } else {
     setPane(pane, base, { ...paneState(pane, base), order });
   }

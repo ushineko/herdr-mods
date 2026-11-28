@@ -495,7 +495,7 @@ export default class NestedTabs extends View {
       .pr(8)
       .gap(6)
       .items_center()
-      .on_click(() => run("pane.focus", { pane }))
+      .on_click(() => S.focus(pane, base))
       .on_window_mouse_up("left", this.dropIn(pane, base))
       .child(
         h_flex()

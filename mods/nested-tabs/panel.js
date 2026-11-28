@@ -8,6 +8,7 @@
 // the tab closes both.
 
 import { panes, focused, run, notify, settings } from "herdr";
+import * as S from "./stack.js";
 
 const PANEL_SHARE = 0.32; // landscape: the panel's share of the main pane's width
 
@@ -50,5 +51,6 @@ export async function toggle(cx, mode, sizes) {
   const git = await splitMod(cx, nav.pane, f.tab, portrait ? "right" : "down", "git");
   if (git) run("pane.rename", { pane: git.pane, name: "panel:git" });
   else notify({ title: "Panel: git didn't appear", level: "error" });
-  run("pane.focus", { pane: main.pane });
+  // Keeps the nested tab the main pane shows (pane.focus would put its own terminal back).
+  S.focus(main.pane, main.terminal);
 }
