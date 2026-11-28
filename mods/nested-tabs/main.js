@@ -333,9 +333,11 @@ export default class NestedTabs extends View {
     return h_flex()
       .id(`nt-head-${pane}`)
       .size_full()
-      .pl(12)
+      // With a strip, spaced as the partner tab's own row, so the split chip stays put
+      // when its two halves are switched.
+      .pl(behind ? 5 : 12)
       .pr(8)
-      .gap(8)
+      .gap(behind ? 6 : 8)
       .items_center()
       .text_size(13)
       .on_click(() => run("pane.focus", { pane }))
