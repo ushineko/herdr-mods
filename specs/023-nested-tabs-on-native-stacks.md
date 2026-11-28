@@ -100,8 +100,14 @@ a while.
       the chat's tools in the header (shot); the chat's terminal toggle showed
       the agent's member, terminal half marked (shot); Back to terminal closed
       the chat member, the agent kept running in the stack, labels cleared.
-- [ ] AC5 Released app (Mac): label-based nested tabs and spec 021 work as
+- [x] AC5 Released app (Mac): label-based nested tabs and spec 021 work as
       before; `npm test` and `herdr-app check` pass on all three machines.
+      Done 2026-11-27 at 16b479d: `npm test` 363 passed (macOS),
+      `./run-tests.sh` 363 passed (njv-cachyos), `node --test` 250 counted, 0
+      failed (win11-kvm); `herdr-app check` passed for nested-tabs and
+      ushi-naruse on all three; njv-cachyos's default and work windows report
+      no errors. On the Mac (released app) the label-based strip and spec 021's
+      split chip draw as before (shot of the operator's own chat header).
 - [ ] AC6 Day to day on njv-cachyos with the fork (the fork spec's AC7).
 
 ## Risks & Assumptions
