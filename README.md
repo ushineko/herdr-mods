@@ -11,7 +11,7 @@ JavaScript panels drawn natively by Herdr's GPUI shell.
 |---|---|
 | `spaces-bar` | Horizontal spaces bar along the top: this computer's spaces, a divider, then one chip per other machine (with a dropdown of its spaces), each machine in its own colour, filled while one of its spaces is shown. Each space lists its agents (a chat's agent shows as its chat, with the cow). Also: the **inbox** (after **+**: a red count of agents waiting for input, a dot for ones that finished; a dropdown of Working / Needs you / Done on every machine), the **Ctrl+Tab switcher** (recent tabs, Vivaldi-style: hold Ctrl, Tab to move, release to switch; spec 015) and the **quick switcher** (Ctrl+Space: find any open tab, nested tab, space or machine by name; spec 016). The inbox and both switchers include the other windows on this computer (njv-cachyos's default and work) |
 | `terminals-bar-proc` | The tab bar: each tab shows the program running in it; the shown tab joins its pane like a file tab; scrolls when tabs don't fit; drag a tab to reorder it (palette: Tab: move left/right). **+** at the left: click for a shell (in the shown tab's folder), right-click for an agent or a chat. A remote space's machine pill is in the machine's colour. Closing a tab moves a chat's agent out first, so its session isn't ended. At the right, a button per dock shows or hides it, lit while the dock is shown (spec 020) |
-| `nested-tabs` | Pane header with nested tabs (port of the herdr TUI fork's pane stacks; drag to reorder), and the per-tab nav/git panel. Right-click **+** for an agent or a chat; the cow button opens a running Claude Code or Codex terminal as a chat. A chat's own header (agent, conversation, its tools) is drawn in this row, so a chat pane has one header |
+| `nested-tabs` | Pane header with nested tabs (port of the herdr TUI fork's pane stacks; drag to reorder), and the per-tab nav/git panel. Right-click **+** for an agent or a chat; the cow button opens a running Claude Code or Codex terminal as a chat. A chat's own header (agent, conversation, its tools) is drawn in this row, so a chat pane has one header. On the [app fork](#herdr-app-released-or-the-ushineko-fork) the nested tabs are the app's own (native stacks; a chat is one of them), on the released app they're emulated (spec 023) |
 | `dock-tabs` | Tab strip for the window-level dock; its fixed tab holds nav and git as a split, with hayami's block under them; **+** adds shells, agents and chats as subtabs, and a **mod subtab** (spec 018) for any installed mod whose `mod.json` has a `dock` entry (jira-viewer's table, from that repository). Each dock chooses its subtabs (spec 019): a chip's menu hides it in this dock or moves it to the other, the strip's menu shows a hidden one again, nav + git included; a tab stays in at least one dock, and docks that differ stay open together |
 | `dock-follow` | Keeps the dock's nav and git on the focused pane's folder (a chat counts as its agent's folder); handles agent requests (`herdr-open`, `herdr-nav`); after a herdr-core restart (a reboot) resumes the Claude Code conversations it ended (`claude.session` labels from a SessionStart hook; `claude --resume` on Windows) |
 | `nav` | Folder panel (spec 002): follows the focused terminal's folder, breadcrumbs, git marks, opens files in the viewer, right-click menu (open, edit, open in app, copy path) |
@@ -189,6 +189,38 @@ them. Windows' commands go through PowerShell, which Windows always has.
 
 A missing program shows as a note where it's needed ("Mermaid isn't installed
 (mermaid-cli)", "PDF previews need pdftoppm…"), not as an error.
+
+### Herdr app: released or the ushineko fork
+
+Every mod works on the released Herdr app. The operator's fork of the app,
+[ushineko/herdr-app](https://github.com/ushineko/herdr-app) (branch
+`ushineko/nested-tabs`, versions `0.1.18-ushineko.N`; its spec
+`ushineko/specs/001-native-nested-tabs.md`), adds native nested tabs, and
+nested-tabs uses them where it can (spec 023):
+
+| | Released app | The fork |
+|---|---|---|
+| Nested tabs | Emulated: extra terminals are children of the pane's own terminal (`nt.stack` labels), shown with `terminal.show` | The app's own stacks (`pane.stack`, `pane.show`, …; `panes()` gives each member `stack`); switching never flashes the first tab |
+| A chat beside its agent | A hidden partner tab, merged with the chat's tab in the tab bar (spec 021) | A member of the agent's stack, drawn with the agent as one split chip |
+| Existing nested tabs | | Converted to native the first time this machine's window draws them |
+
+nested-tabs knows which it has from `panes()`: a fork window's entries carry a
+`stack` key. A fork window only makes or converts stacks for its own machine's
+panes; another machine's stay emulated until a window there runs the fork (a
+window on the released app can't switch a native stack: it shows the active
+member only). Both machines run the fork since 2026-11-27.
+
+Install a CI build of the fork (Linux and macOS; Windows: `install-build.ps1`):
+
+```sh
+~/git/herdr-app/ushineko/install-build                    # latest build of ushineko/nested-tabs
+~/git/herdr-app/ushineko/install-build 0.1.18-ushineko.1  # a version
+```
+
+On Linux it goes where the release installer puts the binary
+(`~/.local/share/herdr-app/herdr-app`), on macOS into `~/Applications/Herdr.app`
+(signed ad hoc). Quit and reopen Herdr afterwards. Back to the release: its own
+installer (`curl -fsSL https://releases.herdr.dev/app/install.sh | sh`).
 
 ## Install
 

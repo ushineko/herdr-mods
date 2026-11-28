@@ -30,6 +30,18 @@ below.
   the client follows: read them before changing what the client asks or parses.
   How a reading is drawn follows hayami's own panel (`internal/view` there).
 
+- **The app fork.** Both machines run the operator's fork of the desktop app,
+  `ushineko/herdr-app` (cloned at `~/git/herdr-app` on njv-cachyos and the Mac,
+  branch `ushineko/nested-tabs`, versions `0.1.18-ushineko.N`), for native
+  nested tabs (its spec `ushineko/specs/001-native-nested-tabs.md`; here, spec
+  023). Its own `ushineko/` folder holds its specs and `install-build`; CI
+  (`.github/workflows/ushineko-builds.yml`) builds every push and every
+  `fork-v*` tag. Fork commits follow upstream's conventions, not these.
+  **Mods must keep working on the released app too**: nested-tabs and
+  ushi-naruse check `panes()` for the `stack` key (`lib/native-stack.js`);
+  test both paths (the released app in the fork's `scripts/sandbox` with
+  `HERDR_APP_BIN=<released binary>`, the fork in the sandbox as built).
+
 ---
 
 ## Cross-platform (non-negotiable)
