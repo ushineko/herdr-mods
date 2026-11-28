@@ -1,15 +1,21 @@
-// hayami (specs 010, 011): hayami's readings under the dock's nav and git, from the
+// hayami (specs 010, 011, 022): hayami's readings under the dock's nav and git, from the
 // hayami service (lib/hayami.js, hayami-js) on the machine the dock follows: the
-// shown space's, local or remote. The sections shown
+// shown space's, local or remote. On this computer they come over the service's
+// WebSocket on its loopback port (spec 022); elsewhere, and without the port, one
+// command per read. The sections shown
 // are chosen in the block (its header's button, or a right-click), one choice per
 // app home; side by side when the block is wide, one under another when narrow.
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { exec, window, theme, settings, checking, props, shared, setShared, run, openOverlay, closeOverlay, nextCommand, spaces } from "herdr";
+import { exec, window, theme, settings, checking, props, shared, setShared, run, openOverlay, closeOverlay, nextCommand, spaces, home } from "herdr";
+import * as crypto from "crypto";
+import * as fs from "fs/promises";
+import { WebSocket } from "websocket";
 import {
   readings, usageRows, windowTail, leadWindow, otherFigures, quotaStatus,
   ORDER, TITLES, shownSections, due, arrange, blockHeight,
   bandwidthRows, coolerRows, peripheralRows, clockRow,
+  keyPath, parseKey, openWS,
 } from "./lib/hayami.js";
 import { shownSpace } from "./lib/location.js";
 
@@ -39,6 +45,17 @@ async function platformOf(on) {
 }
 
 const shown = () => shownSections(shared(SECTIONS));
+
+// The WebSocket's retry wait (spec 022 R5): 30 s, doubling to 10 minutes.
+const WS_FIRST_WAIT = 30_000;
+const WS_LONGEST_WAIT = 600_000;
+// A WebSocket that has sent nothing for three of its slowest section's intervals, and
+// never less than this, is taken for dead (R5): a service that went away does not
+// always say so.
+const WS_QUIET_LIMIT = 90_000;
+const sha256 = (b) => new Uint8Array(crypto.createHash("sha256").update(b).digest());
+
+const randomBytes = (n) => new Uint8Array(crypto.randomBytes(n));
 
 // The machine the dock follows: the shown space's. Every terminal in a space runs on
 // its machine, and a chat or a mod pane with focus (which has no terminal to ask)
@@ -79,9 +96,24 @@ export default class Hayami extends View {
         cx.notify();
       }
     });
+    this.ws = null; // the open WebSocket on this computer's port, spec 022
+    this.wsOpening = false;
+    this.wsWait = WS_FIRST_WAIT;
+    this.wsNext = 0; // when to try the WebSocket again (ms)
+    this.wsHeard = 0; // when it last sent anything (ms)
+    this.wsKeys = ""; // the sections it follows, joined
     cx.timer.every(1000, (cx) => {
-      if (window()?.visible === false || this.on === undefined) return;
-      this.read(cx);
+      if (window()?.visible === false || this.on === undefined) {
+        this.closeWS();
+        return;
+      }
+      if (this.on === null) this.ensureWS(cx);
+      if (this.ws && Date.now() - this.wsHeard > this.quietLimit()) {
+        this.closeWS();
+        this.retryWS();
+      }
+      if (this.ws) this.resubscribe();
+      else this.read(cx);
       // The clock ticks between reads; a minute is all it shows.
       if (shown().includes("clock") && new Date().getSeconds() === 0) cx.notify();
     });
@@ -89,6 +121,7 @@ export default class Hayami extends View {
 
   follow(on, cx) {
     if (on === this.on) return;
+    this.closeWS(); // the port is this computer's loopback (R6)
     this.on = on;
     this.sections = {}; // another machine's readings are not this one's (010 R6)
     this.last = {};
@@ -119,6 +152,85 @@ export default class Hayami extends View {
         cx.notify();
       }
     });
+  }
+
+  // ---- the WebSocket on this computer's port (spec 022) ---------------------------
+
+  // Opens it when it is not open and its wait is over (R1, R5): the key from hayami's
+  // settings, the challenge answered, then each reading drawn as it comes. Any failure
+  // leaves the block on commands until the next try.
+  ensureWS(cx) {
+    if (this.ws || this.wsOpening || checking() || Date.now() < this.wsNext) return;
+    this.wsOpening = true;
+    cx.spawn(async (cx) => {
+      let s = null;
+      try {
+        const platform = await platformOf(null);
+        const key = parseKey(await fs.readFile(keyPath(platform, home()), "utf8"));
+        if (!key) throw new Error("no key the service serves with");
+        s = await openWS({ connect: (url) => WebSocket.connect(url), sha256, randomBytes, key });
+        if (this.on !== null) { s.close(); return; } // followed elsewhere meanwhile
+        this.ws = s;
+        this.wsHeard = Date.now();
+        this.wsWait = WS_FIRST_WAIT;
+        this.wsKeys = "";
+        this.resubscribe();
+      } catch {
+        this.retryWS();
+        return;
+      } finally {
+        this.wsOpening = false;
+      }
+      try {
+        for (;;) {
+          const m = await s.next();
+          if (this.ws !== s) return;
+          this.wsHeard = Date.now();
+          if (m.type === "section" && m.data?.key) {
+            this.sections[m.data.key] = m.data;
+            this.last[m.data.key] = Date.now();
+            this.failure = null;
+            cx.notify();
+          }
+        }
+      } catch {
+        s.close();
+        if (this.ws === s) {
+          this.ws = null;
+          this.retryWS();
+          cx.notify(); // commands take over at the next tick
+        }
+      }
+    });
+  }
+
+  // Follows the shown sections on the open WebSocket, when they changed (R4).
+  resubscribe() {
+    const keys = shown();
+    const joined = keys.join(",");
+    if (!this.ws || joined === this.wsKeys) return;
+    this.wsKeys = joined;
+    this.ws.subscribe(keys).catch(() => {});
+  }
+
+  // How long the WebSocket may stay silent: three of the slowest shown section's
+  // intervals, as last read, and never less than WS_QUIET_LIMIT.
+  quietLimit() {
+    const slowest = Math.max(0, ...shown().map((k) => Number(this.sections[k]?.interval_s) || 0));
+    return Math.max(WS_QUIET_LIMIT, 3 * slowest * 1000);
+  }
+
+    retryWS() {
+    this.wsNext = Date.now() + this.wsWait;
+    this.wsWait = Math.min(this.wsWait * 2, WS_LONGEST_WAIT);
+  }
+
+  closeWS() {
+    if (!this.ws) return;
+    const s = this.ws;
+    this.ws = null;
+    this.wsKeys = "";
+    s.close();
   }
 
   // ---- the checklist popup -------------------------------------------------------

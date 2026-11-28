@@ -49,17 +49,11 @@ a GitHub issue and a spec (`specs/NNN-…md`) when work starts.
   `trail.tx`, a probe's `trail` (its load). Draw them beside the figures, as
   hayami's panel does (`internal/view/sparkline.go` there), at a fixed width so
   nothing moves (glance rule).
-- **TODO: hayami-js on the event stream** (operator, 2026-11-26: to be done later).
-  `/v1/events?sections=a,b` sends each reading as it is made (Server-Sent Events),
-  where the block now runs a process every 5 s to poll. A mod's `exec` returns only
-  when its program ends, so a stream needs a long-running reader: for example a
-  herdr-core background terminal running curl into a file the mod reads, one per
-  machine, ended when the block stops following that machine. The stream is a new
-  path for `checkPath`'s allow-list. A mod's own `net` socket could hold the stream
-  without a terminal, but it connects to TCP only, and the service listens only on
-  a Unix socket or named pipe that one account can open; a loopback TCP listener
-  would be a hayami change across its threat model (B3, B6), not a client one
-  (2026-11-27).
+- **Done: hayami-js on a pushed stream** (spec 022, 2026-11-27): hayami 0.24.0
+  serves the readings on a loopback TCP port as a WebSocket, and the block on this
+  computer follows them there. Another machine is still read with commands; its port
+  is that machine's loopback. Left: a reload leaves the old build's WebSocket open
+  (hayami #424 proposes the service closing a client that sends nothing).
 
 ## Ideas from spec 006 (not yet asked for)
 

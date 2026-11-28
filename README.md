@@ -113,17 +113,26 @@ on any machine. Changing the model or effort backs up
 
 `lib/hayami.js` is a client for [hayami](https://github.com/ushineko/hayami)'s
 service (`hayami-tui serve`, hayami spec 113; contract `api/openapi.yaml`, prose
-`docs/api.md` there). It belongs to this repository, not to hayami. Each request
-is one command on the machine that serves it: `curl --unix-socket` on Linux and
-macOS, `hayami-tui api get` on Windows. A mod's own network access (`fetch`,
-`net.connect(host, port)`, `websocket`) reaches TCP and URLs only, not the Unix
-socket or named pipe the service listens on, nor another machine. Every
-section is drawn (`hayami`); bandwidth and cooler are read every 5 s, the others less
-often, and only the sections shown are asked for.
+`docs/api.md` there). It belongs to this repository, not to hayami. Every section
+is drawn (`hayami`), and only the sections shown are asked for.
+
+On this computer the block follows its sections over the service's WebSocket on
+its loopback TCP port (hayami 0.24.0, spec 022): one connection, each reading
+pushed as it is made, no process per read. The connection begins with a mutual
+challenge-response over the token in hayami's `api-tcp.json`; the token is never
+sent, and a server that cannot prove it holds it is not trusted. Without the port,
+or for another machine (whose port is its own loopback), each read is one command
+on the machine that serves it: `curl --unix-socket` on Linux and macOS,
+`hayami-tui api get` on Windows; bandwidth and cooler every 5 s, the others less
+often. After a failure the WebSocket is tried again after 30 s, doubling to 10
+minutes. A mod reaches TCP and URLs only, never the service's Unix socket or named
+pipe (tried in the app, spec 010's Transport note).
 
 Needs, on each machine the dock follows: the hayami service set up (hayami's
 installer on Linux and Windows; `hayami-tui api-service install` on macOS) and
-`curl`. Without the service the block says "hayami service not running".
+`curl`; on this computer, hayami's TCP port too for the WebSocket (on by default
+from 0.24.0; `hayami-tui api-service tcp`). Without the service the block says
+"hayami service not running".
 
 ## Where mods run
 
