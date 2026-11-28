@@ -17,6 +17,7 @@ import * as S from "./stack.js";
 import * as Panel from "./panel.js";
 import * as Chat from "./chat.js";
 import { stripEntries, stepEntry } from "./lib/chat-stack.js";
+import { machineColor } from "./lib/machine-color.js";
 
 // Each pane header's size (≈ its pane's width), for sizing the panel split.
 const sizes = new Map();
@@ -35,6 +36,23 @@ function folder(cwd) {
   const h = home();
   return cwd === h ? "~" : cwd.startsWith(h + "/") ? "~" + cwd.slice(h.length) : cwd;
 }
+
+// The shown chip's colour: the accent, or the machine's colour in a remote space, as
+// the tab bar marks its shown tab (lib/machine-color.js).
+function chipColor(tab) {
+  const t = theme();
+  const all = spaces();
+  const machine = all.find((s) => s.tabs?.some((x) => x.id === tab))?.machine;
+  return (machine && machineColor(machine, all.map((s) => s.machine))) || t.accent;
+}
+
+// A chat's stack (spec 021): the agent's own terminal first, as the strip's split chip
+// draws it, then the rest in the stack's order.
+const agentFirst = (list) => [...list.filter((m) => m.base), ...list.filter((m) => !m.base)];
+
+// The shown chip: a tint and a bar along its top in `hl`, as the tab bar's shown tab.
+const shownChip = (el, hl, t) => el.relative().bg(hl + "24").border_color(hl + "66").text_color(t.foreground)
+  .child(div().absolute().top(0).left(6).right(6).h(2).rounded_b(2).bg(hl));
 
 // Chats whose header this mod draws in the pane's row (ushi-naruse publishes what it
 // says, "ushi-naruse.heads"; the panes drawn so go to "nested-tabs.folded" and those
@@ -117,7 +135,11 @@ export default class NestedTabs extends View {
     if (c === "panel") await Panel.toggle(cx, "right", sizes);
     else if (c === "panel-portrait") await Panel.toggle(cx, "portrait", sizes);
     else if (c === "add") S.add(pane, base);
-    else if (c === "move-left" || c === "move-right") S.move(pane, base, S.shownOf(pane, base), c === "move-left" ? -1 : 1);
+    else if (c === "move-left" || c === "move-right") {
+      // Behind a chat the agent's own terminal is half of the chat's chip: it doesn't move.
+      const shown = S.shownOf(pane, base);
+      if (!(shown === base && Chat.pairOfStack(base))) S.move(pane, base, shown, c === "move-left" ? -1 : 1);
+    }
     // Chats (spec 008): a new chat (the first agent the + menu offers), Open as chat,
     // and the × (a chat's terminal hides behind it; anything else closes).
     else if (c === "chat") { const [e] = await Chat.options(base); if (e) await Chat.open(pane, base, e.run.join(" "), e.label.replace(/^New /, "")); }
@@ -146,7 +168,7 @@ export default class NestedTabs extends View {
 
   // Next or previous across a chat and its stack (spec 021 D3); `side` is the one shown.
   step(pane, base, pair, side, dir) {
-    const e = stepEntry(stripEntries(S.members(pane, base), side, S.shownOf(pane, base)), dir);
+    const e = stepEntry(stripEntries(agentFirst(S.members(pane, base)), side, S.shownOf(pane, base)), dir);
     if (!e) return;
     if (e.kind === "chat") Chat.toChat(pair.chatTab ?? Chat.pairOfStack(base)?.chatTab, pair.chatPane);
     else S.select(pane, base, e.address);
@@ -270,7 +292,8 @@ export default class NestedTabs extends View {
     // Standing for a stack in its hidden tab (spec 021): the strip of chat and terminals.
     const behind = Chat.stackOfChat(pane);
     const list = behind ? S.members(behind.pane, behind.base) : [];
-    const ctx = behind ? { t, pane: behind.pane, base: behind.base, shown: null, count: list.length, pair: true } : null;
+    const hl = chipColor(me.tab);
+    const ctx = behind ? { t, pane: behind.pane, base: behind.base, shown: null, count: list.length, pair: true, hl } : null;
     const chat = (c) => () => { run("pane.focus", { pane }); run(`ushi-naruse.${c}`); };
     const tool = (id, icon, tip, on, action) => this.button(`nt-${id}-${pane}`, null, tip, action)
       .when(on, (el) => el.bg(t.hover).text_color(t.foreground))
@@ -295,8 +318,9 @@ export default class NestedTabs extends View {
       .when(Boolean(behind), (el) => el
         .on_window_mouse_up("left", this.dropIn(behind.pane, behind.base))
         .child(h_flex().id(`nt-strip-${pane}`).flex_1().min_w(0).h_full().gap(3).items_center().overflow_x_scroll()
-          .child(this.chatChip(`nt-chatchip-${pane}`, true, head, () => run("pane.focus", { pane })))
-          .children(list.map((m, i) => this.chip(m, i, ctx))))
+          .child(this.chatChip(`nt-chatchip-${pane}`, "chat", head, terminals().find((x) => x.address === behind.base),
+            () => run("pane.focus", { pane }), () => S.select(behind.pane, behind.base, behind.base), hl))
+          .children(agentFirst(list).map((m, i) => (m.base ? null : this.chip(m, i, ctx))).filter(Boolean)))
         .child(this.button(`nt-add-${pane}`, "plus", "New nested tab (right-click: start an agent)",
           () => S.add(behind.pane, behind.base), () => this.menu("new", behind.pane, behind.base))))
       .child(h_flex().flex_none().gap(1).items_center()
@@ -336,7 +360,8 @@ export default class NestedTabs extends View {
       .border_1()
       .cursor_pointer()
       .text_size(13)
-      .when(active, (el) => el.bg(t.raised).border_color(t.border).text_color(t.foreground))
+      // Marked as the tab bar marks its shown tab (operator, 2026-11-27).
+      .when(active, (el) => shownChip(el, ctx.hl ?? t.accent, t))
       .when(!active, (el) => el.border_color("#00000000").text_color(t.muted).hover((s) => s.bg(t.hover)))
       .when(target, (el) => el.border_color(t.accent))
       .tooltip(`${name}${term?.cwd ? " · " + folder(term.cwd) : ""} · ${m.address}${m.base ? " (pane's own)" : ""}`)
@@ -375,28 +400,44 @@ export default class NestedTabs extends View {
       ));
   }
 
-  // The chat's entry in a strip (spec 021): first, no number or ×, cow and the agent.
-  chatChip(id, active, head, onClick) {
+  // The chat's entry in a strip (spec 021): one chip, first, for the agent: the chat on
+  // the left, its own terminal (a small terminal icon) on the right, the shown half
+  // marked. It isn't dragged and nothing is dropped into it, so the two stay together.
+  // `side`: "chat", "term" or null (a nested shell shown); `term` the agent's terminal.
+  chatChip(id, side, head, term, onChat, onTerm, hl) {
     const t = theme();
+    const color = hl ?? t.accent;
+    const status = term?.status;
+    const dot = status && status !== "idle" && t[status] ? t[status] : null;
+    const half = (key, shown, tip, onClick) => h_flex()
+      .id(`${id}-${key}`)
+      .h_full()
+      .items_center()
+      .cursor_pointer()
+      .tooltip(tip)
+      .when(shown, (el) => shownChip(el, color, t))
+      .when(!shown, (el) => el.text_color(t.muted).hover((s) => s.bg(t.hover)))
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .on_click((_e, cx) => { cx.stop_propagation(); onClick(); });
     return h_flex()
       .id(id)
       .flex_none()
-      .max_w(240)
       .h(24)
-      .px(8)
-      .gap(6)
       .items_center()
       .rounded(8)
       .border_1()
-      .cursor_pointer()
+      .border_color(side ? color + "66" : t.border)
+      .overflow_hidden()
       .text_size(13)
-      .when(active, (el) => el.bg(t.raised).border_color(t.border).text_color(t.foreground))
-      .when(!active, (el) => el.border_color("#00000000").text_color(t.muted).hover((s) => s.bg(t.hover)))
-      .tooltip(`Chat${head?.sub ? " · " + head.sub : ""}`)
-      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
-      .on_click((_e, cx) => { cx.stop_propagation(); onClick(); })
-      .child(svg(ICON("cow")).size(15).flex_none())
-      .child(div().flex_none().max_w(150).truncate().child(head?.agent ? `${head.agent} chat` : "Chat"));
+      .child(half("chat", side === "chat", `Chat${head?.sub ? " · " + head.sub : ""}`, onChat)
+        .pl(8).pr(7).gap(6)
+        .child(svg(ICON("cow")).size(15).flex_none())
+        .child(div().flex_none().max_w(150).truncate().child(head?.agent ? `${head.agent} chat` : "Chat")))
+      .child(div().flex_none().w(1).h_full().bg(side ? color + "66" : t.border))
+      .child(half("term", side === "term", `${head?.agent ?? "The agent"}'s terminal`, onTerm)
+        .px(6).gap(4)
+        .child(svg(ICON("terminal")).size(13).flex_none())
+        .when(Boolean(dot), (el) => el.child(div().flex_none().w(6).h(6).rounded_full().bg(dot))));
   }
 
   // A drop at the end of a drag in a strip: the window's mouse-up comes before the
@@ -442,7 +483,7 @@ export default class NestedTabs extends View {
     const pair = Chat.pairOfStack(base);
     if (list.length < 2 && !pair) return sized(this.single(me, pane, base));
     const t = theme();
-    const ctx = { t, pane, base, shown: S.shownOf(pane, base), count: list.length, pair: Boolean(pair) };
+    const ctx = { t, pane, base, shown: S.shownOf(pane, base), count: list.length, pair: Boolean(pair), hl: chipColor(me.tab) };
     const head = pair ? shared("ushi-naruse.heads")?.[pair.chatPane] : null;
     const at = list.findIndex((m) => m.address === ctx.shown);
     const key = `${ctx.shown}:${list.length}`;
@@ -468,8 +509,9 @@ export default class NestedTabs extends View {
           .track_scroll(this.scroll)
           .on_scroll_wheel((e) => this.onWheel(e, pane, base))
           .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); this.menu("new", pane, base); })
-          .when(Boolean(pair), (el) => el.child(this.chatChip(`nt-chatchip-${pane}`, false, head, () => Chat.toChat(pair.chatTab, pair.chatPane))))
-          .children(list.map((m, i) => this.chip(m, i, ctx))),
+          .when(Boolean(pair), (el) => el.child(this.chatChip(`nt-chatchip-${pane}`, ctx.shown === base ? "term" : null, head,
+            terminals().find((x) => x.address === base), () => Chat.toChat(pair.chatTab, pair.chatPane), () => S.select(pane, base, base), ctx.hl)))
+          .children((pair ? agentFirst(list) : list).map((m, i) => (pair && m.base ? null : this.chip(m, i, ctx))).filter(Boolean)),
       )
       .child(this.paneButtons(me, pane, base));
   }

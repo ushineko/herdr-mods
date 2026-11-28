@@ -41,10 +41,13 @@ flashes.
 - D1 **Open as chat hides the whole pane**, nested tabs and all, as it does
   for a single terminal. The "opens beside" rule of spec 008 R8 for panes with
   nested tabs goes.
-- D2 **The strip's entries**, the same on both sides and in this order: the
-  chat (cow icon, the chat's title), the agent's terminal, then the other
-  nested terminals in the stack's order. Drag to reorder applies to the
-  terminals; the chat stays first.
+- D2 **The strip's entries**, the same on both sides: first one split chip for
+  the agent, the chat on its left and the agent's own terminal (a terminal
+  icon, with its status dot) on its right, the shown half marked; then the
+  other nested terminals in the stack's order. The split chip isn't dragged
+  and nothing is dropped into it, and the move keys leave the agent's terminal
+  where it is, so the chat and its terminal stay together (operator,
+  2026-11-27, after trying two separate chips: "it will look confusing").
 - D3 **Switching**: picking the chat selects C and focuses the chat. Picking a
   terminal selects P, shows that terminal in the pane, and focuses it. The
   nested-tabs next/previous keys step through the same list, crossing between
