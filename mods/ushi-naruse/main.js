@@ -2208,9 +2208,20 @@ export default class Chat extends View {
     });
   }
 
+  // herdr-mods (spec 023): on a window of the app fork with native nested tabs, this
+  // chat and its agent's terminal are members of one stack: the agent's member
+  // (panes() entry) when so, else null. Hiding and showing then switch members.
+  nativeAgent(mine) {
+    const me = mine && panes().find((p) => p.pane === mine.pane);
+    const agent = panes().find((p) => p.terminal === this.term);
+    return me?.stack && agent?.stack && agent.stack.id === me.stack.id ? agent : null;
+  }
+
   // Shows the agent's terminal to the right of the chat, or hides it again.
   toggleTerminal(cx) {
     const mine = this.myPane();
+    const agent = this.nativeAgent(mine);
+    if (agent) return run("pane.show", { pane: agent.stack.shown ? mine.pane : agent.pane });
     if (mine && !this.termHidden(mine)) return this.hideTerminal(mine, cx);
     this.showTerminal(cx);
   }
@@ -2218,6 +2229,8 @@ export default class Chat extends View {
   // Hiding moves only the agent's terminal away (see backstage.js): other
   // terminals split beside the chat stay.
   hideTerminal(mine, cx) {
+    // herdr-mods (spec 023): a native stack shows the chat instead.
+    if (this.nativeAgent(mine)) return run("pane.show", { pane: mine.pane });
     if (this.moving) return;
     this.moving = true;
     cx.spawn(async (cx) => {
@@ -2230,6 +2243,9 @@ export default class Chat extends View {
 
   showTerminal(cx) {
     const mine = this.myPane();
+    // herdr-mods (spec 023): a native stack shows the agent's member.
+    const agent = this.nativeAgent(mine);
+    if (agent) return run("pane.show", { pane: agent.pane });
     if (!mine) {
       if (this.terminal()?.state === "live") run("terminal.peek", { terminal: this.term });
       return;
@@ -2695,7 +2711,9 @@ export default class Chat extends View {
     const mine = this.dialog || props()?.dockName ? null : this.myPane();
     if (!mine || !cx) return;
     const { kind } = this.current();
-    const hidden = this.termHidden(mine);
+    // herdr-mods (spec 023): in a native stack the terminal is "on" while its member is shown.
+    const agent = this.nativeAgent(mine);
+    const hidden = agent ? !agent.stack.shown : this.termHidden(mine);
     const head = {
       agent: AGENTS[kind] ?? "Terminal",
       sub: [this.t?.title, this.term].filter(Boolean).join(" · "),

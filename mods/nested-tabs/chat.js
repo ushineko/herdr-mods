@@ -249,3 +249,24 @@ export function toChat(chatTab, chatPane) {
   run("tab.select", { id: chatTab });
   run("pane.focus", { pane: chatPane });
 }
+
+/**
+ * Opens a running agent (`addr`, shown in member `pane`) as a chat member of its
+ * native stack on a fork window (spec 023 D3): the chat goes first, the agent's
+ * member right after it, and the chat is shown. Its labels name the chat as
+ * Open as chat does, with no partner tab (no chat.tab).
+ */
+export async function openNative(pane, addr) {
+  const id = await idFor(addr);
+  await openChat(addr, () => run("pane.stack", { pane, mod: "ushi-naruse", props: { terminal: addr, id } }));
+  const stackOf = (p) => panes().find((x) => x.pane === p)?.stack?.id;
+  const find = () => panes().find((p) => p.mod === "ushi-naruse" && p.stack && p.stack.id === stackOf(pane)
+    && localId(p.pane) === localId(terminals().find((t) => t.address === addr)?.labels?.[OWNER_LABEL]));
+  let chat = find();
+  for (let i = 0; i < 20 && !chat; i++) { await pause(); chat = find(); }
+  if (!chat) return;
+  // One at a time: run() doesn't keep calls in order.
+  run("pane.move_in_stack", { pane: chat.pane, index: 1 });
+  await pause();
+  run("pane.move_in_stack", { pane, index: 2 });
+}

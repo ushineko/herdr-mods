@@ -91,9 +91,15 @@ a while.
 - [x] AC3 Sandbox: a label-based stack made by today's nested-tabs converts
       on sight; labels cleared; the shown member kept.
       Done 2026-11-27 (sandbox): two `nt.stack` children of t1 became members, labels cleared, no errors. Made one at a time while the header was live, they converted in two batches and came out t1, t3, t2; a stack seen whole converts in one batch in order (a move by hand confirmed `pane.move_in_stack`).
-- [ ] AC4 Sandbox: Open as chat on a stack's agent makes a chat member; the
+- [x] AC4 Sandbox: Open as chat on a stack's agent makes a chat member; the
       split chip switches between chat and terminal; Hide/Show terminal work;
       Back to terminal leaves the agent's terminal (the fork spec's AC5).
+      Done 2026-11-27 (sandbox, fork 0ddf30a, Claude Code + a zsh member):
+      Open as chat made the stack chat, agent, zsh, with the agent labelled
+      ushi.chat and the chat focused; the split chip marked the chat half with
+      the chat's tools in the header (shot); the chat's terminal toggle showed
+      the agent's member, terminal half marked (shot); Back to terminal closed
+      the chat member, the agent kept running in the stack, labels cleared.
 - [ ] AC5 Released app (Mac): label-based nested tabs and spec 021 work as
       before; `npm test` and `herdr-app check` pass on all three machines.
 - [ ] AC6 Day to day on njv-cachyos with the fork (the fork spec's AC7).
