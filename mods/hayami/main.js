@@ -5,7 +5,7 @@
 // command per read. The sections shown
 // are chosen in the block (its header's button, or a right-click), one choice per
 // app home; side by side when the block is wide, one under another when narrow.
-import { View, div } from "gpui-kit";
+import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { exec, window, theme, settings, checking, props, shared, setShared, run, openOverlay, closeOverlay, nextCommand, spaces, home } from "herdr";
 import * as crypto from "crypto";
@@ -13,13 +13,14 @@ import * as fs from "fs/promises";
 import { WebSocket } from "websocket";
 import {
   readings, usageRows, windowTail, leadWindow, otherFigures, quotaStatus,
-  ORDER, TITLES, shownSections, due, arrange, blockHeight,
+  ORDER, TITLES, titleAbsences, shownSections, due, arrange, blockHeight,
   bandwidthRows, coolerRows, peripheralRows, clockRow,
   keyPath, parseKey, openWS,
 } from "./lib/hayami.js";
 import { shownSpace } from "./lib/location.js";
 
 const ROW = 20;
+const ICON = (n) => `mods/hayami/${n}.svg`;
 const SECTIONS = "hayami.sections"; // shared: the shown section keys, per app home
 const HEIGHTS = "hayami.px"; // shared: { "dock-bottom": px, "dock-right": px }, for dock-tabs
 
@@ -285,14 +286,17 @@ export default class Hayami extends View {
     const button = div().id("hayami-sections").flex_none().px(6).rounded(4).text_color(t.muted).cursor_pointer()
       .hover((s) => s.bg(t.hover)).on_mouse_down("left", (_e, cx) => cx.stop_propagation())
       .on_click(() => openChecklist()).child("☰");
-    const header = h_flex().h(22).flex_none().gap(8).items_center().text_size(11.5)
-      .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(machine))
-      .children(this.failure && Object.keys(this.sections).length ? [div().flex_none().text_color(t.working).child("stale")] : [])
-      .child(button);
-
+    // No header row of its own: the machine (and "stale") follow the first section's
+    // title, and the sections button ends the first title row (the last column's
+    // title when side by side).
+    const stale = this.failure && Object.keys(this.sections).length;
+    const where = [div().flex_none().text_color(t.dim).child(machine)]
+      .concat(stale ? [div().flex_none().text_color(t.working).child("stale")] : []);
+    const last = how === "columns" ? bodies.length - 1 : 0;
     const blocks = bodies.map((b, i) => v_flex().id(`hayami-s-${keys[i]}`).min_w(0).gap(2).overflow_hidden()
       .when(how === "columns", (el) => el.flex_1())
-      .child(b.title).children(b.rows));
+      .child(b.title(i === 0 ? where : [], i === last ? [button] : []))
+      .children(b.rows));
     const body = how === "columns"
       ? h_flex().w_full().items_start().gap(16).children(blocks)
       : v_flex().w_full().gap(8).children(blocks);
@@ -301,7 +305,6 @@ export default class Hayami extends View {
       .on_size_change((size, cx) => { this.size = size; cx.notify(); })
       .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); openChecklist(); })
       .text_size(12).text_color(t.foreground)
-      .child(header)
       .child(body);
   }
 
@@ -323,8 +326,10 @@ export default class Hayami extends View {
   section(t, mono, key, colWidth) {
     const s = this.sections[key];
     const note = (text, color = t.dim) => div().h(ROW).flex_none().truncate().text_color(color).child(text);
-    // Its absences in one line that gives way to the title (a long one is cut short).
-    let absences = (s?.absences ?? []).map((a) => (a.detail ? `${a.text}, ${a.detail}` : a.text)).join(" · ");
+    // Its absences: what a person can act on in one line that gives way to the title
+    // (a long one is cut short); the rest behind a small icon, said in its tooltip.
+    const fetchedAt = key === "usage" ? s?.reading?.usage?.fetched_at : null;
+    let { said: absences, quiet } = titleAbsences(s?.absences, { fetchedAt });
     let rows;
     if (!s && this.failure?.kind === "no-service") rows = [note(`${this.on ?? "this machine"}: hayami service not running`)];
     else if (!s && this.failure) rows = [note(this.failure.message, t.blocked)];
@@ -336,13 +341,21 @@ export default class Hayami extends View {
     } else {
       const lines = key === "clock" ? [clockRow(s)] : ROWS[key](s);
       // Nothing to list: why goes on the line, where it has room, not in the title.
-      if (!lines.length && !s.error && absences) { rows = [note(absences)]; absences = ""; }
+      if (!lines.length && !s.error && (absences || quiet)) {
+        rows = [note((s.absences ?? []).map((a) => (a.detail ? `${a.text}, ${a.detail}` : a.text)).join(" · "))];
+        absences = quiet = "";
+      }
       else rows = lines.length ? lines.map((r, i) => this.line(t, mono, r, `${key}-${i}`))
         : [note(s.error ?? "Nothing to show", s.error ? t.blocked : t.dim)];
     }
-    const title = h_flex().h(ROW).flex_none().gap(8).items_center().text_size(11.5)
+    // `after`: what follows the title (the machine); `end`: what ends the row.
+    const title = (after, end) => h_flex().h(ROW).flex_none().gap(8).items_center().text_size(11.5)
       .child(div().flex_none().font_semibold().text_color(t.muted).child(TITLES[key]))
-      .child(div().flex_1().min_w(0).truncate().text_right().text_color(t.dim).child(absences));
+      .children(after)
+      .child(div().flex_1().min_w(0).truncate().text_right().text_color(t.dim).child(absences))
+      .children(quiet ? [div().id(`hayami-quiet-${key}`).flex_none().text_color(t.dim).tooltip(quiet)
+        .child(svg(ICON("clock-alert")).size(13))] : [])
+      .children(end);
     return { title, rows, lines: rows.length };
   }
 

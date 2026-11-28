@@ -5,7 +5,7 @@ import { existsSync } from "node:fs";
 import { platform as osPlatform, userInfo } from "node:os";
 import { join } from "node:path";
 import { request, checkPath, parse, get, readings, usageRows, until, pollEvery, windowTail, leadWindow, otherFigures, daysLeft,
-  ORDER, shownSections, due, arrange, blockHeight, MAX_HEIGHT, size, rate, quotaStatus, batteryStatus, coolantStatus, rateStatus,
+  ORDER, titleAbsences, shownSections, due, arrange, blockHeight, MAX_HEIGHT, size, rate, quotaStatus, batteryStatus, coolantStatus, rateStatus,
   ago, bandwidthRows, coolerRows, peripheralRows, clockRow,
 } from "../lib/hayami.js";
 
@@ -119,7 +119,7 @@ test("usageRows: span and spend windows, a null badge, absences; unknown fields 
   const u = usageRows(SECTION);
   assert.equal(u.interval_s, 30);
   assert.equal(u.fetched_at, "2026-01-02T03:00:00Z");
-  assert.deepEqual(u.absences, [{ text: "stale", detail: "read 17m ago", status: "info" }]);
+  assert.deepEqual(u.absences, [{ label: "Usage", text: "stale", detail: "read 17m ago", status: "info", actionable: false }]);
   assert.equal(u.accounts.length, 2);
   assert.deepEqual(u.accounts[0], { name: "Acme pro", badge: "P", windows: [
     { name: "5h", pct: 42, resets_at: "2026-01-02T05:00:00Z", span_s: 18000, used: null, limit: null, note: null, severity: null },
@@ -210,13 +210,13 @@ test("arrange and blockHeight: columns when each gets 250 px; heights capped, st
   assert.equal(arrange(1600, 4), "columns");
   assert.equal(arrange(600, 4), "stack");
   assert.equal(arrange(1600, 1), "stack");
-  assert.equal(blockHeight([3], "stack"), 12 + 22 + 20 + 3 * 22);
-  assert.equal(blockHeight([3, 5, 2], "columns"), 12 + 22 + 20 + 5 * 22);
-  assert.equal(blockHeight([3, 1], "stack"), 12 + 22 + (20 + 66) + (20 + 22) + 8);
-  assert.equal(blockHeight([3, 5, 7, 4, 1], "stack"), 12 + 22 + (20 + 66) + (20 + 110) + (20 + 154) + (20 + 88) + (20 + 22) + 4 * 8);
+  assert.equal(blockHeight([3], "stack"), 12 + 20 + 3 * 22);
+  assert.equal(blockHeight([3, 5, 2], "columns"), 12 + 20 + 5 * 22);
+  assert.equal(blockHeight([3, 1], "stack"), 12 + (20 + 66) + (20 + 22) + 8);
+  assert.equal(blockHeight([3, 5, 7, 4, 1], "stack"), 12 + (20 + 66) + (20 + 110) + (20 + 154) + (20 + 88) + (20 + 22) + 4 * 8);
   assert.equal(blockHeight([30, 1], "stack"), MAX_HEIGHT.stack);
   assert.equal(blockHeight([30, 1], "columns"), MAX_HEIGHT.columns);
-  assert.equal(blockHeight([0], "stack"), 12 + 22 + 20 + 22, "an empty section keeps a line for what it says");
+  assert.equal(blockHeight([0], "stack"), 12 + 20 + 22, "an empty section keeps a line for what it says");
 });
 
 test("size and rate: hayami's binary units, five characters a number", () => {
@@ -354,4 +354,17 @@ test("live: the running service's sections hold to what the rows functions read"
       for (const w of a.windows) for (const k of ["name", "utilisation_pct", "resets_at", "span_s", "used", "limit", "severity", "note"]) assert.ok(k in w, `UsageWindow has ${k}`);
     }
   }
+});
+
+test("titleAbsences: what needs a person in words, the rest behind an icon, saying there's nothing to do", () => {
+  const now = Date.parse("2026-01-02T03:20:00Z");
+  const r429 = { code: null, label: "CC ultra", text: "not refreshed", detail: "the usage endpoint answered 429", status: "warn", actionable: false };
+  const login = { code: null, label: "CC max", text: "needs a login", detail: "sign in with Claude Code again", status: "warn", actionable: true };
+  const q = titleAbsences([r429], { fetchedAt: "2026-01-02T03:00:00Z", now });
+  assert.equal(q.said, "");
+  assert.equal(q.quiet, "CC ultra: not refreshed (the usage endpoint answered 429)\nShowing the figures read 20m ago. hayami retries on its own; nothing to do.");
+  const both = titleAbsences([r429, login], { now });
+  assert.equal(both.said, "needs a login, sign in with Claude Code again");
+  assert.match(both.quiet, /Nothing to do here\.$/);
+  assert.deepEqual(titleAbsences([]), { said: "", quiet: "" });
 });
