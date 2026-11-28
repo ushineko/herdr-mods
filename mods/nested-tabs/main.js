@@ -271,7 +271,8 @@ export default class NestedTabs extends View {
         ? this.button(`nt-chat-${pane}`, "cow", "Back to the chat (hides this terminal behind it)", () => Chat.hideBehindChat(shown))
         : this.button(`nt-chat-${pane}`, "cow", "Open as chat (the terminal hides; the chat's Show terminal brings it back)",
           () => (nativeHere(me) ? Chat.openNative(pane, shown) : Chat.openExisting(pane, shown, shown === base)))))
-      .when(Boolean(base), (el) =>
+      // A native stack's member adds by pane, so a chat that's a member has "+" too.
+      .when(Boolean(base) || (nativeHere(me) && Boolean(me?.stack)), (el) =>
         el.child(this.button(`nt-add-${pane}`, "plus", "New nested tab (right-click: start an agent)",
           () => (nativeHere(me) ? Native.add(pane, null) : S.add(pane, base)), () => this.menu("new", pane, base))))
       .children([this.fontTools(me)].filter(Boolean))
