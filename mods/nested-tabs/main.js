@@ -17,6 +17,8 @@ import * as S from "./stack.js";
 import * as Panel from "./panel.js";
 import * as Chat from "./chat.js";
 import { stripEntries, stepEntry } from "./lib/chat-stack.js";
+import { isNative, stackMembers, stepMember } from "./lib/native-stack.js";
+import * as Native from "./native.js";
 import { machineColor } from "./lib/machine-color.js";
 
 // Each pane header's size (≈ its pane's width), for sizing the panel split.
@@ -89,7 +91,16 @@ export default class NestedTabs extends View {
     // Agents whose chat pane was closed end (spec 008); whether this pane's machine
     // can show a chat (for Open as chat).
     cx.timer.every(2000, () => { Chat.sweep(); });
-    cx.timer.every(250, () => { publishFolded(); S.expireChatSide(); });
+    cx.timer.every(250, () => {
+      publishFolded();
+      S.expireChatSide();
+      // Label-based nested tabs seen on a fork window become native (spec 023 D2).
+      if (this.convertWanted) {
+        const w = this.convertWanted;
+        this.convertWanted = null;
+        Native.convert(w.pane, w.base);
+      }
+    });
     cx.spawn(async (cx) => { const b = this.base(); if (b && await Chat.check(b)) cx.notify(); });
     cx.spawn(async (cx) => {
       for (;;) {
@@ -127,6 +138,19 @@ export default class NestedTabs extends View {
       lastCommand = { name: c, at: now };
       if (c === "add") S.add(behind.pane, behind.base);
       else this.step(behind.pane, behind.base, { chatPane: pane }, "chat", c === "next" ? 1 : -1);
+      return;
+    }
+    // A fork window's own stacks (spec 023): the keys drive the app's stack.
+    const entry = pane ? panes().find((p) => p.pane === pane) : null;
+    if (f?.pane === pane && isNative(entry) && ["next", "prev", "add", "close", "move-left", "move-right"].includes(c)) {
+      if (lastCommand.name === c && now - lastCommand.at < 120) return;
+      lastCommand = { name: c, at: now };
+      const members = stackMembers(panes(), pane);
+      if (c === "add") Native.add(pane, null);
+      else if (!members.length) return;
+      else if (c === "next" || c === "prev") { const m = stepMember(members, c === "next" ? 1 : -1); if (m) Native.show(m.pane); }
+      else if (c === "close") Native.close(pane);
+      else Native.moveBy(pane, c === "move-left" ? -1 : 1);
       return;
     }
     if (!pane || !base || f?.pane !== pane) return;
@@ -190,8 +214,8 @@ export default class NestedTabs extends View {
     run("terminal.show", want === base ? { pane } : { terminal: want, pane });
   }
 
-  menu(kind, pane, base, target) {
-    openOverlay({ mod: "nested-tabs", kind: "popup", width: 260, props: { menu: kind, pane, base, target } });
+  menu(kind, pane, base, target, member) {
+    openOverlay({ mod: "nested-tabs", kind: "popup", width: 260, props: { menu: kind, pane, base, target, member } });
   }
 
   button(id, icon, tip, onClick, onRight) {
@@ -244,7 +268,7 @@ export default class NestedTabs extends View {
           () => Chat.openExisting(pane, shown, shown === base))))
       .when(Boolean(base), (el) =>
         el.child(this.button(`nt-add-${pane}`, "plus", "New nested tab (right-click: start an agent)",
-          () => S.add(pane, base), () => this.menu("new", pane, base))))
+          () => (isNative(me) ? Native.add(pane, null) : S.add(pane, base)), () => this.menu("new", pane, base))))
       .child(this.button(`nt-r-${pane}`, "split-right", "Split right", () => run("pane.split", { direction: "right", pane })))
       .child(this.button(`nt-d-${pane}`, "split-down", "Split down", () => run("pane.split", { direction: "down", pane })))
       .child(this.button(`nt-z-${pane}`, me.zoomed ? "unzoom" : "zoom", me.zoomed ? "Unzoom" : "Zoom", () => run("pane.zoom", { pane })))
@@ -339,9 +363,9 @@ export default class NestedTabs extends View {
 
   chip(m, index, ctx) {
     const { t, pane, base, shown, count } = ctx;
-    const active = m.address === shown;
+    const active = ctx.native ? Boolean(m.shown) : m.address === shown;
     const term = m.term;
-    const name = S.label(m, null);
+    const name = m.name || S.label(m, null);
     const where = short(term?.cwd);
     const status = term?.status;
     const dot = status && status !== "idle" && t[status] ? t[status] : null;
@@ -374,10 +398,11 @@ export default class NestedTabs extends View {
       })
       .on_click((e) => {
         if (e.click_count >= 2) this.rename(m);
+        else if (ctx.native) Native.show(m.pane);
         else S.select(pane, base, m.address);
       })
-      .on_mouse_down("middle", (_e, cx) => { cx.stop_propagation(); S.close(pane, base, m.address); })
-      .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); this.menu("tab", pane, base, m.address); })
+      .on_mouse_down("middle", (_e, cx) => { cx.stop_propagation(); ctx.native ? Native.close(m.pane) : S.close(pane, base, m.address); })
+      .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); this.menu("tab", pane, base, m.address, ctx.native ? m.pane : null); })
       .child(div().flex_none().text_size(11).text_color(t.dim).child(String(index + 1)))
       .when(Boolean(icon), (el) => el.child(icon))
       .child(div().flex_none().max_w(150).truncate().child(name))
@@ -395,7 +420,7 @@ export default class NestedTabs extends View {
           .hover((s) => s.bg(t.hover).text_color(t.foreground))
           .tooltip(m.base ? "Close pane (all its tabs)" : "Close tab")
           .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
-          .on_click((_e, cx) => { cx.stop_propagation(); S.close(pane, base, m.address); })
+          .on_click((_e, cx) => { cx.stop_propagation(); ctx.native ? Native.close(m.pane) : S.close(pane, base, m.address); })
           .child(svg(ICON("x")).size(12)),
       ));
   }
@@ -471,6 +496,7 @@ export default class NestedTabs extends View {
     if (!me) return div();
     const pane = me.pane, base = this.base();
     const sized = (el) => el.on_size_change((size) => { sizes.set(pane, size); });
+    if (isNative(me)) return sized(this.renderNative(me, pane, base));
     if (!base) return sized(this.single(me, pane, null));
     // Another mod (the spaces bar's agent picker) asking to show a nested tab here.
     const req = shared("nested-tabs.request");
@@ -516,6 +542,71 @@ export default class NestedTabs extends View {
       .child(this.paneButtons(me, pane, base));
   }
 
+  // A fork window's own stack (spec 023): the members from panes(), switched with
+  // pane.show. Label-based nested tabs still on this pane are converted first.
+  renderNative(me, pane, base) {
+    if (base && S.members(pane, base).length > 1) this.convertWanted = { pane, base };
+    const all = panes();
+    const members = stackMembers(all, pane);
+    if (members.length < 2) return this.single(me, pane, base);
+    const t = theme();
+    const ctx = { t, pane, base, native: true, count: members.length, hl: chipColor(me.tab) };
+    const at = members.findIndex((m) => m.stack.shown);
+    const key = `${pane}:${at}:${members.length}`;
+    if (at >= 0 && key !== this.revealed) { this.revealed = key; this.scroll.scroll_to_item(at); }
+    const entries = members.map((p) => this.nativeEntry(p));
+    return h_flex()
+      .id(`nt-head-${pane}`)
+      .size_full()
+      .pl(5)
+      .pr(8)
+      .gap(6)
+      .items_center()
+      .on_click(() => run("pane.focus", { pane }))
+      .on_window_mouse_up("left", (_e, cx) => {
+        const from = this.drag, onto = this.over;
+        if (!from) return;
+        this.drag = null;
+        this.over = null;
+        const to = entries.findIndex((m) => m.address === onto);
+        const moved = entries.find((m) => m.address === from);
+        if (moved && to >= 0 && onto !== from) Native.moveTo(moved.pane, to);
+        cx.notify();
+      })
+      .child(
+        h_flex()
+          .id(`nt-strip-${pane}`)
+          .flex_1()
+          .min_w(0)
+          .h_full()
+          .gap(3)
+          .items_center()
+          .overflow_x_scroll()
+          .track_scroll(this.scroll)
+          .on_scroll_wheel((e) => {
+            const lines = e.delta_lines;
+            this.wheel += lines ? (lines.y || lines.x) : (e.delta.y || e.delta.x) / 40;
+            while (Math.abs(this.wheel) >= 1) {
+              const m = stepMember(members, this.wheel > 0 ? -1 : 1);
+              if (m) Native.show(m.pane);
+              this.wheel -= Math.sign(this.wheel);
+            }
+          })
+          .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); this.menu("new", pane, base); })
+          .children(entries.map((m, i) => this.chip(m, i, ctx))),
+      )
+      .child(this.paneButtons(me, pane, base));
+  }
+
+  // A native member as a chip's entry: its terminal (or mod) and whether it's shown.
+  nativeEntry(p) {
+    return {
+      address: p.terminal ?? p.pane, pane: p.pane, base: false, shown: p.stack?.shown,
+      term: p.terminal ? terminals().find((t) => t.address === p.terminal) ?? null : null,
+      name: p.name || (p.mod ? p.title : null),
+    };
+  }
+
   // ---- popup menu --------------------------------------------------------
 
   initMenu(cx) {
@@ -545,14 +636,17 @@ export default class NestedTabs extends View {
   }
 
   menuItems() {
-    const { menu, pane, base, target } = props() ?? {};
+    const { menu, pane, base, target, member } = props() ?? {};
     if (menu === "top") return this.topItems();
+    const native = isNative(panes().find((p) => p.pane === pane));
+    const add = (command) => (native ? Native.add(pane, command ?? null) : S.add(pane, base, command));
     const newItems = [
-      { label: "New tab", icon: "terminal", act: () => S.add(pane, base) },
-      ...this.agents.map((a) => ({ label: `New ${a.name} tab`, icon: "terminal", act: () => S.add(pane, base, a.run.join(" ")) })),
+      { label: "New tab", icon: "terminal", act: () => add() },
+      ...this.agents.map((a) => ({ label: `New ${a.name} tab`, icon: "terminal", act: () => add(a.run.join(" ")) })),
       ...this.chats.map((c) => ({ label: c.label, icon: "layers", act: () => Chat.open(pane, base, c.run.join(" "), c.label.replace(/^New /, "")) })),
     ];
     if (menu !== "tab") return newItems;
+    if (native && member) return this.nativeTabItems(member, newItems);
     const list = S.members(pane, base);
     const i = list.findIndex((m) => m.address === target);
     const m = list[i];
@@ -577,6 +671,22 @@ export default class NestedTabs extends View {
 
   // The tab bar's + (right-click): a new top-level tab in the shown space, as a shell,
   // an agent, or a chat (spec 008). A chat starts in the focused terminal's folder there.
+  // A native member's menu (spec 023): show, move, take out, close.
+  nativeTabItems(member, newItems) {
+    const members = stackMembers(panes(), member);
+    const i = members.findIndex((p) => p.pane === member);
+    if (i < 0) return newItems;
+    const items = [];
+    if (!members[i].stack.shown) items.push({ label: "Show", icon: "layers", act: () => Native.show(member) });
+    items.push({ sep: true }, ...newItems, { sep: true });
+    if (i > 0) items.push({ label: "Move left", icon: "chevron-left", act: () => Native.moveBy(member, -1) });
+    if (i < members.length - 1) items.push({ label: "Move right", icon: "chevron-right", act: () => Native.moveBy(member, 1) });
+    items.push({ label: "Move to own pane (right)", icon: "split-right", act: () => Native.unstack(member, "right") });
+    items.push({ label: "Move to own pane (below)", icon: "split-down", act: () => Native.unstack(member, "down") });
+    items.push({ sep: true }, { label: "Close tab", icon: "x", act: () => Native.close(member) });
+    return items.filter((it, k, all) => !(it.sep && (k === 0 || k === all.length - 1 || all[k - 1]?.sep)));
+  }
+
   topItems() {
     const { space, on, folder } = props() ?? {};
     // The folder the tab bar read when + was clicked (this popup has the focus now).
