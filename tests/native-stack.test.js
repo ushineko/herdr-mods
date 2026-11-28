@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isNative, stackMembers, shownMember, stepMember, stripGroups } from "../lib/native-stack.js";
+import { isNative, nativeHere, stackMembers, shownMember, stepMember, stripGroups } from "../lib/native-stack.js";
 
 const all = [
   { pane: "q", terminal: "t9", stack: null },
@@ -45,4 +45,11 @@ test("stripGroups: a chat and its agent's member first, the rest in order", () =
   const lone = stripGroups(members, [{ address: "m/ta", labels: { "ushi.chat": "pOther" } }]);
   assert.equal(lone.chat, null, "a chat whose agent isn't in the stack is an ordinary member");
   assert.equal(lone.rest.length, 3);
+});
+
+test("nativeHere: this machine's panes, or panes already in a native stack", () => {
+  assert.equal(nativeHere({ pane: "p1", stack: null }), true);
+  assert.equal(nativeHere({ pane: "njv-mbp-m1/p1", stack: null }), false, "another machine's pane: label-based");
+  assert.equal(nativeHere({ pane: "njv-mbp-m1/p1", stack: { id: "st", index: 0, shown: true } }), true, "already native: drawn natively");
+  assert.equal(nativeHere({ pane: "p1" }), false, "a released window");
 });

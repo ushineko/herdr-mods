@@ -17,7 +17,7 @@ import * as S from "./stack.js";
 import * as Panel from "./panel.js";
 import * as Chat from "./chat.js";
 import { stripEntries, stepEntry } from "./lib/chat-stack.js";
-import { isNative, stackMembers, stepMember, stripGroups } from "./lib/native-stack.js";
+import { nativeHere, stackMembers, stepMember, stripGroups } from "./lib/native-stack.js";
 import * as Native from "./native.js";
 import { machineColor } from "./lib/machine-color.js";
 
@@ -142,7 +142,7 @@ export default class NestedTabs extends View {
     }
     // A fork window's own stacks (spec 023): the keys drive the app's stack.
     const entry = pane ? panes().find((p) => p.pane === pane) : null;
-    if (f?.pane === pane && isNative(entry) && ["next", "prev", "add", "close", "move-left", "move-right"].includes(c)) {
+    if (f?.pane === pane && nativeHere(entry) && ["next", "prev", "add", "close", "move-left", "move-right"].includes(c)) {
       if (lastCommand.name === c && now - lastCommand.at < 120) return;
       lastCommand = { name: c, at: now };
       const members = stackMembers(panes(), pane);
@@ -175,7 +175,7 @@ export default class NestedTabs extends View {
       // an agent in a nested tab gets its chat beside the pane (L2).
       else if (Chat.agentOf(term) && await Chat.check(shown)) {
         // A fork window (spec 023): the chat joins the pane's stack instead.
-        if (isNative(panes().find((p) => p.pane === pane))) await Chat.openNative(pane, shown);
+        if (nativeHere(panes().find((p) => p.pane === pane))) await Chat.openNative(pane, shown);
         else await Chat.openExisting(pane, shown, shown === base);
       }
     }
@@ -269,10 +269,10 @@ export default class NestedTabs extends View {
       .when(chat, (el) => el.child(Chat.chatOf(term)
         ? this.button(`nt-chat-${pane}`, "cow", "Back to the chat (hides this terminal behind it)", () => Chat.hideBehindChat(shown))
         : this.button(`nt-chat-${pane}`, "cow", "Open as chat (the terminal hides; the chat's Show terminal brings it back)",
-          () => (isNative(me) ? Chat.openNative(pane, shown) : Chat.openExisting(pane, shown, shown === base)))))
+          () => (nativeHere(me) ? Chat.openNative(pane, shown) : Chat.openExisting(pane, shown, shown === base)))))
       .when(Boolean(base), (el) =>
         el.child(this.button(`nt-add-${pane}`, "plus", "New nested tab (right-click: start an agent)",
-          () => (isNative(me) ? Native.add(pane, null) : S.add(pane, base)), () => this.menu("new", pane, base))))
+          () => (nativeHere(me) ? Native.add(pane, null) : S.add(pane, base)), () => this.menu("new", pane, base))))
       .child(this.button(`nt-r-${pane}`, "split-right", "Split right", () => run("pane.split", { direction: "right", pane })))
       .child(this.button(`nt-d-${pane}`, "split-down", "Split down", () => run("pane.split", { direction: "down", pane })))
       .child(this.button(`nt-z-${pane}`, me.zoomed ? "unzoom" : "zoom", me.zoomed ? "Unzoom" : "Zoom", () => run("pane.zoom", { pane })))
@@ -319,9 +319,17 @@ export default class NestedTabs extends View {
     const t = theme();
     // Standing for a stack in its hidden tab (spec 021): the strip of chat and terminals.
     const behind = Chat.stackOfChat(pane);
-    const list = behind ? S.members(behind.pane, behind.base) : [];
     const hl = chipColor(me.tab);
-    const ctx = behind ? { t, pane: behind.pane, base: behind.base, shown: null, count: list.length, pair: true, hl } : null;
+    // The stack behind it may be native (a fork window, spec 023): its members, and a
+    // switch to them marked so the chat lets its partner tab stay shown.
+    const nat = Boolean(behind) && nativeHere(panes().find((p) => p.pane === behind.pane));
+    const mark = () => setShared(S.CHAT_SIDE, { terminal: behind.base, at: Date.now() });
+    const list = !behind ? [] : nat
+      ? stackMembers(panes(), behind.pane).filter((m) => m.pane !== behind.pane).map((p) => this.nativeEntry(p))
+      : S.members(behind.pane, behind.base);
+    const ctx = !behind ? null : nat
+      ? { t, pane: behind.pane, base: behind.base, native: true, chatSide: behind.base, count: list.length, hl }
+      : { t, pane: behind.pane, base: behind.base, shown: null, count: list.length, pair: true, hl };
     return h_flex()
       .id(`nt-head-${pane}`)
       .size_full()
@@ -339,10 +347,12 @@ export default class NestedTabs extends View {
         .on_window_mouse_up("left", this.dropIn(behind.pane, behind.base))
         .child(h_flex().id(`nt-strip-${pane}`).flex_1().min_w(0).h_full().gap(3).items_center().overflow_x_scroll()
           .child(this.chatChip(`nt-chatchip-${pane}`, "chat", head, terminals().find((x) => x.address === behind.base),
-            () => run("pane.focus", { pane }), () => S.select(behind.pane, behind.base, behind.base), hl))
-          .children(agentFirst(list).map((m, i) => (m.base ? null : this.chip(m, i, ctx))).filter(Boolean)))
+            () => run("pane.focus", { pane }), () => (nat ? (mark(), Native.show(behind.pane)) : S.select(behind.pane, behind.base, behind.base)), hl))
+          .children(nat
+            ? list.map((m, i) => this.chip(m, i + 1, ctx))
+            : agentFirst(list).map((m, i) => (m.base ? null : this.chip(m, i, ctx))).filter(Boolean)))
         .child(this.button(`nt-add-${pane}`, "plus", "New nested tab (right-click: start an agent)",
-          () => S.add(behind.pane, behind.base), () => this.menu("new", behind.pane, behind.base))))
+          () => (nat ? (mark(), Native.add(behind.pane, null)) : S.add(behind.pane, behind.base)), () => this.menu("new", behind.pane, behind.base))))
       .child(this.chatTools(pane, head))
       .child(div().flex_none().w(1).h(16).bg(t.border))
       .child(this.paneButtons(me, pane, null));
@@ -374,7 +384,7 @@ export default class NestedTabs extends View {
 
   chip(m, index, ctx) {
     const { t, pane, base, shown, count } = ctx;
-    const active = ctx.native ? Boolean(m.shown) : m.address === shown;
+    const active = ctx.native ? Boolean(m.shown) && !ctx.chatSide : m.address === shown;
     const term = m.term;
     const name = m.name || S.label(m, null);
     const where = short(term?.cwd);
@@ -409,7 +419,10 @@ export default class NestedTabs extends View {
       })
       .on_click((e) => {
         if (e.click_count >= 2) this.rename(m);
-        else if (ctx.native) Native.show(m.pane);
+        else if (ctx.native) {
+          if (ctx.chatSide) setShared(S.CHAT_SIDE, { terminal: ctx.chatSide, at: Date.now() });
+          Native.show(m.pane);
+        }
         else S.select(pane, base, m.address);
       })
       .on_mouse_down("middle", (_e, cx) => { cx.stop_propagation(); ctx.native ? Native.close(m.pane) : S.close(pane, base, m.address); })
@@ -507,7 +520,7 @@ export default class NestedTabs extends View {
     if (!me) return div();
     const pane = me.pane, base = this.base();
     const sized = (el) => el.on_size_change((size) => { sizes.set(pane, size); });
-    if (isNative(me)) return sized(this.renderNative(me, pane, base));
+    if (nativeHere(me)) return sized(this.renderNative(me, pane, base));
     if (!base) return sized(this.single(me, pane, null));
     // Another mod (the spaces bar's agent picker) asking to show a nested tab here.
     const req = shared("nested-tabs.request");
@@ -556,10 +569,16 @@ export default class NestedTabs extends View {
   // A fork window's own stack (spec 023): the members from panes(), switched with
   // pane.show. Label-based nested tabs still on this pane are converted first.
   renderNative(me, pane, base) {
-    if (base && S.members(pane, base).length > 1) this.convertWanted = { pane, base };
+    // Only this machine's label-based tabs are converted (another machine's window may
+    // still run the released app).
+    if (base && !pane.includes("/") && S.members(pane, base).length > 1) this.convertWanted = { pane, base };
     const all = panes();
     const members = stackMembers(all, pane);
-    if (members.length < 2) return this.single(me, pane, base);
+    // A spec 021 chat (its partner tab is this one): the agent's member is drawn as
+    // the split chip whose chat half goes back to the chat's tab.
+    const owner = [me, ...members].find((m) => m.terminal && Chat.pairOfStack(m.terminal));
+    const pair = owner ? Chat.pairOfStack(owner.terminal) : null;
+    if (members.length < 2 && !pair) return this.single(me, pane, base);
     const t = theme();
     const ctx = { t, pane, base, native: true, count: members.length, hl: chipColor(me.tab) };
     // A chat and its agent's member: one split chip, first (spec 023 D3). The chat's
@@ -571,7 +590,7 @@ export default class NestedTabs extends View {
     const at = members.findIndex((m) => m.stack.shown);
     const key = `${pane}:${at}:${members.length}`;
     if (at >= 0 && key !== this.revealed) { this.revealed = key; this.scroll.scroll_to_item(at); }
-    const entries = members.map((p) => this.nativeEntry(p));
+    const entries = (members.length ? members : [me]).map((p) => this.nativeEntry(p));
     return h_flex()
       .id(`nt-head-${pane}`)
       .size_full()
@@ -610,10 +629,13 @@ export default class NestedTabs extends View {
             }
           })
           .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); this.menu("new", pane, base); })
-          .when(Boolean(groups.chat), (el) => el.child(this.chatChip(`nt-chatchip-${pane}`,
+          .when(Boolean(pair), (el) => el.child(this.chatChip(`nt-chatchip-${pane}`, (owner.stack ? owner.stack.shown : true) ? "term" : null,
+            heads[pair.chatPane], terminals().find((x) => x.address === owner.terminal),
+            () => Chat.toChat(pair.chatTab, pair.chatPane), () => Native.show(owner.pane), ctx.hl)))
+          .when(!pair && Boolean(groups.chat), (el) => el.child(this.chatChip(`nt-chatchip-${pane}`,
             groups.chat.stack.shown ? "chat" : groups.agent.stack.shown ? "term" : null, heads[groups.chat.pane],
             terminals().find((x) => x.address === groups.agent.terminal), () => Native.show(groups.chat.pane), () => Native.show(groups.agent.pane), ctx.hl)))
-          .children(entries.map((m, i) => (groups.chat && (m.pane === groups.chat.pane || m.pane === groups.agent.pane) ? null : this.chip(m, i, ctx))).filter(Boolean)),
+          .children(entries.map((m, i) => ((pair && m.pane === owner.pane) || (!pair && groups.chat && (m.pane === groups.chat.pane || m.pane === groups.agent.pane)) ? null : this.chip(m, i, ctx))).filter(Boolean)),
       )
       .when(Boolean(myHead), (el) => el.child(this.chatTools(pane, myHead)).child(div().flex_none().w(1).h(16).bg(t.border)))
       .child(this.paneButtons(me, pane, base));
@@ -659,7 +681,7 @@ export default class NestedTabs extends View {
   menuItems() {
     const { menu, pane, base, target, member } = props() ?? {};
     if (menu === "top") return this.topItems();
-    const native = isNative(panes().find((p) => p.pane === pane));
+    const native = nativeHere(panes().find((p) => p.pane === pane));
     const add = (command) => (native ? Native.add(pane, command ?? null) : S.add(pane, base, command));
     const newItems = [
       { label: "New tab", icon: "terminal", act: () => add() },

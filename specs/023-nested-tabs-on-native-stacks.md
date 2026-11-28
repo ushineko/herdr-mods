@@ -38,6 +38,19 @@ a while.
   split chip (chat | >_) of spec 021. Spec 021's hidden partner tab is not used
   in native mode.
 
+- D4 **Native only for this machine's panes** (2026-11-27, after an
+  incident): a fork window creates and converts stacks only for panes on its
+  own machine; another machine's panes keep label-based nested tabs unless
+  they are already in a native stack (`nativeHere`). The njv-cachyos fork
+  window had converted the nested tabs behind a Mac chat (this session's) into
+  a native stack the Mac's released window couldn't switch; repaired by hand
+  (the member parked, labelled `nt.stack` again, the one-member stack
+  flattened in the Mac's document).
+- D5 **Spec 021 chats work over a native stack.** A partner-tab chat's
+  terminal side draws the agent as the split chip whose chat half goes back to
+  the chat; the chat side lists the native members behind it, and picking one
+  (or +) shows the partner tab, marked so the chat doesn't send it back.
+
 ## Requirements
 
 ### H1: the strip on native stacks
@@ -108,7 +121,9 @@ a while.
       ushi-naruse on all three; njv-cachyos's default and work windows report
       no errors. On the Mac (released app) the label-based strip and spec 021's
       split chip draw as before (shot of the operator's own chat header).
-- [ ] AC6 Day to day on njv-cachyos with the fork (the fork spec's AC7).
+- [ ] AC6 Day to day on njv-cachyos (fork installed 2026-11-27 in both
+      windows; D4 and D5 found and fixed on the first day; the operator: "ok,
+      it's fixed now") with the fork (the fork spec's AC7).
 
 ## Risks & Assumptions
 
